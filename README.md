@@ -38,8 +38,8 @@ The engine engages the powerful ResNet policy network with a "lazy evaluation" s
 - **First Visit**: The policy network is called exactly once to compute and store the policy priors for all available quiet moves.
 - **Subsequent Visits**: The standard UCB1 formula is used to select a move, using the already-stored policy priors without needing to call the network again.
 
-## Tier 1: Detailed Parallel Mate Search
-To find checkmates with maximum speed, the Tier 1 search is not a single algorithm but a portfolio of three specialized searches that run in parallel against a shared node budget. Each search has a different trade-off between speed and completeness:
+## Tier 1: Detailed Mate Search
+To find checkmates with maximum speed, the Tier 1 search is not a single algorithm but a portfolio of three specialized searches that run as a strategic portfolio against a shared node budget. Each search has a different trade-off between speed and completeness:
 
 ### Search A: The "Spearhead" (Checks-Only)
 - **Constraint**: The side to move can only play checking moves.
@@ -61,13 +61,13 @@ When the MCTS traversal reaches a new leaf node and the Tier 1 search does not f
 Instead of relying on a potentially noisy value from a neural network in a sharp position, this search resolves all immediate tactical possibilities to arrive at a stable, "quiet" position to evaluate.
 
 - **Process**: The search expands tactical moves—primarily captures, promotions, and pressing checks—and ignores quiet moves. It continues until no more tactical moves are available.
-- **Evaluation**: The final, quiet position is then scored by a very fast evaluation function (e.g., an NNUE network or a handcrafted Piece-Square Table).
+- **Evaluation**: The final, quiet position is then scored by a very fast evaluation function (e.g., a lightweight value network or a handcrafted Piece-Square Table).
 - **Purpose**: This process avoids the classic problem of a fixed-depth search mis-evaluating a position in the middle of a capture sequence. The resulting score is a much more reliable measure of the leaf node's true value, which is then backpropagated up the MCTS tree.
 
 ## Training Philosophy
 Caissawary is designed for high learning efficiency, making it feasible to train without nation-state-level resources.
 
-- **Supervised Pre-training**: The recommended approach is to begin with supervised learning. The ResNet policy and the NNUE evaluation function should be pre-trained on a large corpus of high-quality human games. This bootstraps the engine with a strong foundation of strategic and positional knowledge.
+- **Supervised Pre-training**: The recommended approach is to begin with supervised learning. The ResNet policy and the fast evaluation function should be pre-trained on a large corpus of high-quality human games. This bootstraps the engine with a strong foundation of strategic and positional knowledge.
 
 - **Efficient Reinforcement Learning**: During subsequent self-play (RL), the engine's learning is accelerated. The built-in tactical search (Tiers 1 and 2) acts as a powerful "inductive bias," preventing the engine from making simple tactical blunders. This provides a cleaner, more focused training signal to the neural networks, allowing them to learn high-level strategy far more effectively than a "blank slate" MCTS architecture.
 
@@ -90,10 +90,9 @@ pub struct CaissawaryConfig {
 
 ## Technical Stack
 - **Core Logic**: Rust, for its performance, memory safety, and fearless concurrency.
-- **Neural Networks**: PyTorch (in Python) for training the ResNet policy and NNUE evaluation networks.
+- **Neural Networks**: PyTorch (in Python) for training the ResNet policy and fast evaluation networks.
 - **Board Representation**: Bitboards, for highly efficient move generation and position manipulation.
 - **Inference**: A Rust-based inference engine (like tch-rs or a custom ONNX runtime) to run the neural networks during search.
-- **Parallelism**: Rust's rayon library for managing the parallel mate searches.
 
 ## Building and Running
 
@@ -144,7 +143,6 @@ The crate is organized to produce several distinct binaries for different tasks:
 
 - **caissawary**: The main UCI chess engine.
 - **benchmark**: A suite for performance testing, measuring nodes-per-second and puzzle-solving speed.
-- **train**: The binary for running the training pipeline, handling both supervised pre-training and reinforcement learning loops.
 
 ## References
 The architecture of Caissawary is inspired by decades of research in computer chess and artificial intelligence. Key influences include:
