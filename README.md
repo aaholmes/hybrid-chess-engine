@@ -38,22 +38,25 @@ The engine engages the powerful ResNet policy network with a "lazy evaluation" s
 - **First Visit**: The policy network is called exactly once to compute and store the policy priors for all available quiet moves.
 - **Subsequent Visits**: The standard UCB1 formula is used to select a move, using the already-stored policy priors without needing to call the network again.
 
-## Tier 1: Detailed Mate Search
-To find checkmates with maximum speed, the Tier 1 search is not a single algorithm but a portfolio of three specialized searches that run as a strategic portfolio against a shared node budget. Each search has a different trade-off between speed and completeness:
+## Tier 1: Parallel Portfolio Mate Search
+To find checkmates with maximum speed, the Tier 1 search utilizes **Rayon** to execute a parallel portfolio of three specialized searches that run concurrently against a shared **Atomic Node Budget**. This ensures that the most efficient algorithm for the specific type of mate finds it first, terminating the others immediately.
 
-### Search A: The "Spearhead" (Checks-Only)
-- **Constraint**: The side to move can only play checking moves.
-- **Behavior**: This search has a tiny branching factor, allowing it to reach immense depths within the node budget. It is designed to quickly find long, spectacular "check-check-check-mate" sequences.
+### Default Behavior
+1.  **Sanity Check:** The engine first performs a quick, sequential check for any exhaustive Mate-in-2 or Checks-Only Mate-in-3 to instantly catch trivial wins.
+2.  **Portfolio Launch:** If no shallow mate is found, the parallel portfolio is launched.
 
-### Search B: The "Flanker" (One Quiet Move)
-- **Constraint**: The side to move can play at most one non-checking ("quiet") move in its entire sequence.
-- **Behavior**: This search is slightly less deep than the Spearhead but can uncover mates that require a critical setup move (e.g., blocking an escape square).
+### The Portfolio Strategies
+1.  **Search A: "The Spearhead" (Checks-Only)**
+    *   **Constraint**: The side to move can *only* play checking moves.
+    *   **Behavior**: Reaches immense depths (e.g., Mate-in-15+) because the branching factor is tiny. It finds long, forcing "check-check-check-mate" sequences that standard searches miss due to horizon effects.
 
-### Search C: The "Guardsman" (Exhaustive)
-- **Constraint**: No constraints on move types.
-- **Behavior**: This is a standard, exhaustive alpha-beta search. It is the shallowest of the three but guarantees finding any mate that exists within its search depth, covering complex situations the other two might miss.
+2.  **Search B: "The Flanker" (One Quiet Move)**
+    *   **Constraint**: Allows checks, but permits **exactly one** quiet (non-checking) move in the entire variation.
+    *   **Behavior**: Finds mates requiring a setup move (e.g., blocking an escape square or a quiet sacrifice) followed by a forced sequence. This is computationally more expensive than the Spearhead but sharper than the Guardsman.
 
-**Balancing**: The first search to find a mate terminates the others immediately. This portfolio approach ensures that the most efficient algorithm for the specific type of mate has the best chance of finding it within the allocated computational budget.
+3.  **Search C: "The Guardsman" (Exhaustive)**
+    *   **Constraint**: No constraints.
+    *   **Behavior**: Standard Alpha-Beta search. It guarantees finding *any* mate within its depth limit (e.g., Mate-in-5) but is the shallowest of the three.
 
 ## Tier 2: Quiescence Search for Leaf Evaluation
 When the MCTS traversal reaches a new leaf node and the Tier 1 search does not find a mate, the engine must still produce a robust evaluation for that position. This is the role of the Tier 2 Quiescence Search.
@@ -61,8 +64,17 @@ When the MCTS traversal reaches a new leaf node and the Tier 1 search does not f
 Instead of relying on a potentially noisy value from a neural network in a sharp position, this search resolves all immediate tactical possibilities to arrive at a stable, "quiet" position to evaluate.
 
 - **Process**: The search expands tactical moves—primarily captures, promotions, and pressing checks—and ignores quiet moves. It continues until no more tactical moves are available.
-- **Evaluation**: The final, quiet position is then scored by a very fast evaluation function (e.g., a lightweight value network or a handcrafted Piece-Square Table).
+- **Evaluation**: The final, quiet position is then scored by a classical evaluation function (Pesto) or the Neural Network (if enabled).
 - **Purpose**: This process avoids the classic problem of a fixed-depth search mis-evaluating a position in the middle of a capture sequence. The resulting score is a much more reliable measure of the leaf node's true value, which is then backpropagated up the MCTS tree.
+
+## Tier 3: Neural Network Policy (Optional)
+The engine supports a **Hybrid** mode where strategic evaluation is handled by a PyTorch-trained Neural Network.
+
+- **Architecture:** ResNet-style (or custom) architecture defined in Python.
+- **Inference:** Uses **tch-rs** (LibTorch bindings) for high-performance inference within the Rust engine.
+- **Lazy Evaluation:** The network is queried only when tactical resolution (Tier 1 & 2) fails to determine a clear result, saving precious GPU/CPU cycles for deep strategic thinking.
+
+> **Note:** Neural network support is optional. Compile with `cargo build --features neural` to enable it. You must have a compatible LibTorch installed or let `tch-rs` download one.
 
 ## Training Philosophy
 Caissawary is designed for high learning efficiency, making it feasible to train without nation-state-level resources.
@@ -89,10 +101,10 @@ pub struct CaissawaryConfig {
 ```
 
 ## Technical Stack
-- **Core Logic**: Rust, for its performance, memory safety, and fearless concurrency.
-- **Neural Networks**: PyTorch (in Python) for training the ResNet policy and fast evaluation networks.
+- **Core Logic**: Rust, for its performance, memory safety, and concurrency.
+- **Parallelism**: **Rayon** for data parallelism in the mate search portfolio.
+- **Neural Networks**: **PyTorch** (in Python) for training; **tch-rs** (LibTorch) for Rust inference.
 - **Board Representation**: Bitboards, for highly efficient move generation and position manipulation.
-- **Inference**: A Rust-based inference engine (like tch-rs or a custom ONNX runtime) to run the neural networks during search.
 
 ## Building and Running
 
@@ -104,7 +116,7 @@ First, ensure you have the Rust toolchain installed.
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-For the neural network components, you will also need Python and PyTorch.
+For the neural network components (optional), you will also need Python and PyTorch.
 
 ```bash
 # Install Python dependencies
@@ -117,7 +129,13 @@ Clone the repository and build the optimized release binary:
 ```bash
 git clone https://github.com/aaholmes/caissawary.git
 cd caissawary
+
+# Standard Build (Tactical MCTS only)
 cargo build --release
+
+# Hybrid Build (With Neural Network support)
+# Requires LibTorch. Automatic download may happen.
+cargo build --release --features neural
 ```
 
 ### Usage
@@ -125,8 +143,10 @@ The primary binary is a UCI-compliant engine, suitable for use in any standard c
 
 ```bash
 # Run the engine in UCI mode
-./target/release/caissawary uci
+./target/release/kingfisher
 ```
+(Type `uci` to verify connection)
+
 ## Testing and Benchmarking
 The project includes a comprehensive suite of tests and benchmarks to validate functionality and performance.
 

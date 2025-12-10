@@ -18,8 +18,6 @@ fn main() {
     // Let's use a constructed "Check-Check-Check" position.
     run_test(
         "Spearhead Test (Deep Checks)",
-        "6k1/5ppp/8/8/8/8/5PPP/4R1K1 w - - 0 1", // Back rank mate in 1 (Too easy)
-        // Let's use a slightly deeper one: Mate in 3
         "r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4", // Scholar's mate pattern
         &move_gen,
     );
@@ -57,8 +55,8 @@ fn run_test(name: &str, fen: &str, move_gen: &MoveGen) {
     let (score, best_move, nodes) = mate_search(&mut stack, move_gen, 8, true);
     let duration = start.elapsed();
     
-    println!("   Result: Score={}, Move={{:?}}, Nodes={}", score, best_move, nodes);
-    println!("   Time: {{:.2?}}", duration);
+    println!("   Result: Score={}, Move={:?}, Nodes={}", score, best_move, nodes);
+    println!("   Time: {:.2?}", duration);
     
     if score >= 1_000_000 {
         println!("   ✅ Mate Found!");

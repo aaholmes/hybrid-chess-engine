@@ -221,7 +221,7 @@ fn mate_search_recursive(
             }
             
             let gives_check = board.current_state().is_check(move_gen);
-            let is_capture = m.capture.is_some(); // Simplified check
+            let is_capture = board.current_state().get_piece(m.to).is_some();
             
             let mut allow = false;
             
@@ -234,7 +234,7 @@ fn mate_search_recursive(
                     if is_in_check { allow = true; } 
                 },
                 MateStrategy::OneQuiet => {
-                    if gives_check || is_capture || is_in_check {
+                    if gives_check || is_in_check {
                         allow = true;
                     } else if quiet_moves_used < 1 {
                         // Allow this one quiet move
@@ -265,7 +265,9 @@ fn mate_search_recursive(
     for m in legal_moves {
         board.make_move(m);
         
-        let new_quiet_count = if !board.current_state().is_check(move_gen) && m.capture.is_none() {
+        let gives_check = board.current_state().is_check(move_gen);
+        
+        let new_quiet_count = if !gives_check {
              quiet_moves_used + 1
         } else {
              quiet_moves_used

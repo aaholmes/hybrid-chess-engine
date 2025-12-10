@@ -311,10 +311,13 @@ impl UCIEngine {
                             println!("info string Invalid value for AgentType: {}", value);
                         }
                     }
-                    // TODO: Add handlers for other UCI options (e.g., EgtbPath, MCTS iterations, depths)
-                    // Example:
-                    // "EgtbPath" => { /* load EGTB */ self.update_agent(); }
-                    // "MateSearchDepth" => { self.mate_search_depth = value.parse().unwrap_or(self.mate_search_depth); self.update_agent(); }
+                    "ModelPath" => {
+                        // This would need to be passed to the agent.
+                        // For now, let's just log it, as we need to thread this path 
+                        // through update_agent -> HumanlikeAgent -> NeuralNetPolicy
+                        println!("info string Setting ModelPath to {} (Not fully wired yet)", value);
+                        // TODO: Store this path in UCIEngine struct and pass to HumanlikeAgent::new
+                    }
                     _ => {
                         // println!("info string Unknown option: {}", name);
                     }

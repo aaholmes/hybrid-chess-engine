@@ -3,6 +3,7 @@ use crate::move_types::Move;
 use std::collections::{HashMap, VecDeque};
 
 /// Represents a stack of boards for undoing moves.
+#[derive(Clone)]
 pub struct BoardStack {
     pub position_history: HashMap<u64, u8>,
     pub(crate) state_stack: VecDeque<Board>,
