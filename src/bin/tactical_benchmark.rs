@@ -9,8 +9,6 @@ use kingfisher::board::Board;
 use kingfisher::eval::PestoEval;
 use kingfisher::move_generation::MoveGen;
 use kingfisher::mcts::{tactical_mcts_search, TacticalMctsConfig, mcts_pesto_search};
-use kingfisher::neural_net::NeuralNetPolicy;
-use kingfisher::search::iterative_deepening_ab_search;
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone)]

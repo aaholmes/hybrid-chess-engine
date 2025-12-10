@@ -4,11 +4,10 @@
 //! (captures, checks, forks) are prioritized before strategic moves using neural network
 //! policy guidance. This reduces neural network evaluations while maintaining tactical accuracy.
 
-use crate::board::Board;
 use crate::move_generation::MoveGen;
 use crate::move_types::Move;
 use crate::mcts::node::MctsNode;
-use crate::mcts::tactical::{identify_tactical_moves, TacticalMove};
+use crate::mcts::tactical::identify_tactical_moves;
 use crate::mcts::tactical_mcts::TacticalMctsStats;
 use crate::neural_net::NeuralNetPolicy;
 use std::cell::RefCell;

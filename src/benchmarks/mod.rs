@@ -1,10 +1,8 @@
 use crate::boardstack::BoardStack;
 use crate::move_types::Move;
-use crate::board::Board;
 use crate::move_generation::MoveGen;
 use crate::eval::PestoEval;
 use crate::agent::{Agent, SimpleAgent, HumanlikeAgent};
-use crate::egtb::EgtbProber;
 use std::time::{Duration, Instant};
 
 pub mod tactical_suite;

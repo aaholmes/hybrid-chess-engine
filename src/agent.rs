@@ -7,8 +7,8 @@ use crate::move_types::Move;
 use crate::mcts::mcts_pesto_search; // Added import
 use crate::search::{iterative_deepening_ab_search, mate_search};
 use crate::transposition::TranspositionTable;
-use crate::board::Board; // For piece count check
-use crate::egtb::{EgtbInfo, EgtbProber}; // For EGTB integration
+ // For piece count check
+use crate::egtb::EgtbProber; // For EGTB integration
 
 // Test tracking flags (only compiled in test mode)
 #[cfg(test)]
@@ -134,7 +134,7 @@ impl HumanlikeAgent<'_> {
 
 impl Agent for HumanlikeAgent<'_> {
     fn get_move(&self, board: &mut BoardStack) -> Move {
-        let current_board = board.current_state();
+        let _current_board = board.current_state();
 
         // 1. EGTB Check (temporarily disabled to focus on MCTS functionality)
         #[allow(unused_variables)]

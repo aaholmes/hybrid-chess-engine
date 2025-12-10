@@ -4,10 +4,7 @@
 //! demonstrating how classical chess knowledge (tactical moves) combines with modern
 //! AI techniques (neural network policy guidance) for superior chess play.
 
-use kingfisher::agent::HumanlikeAgent;
-use kingfisher::benchmarks::create_simple_agent;
 use kingfisher::board::Board;
-use kingfisher::boardstack::BoardStack;
 use kingfisher::eval::PestoEval;
 use kingfisher::mcts::{tactical_mcts_search, TacticalMctsConfig};
 use kingfisher::move_generation::MoveGen;

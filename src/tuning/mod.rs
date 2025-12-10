@@ -1,11 +1,4 @@
 use crate::board::Board;
-use crate::eval::{PestoEval, EvalWeights};
-use crate::move_generation::MoveGen;
-use crate::boardstack::BoardStack;
-use std::collections::HashMap;
-use std::fs::File;
-use std::io::{BufRead, BufReader, Write};
-use std::path::Path;
 
 pub mod texel;
 pub mod data_loader;

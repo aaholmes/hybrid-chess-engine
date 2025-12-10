@@ -6,7 +6,7 @@
 use kingfisher::board::Board;
 use kingfisher::move_generation::MoveGen;
 use kingfisher::mcts::tactical::{identify_tactical_moves, get_tactical_cache_stats, clear_tactical_cache};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 fn main() {
     println!("🏆 Kingfisher Chess Engine - Tactical Move Cache Performance Demo");

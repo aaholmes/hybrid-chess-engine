@@ -374,7 +374,7 @@ fn backpropagate_value(mut node: Rc<RefCell<MctsNode>>, mut value: f64) {
 /// Select the best move from the root node
 fn select_best_move_from_root(
     root: Rc<RefCell<MctsNode>>,
-    config: &TacticalMctsConfig,
+    _config: &TacticalMctsConfig,
 ) -> Option<Move> {
     let root_ref = root.borrow();
     
@@ -487,7 +487,7 @@ mod tests {
         
         // First test: verify mate search works directly on this position
         let mut board_stack = BoardStack::with_board(board.clone());
-        let (mate_score, mate_move, _nodes) = mate_search(&mut board_stack, &move_gen, 3, false);
+        let (mate_score, _mate_move, _nodes) = mate_search(&mut board_stack, &move_gen, 3, false);
         
         let config = TacticalMctsConfig {
             max_iterations: 100, // More iterations to be sure

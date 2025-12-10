@@ -168,6 +168,7 @@ pub fn run_tactical_benchmark<T: Agent>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::board::Board;
     
     #[test]
     fn test_tactical_positions_load() {

@@ -3,9 +3,8 @@
 //! Generates training data for neural network policy by analyzing positions
 //! and creating datasets suitable for PyTorch training.
 
-use kingfisher::training::{TrainingDataGenerator, TrainingPosition, ParsedGame};
+use kingfisher::training::{TrainingDataGenerator, ParsedGame};
 use kingfisher::move_types::Move;
-use std::collections::HashMap;
 
 fn main() {
     println!("🎓 Kingfisher Training Data Generator");

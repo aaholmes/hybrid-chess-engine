@@ -2,14 +2,12 @@
 
 // Use internal project types
 use crate::board::Board;
-use crate::move_types::{Move, CastlingRights};
-use crate::piece_types::{self, BISHOP, BLACK, KING, KNIGHT, PAWN, QUEEN, ROOK, WHITE};
-use crate::board_utils::sq_ind_to_bit; // Needed for piece count calculation
+use crate::move_types::Move;
+ // Needed for piece count calculation
 
 // Use the Syzygy library
-use shakmaty::{Board as ShakmatyBoard, Position, Role, Color, Square};
-use shakmaty_syzygy::{Tablebase, Wdl, Dtz};
-use std::path::Path;
+use shakmaty::Board as ShakmatyBoard;
+use shakmaty_syzygy::{Wdl, Dtz};
 
 // Define the error type for EGTB operations
 #[derive(Debug, Clone)]

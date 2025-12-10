@@ -1,10 +1,10 @@
 //! Quick test to verify our tactical benchmark works
 
-use kingfisher::benchmarks::tactical_suite::{get_tactical_test_suite, TacticalPosition};
-use kingfisher::benchmarks::{create_simple_agent, BenchmarkResult};
+use kingfisher::benchmarks::tactical_suite::get_tactical_test_suite;
+use kingfisher::benchmarks::create_simple_agent;
 use kingfisher::boardstack::BoardStack;
 use kingfisher::agent::Agent;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 fn main() {
     println!("🧪 Quick Tactical Benchmark Test");

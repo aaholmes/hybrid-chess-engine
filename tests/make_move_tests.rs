@@ -36,12 +36,11 @@ mod make_move_tests {
             Some((WHITE, PAWN))
         );
         assert!(!next_board.w_to_move); // Side to move flipped
+        // Test that the resulting position has correct FEN (implicitly tests en passant, clocks, etc.)
         assert_eq!(
-            next_board.en_passant,
-            Some(board_utils::algebraic_to_sq_ind("e3") as u8)
-        ); // En passant set
-        assert_eq!(next_board.halfmove_clock, 0); // Clock reset
-        assert_eq!(next_board.fullmove_number, 1); // Not incremented yet
+            next_board.to_fen(),
+            Some("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1".to_string())
+        );
     }
 
     #[test]
@@ -60,8 +59,11 @@ mod make_move_tests {
             Some((WHITE, PAWN))
         ); // White pawn captures
         assert!(!next_board.w_to_move);
-        assert_eq!(next_board.en_passant, None); // En passant not set
-        assert_eq!(next_board.halfmove_clock, 0); // Clock reset
+        // Test that the resulting position has correct FEN
+        assert_eq!(
+            next_board.to_fen(),
+            Some("rnbqkbnr/ppp1pppp/8/3P4/8/8/PPPP1PPP/RNBQKBNR b KQkq - 0 2".to_string())
+        );
     }
 
     #[test]
@@ -84,8 +86,11 @@ mod make_move_tests {
             None
         ); // Black pawn captured e.p.
         assert!(!next_board.w_to_move);
-        assert_eq!(next_board.en_passant, None); // En passant reset
-        assert_eq!(next_board.halfmove_clock, 0);
+        // Test that the resulting position has correct FEN (en passant should be reset)
+        assert_eq!(
+            next_board.to_fen(),
+            Some("rnbqkbnr/ppp1p1pp/5P2/3p4/8/8/PPPP1PPP/RNBQKBNR b KQkq - 0 3".to_string())
+        );
     }
 
     #[test]
@@ -103,7 +108,11 @@ mod make_move_tests {
             Some((WHITE, QUEEN))
         ); // Promoted to Queen
         assert!(!next_board.w_to_move);
-        assert_eq!(next_board.halfmove_clock, 0);
+        // Test that the resulting position has correct FEN
+        assert_eq!(
+            next_board.to_fen(),
+            Some("k3Q3/8/8/8/8/8/8/K7 b - - 0 1".to_string())
+        );
     }
 
     #[test]
@@ -128,12 +137,12 @@ mod make_move_tests {
             next_board.get_piece(board_utils::algebraic_to_sq_ind("f1")),
             Some((WHITE, ROOK))
         );
-        assert!(!next_board.castling_rights.white_kingside); // Rights removed
-        assert!(!next_board.castling_rights.white_queenside);
-        assert!(next_board.castling_rights.black_kingside); // Black rights unaffected
-        assert!(next_board.castling_rights.black_queenside);
         assert!(!next_board.w_to_move);
-        assert_eq!(next_board.halfmove_clock, 1); // Increment clock
+        // Test that the resulting position has correct FEN (castling rights should be updated)
+        assert_eq!(
+            next_board.to_fen(),
+            Some("r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R4RK1 b kq - 1 1".to_string())
+        );
     }
 
     #[test]
@@ -158,13 +167,12 @@ mod make_move_tests {
             next_board.get_piece(board_utils::algebraic_to_sq_ind("d8")),
             Some((BLACK, ROOK))
         );
-        assert!(!next_board.castling_rights.black_kingside); // Rights removed
-        assert!(!next_board.castling_rights.black_queenside);
-        assert!(next_board.castling_rights.white_kingside); // White rights unaffected
-        assert!(next_board.castling_rights.white_queenside);
         assert!(next_board.w_to_move); // White's turn
-        assert_eq!(next_board.halfmove_clock, 1);
-        assert_eq!(next_board.fullmove_number, 2); // Incremented
+        // Test that the resulting position has correct FEN (castling rights should be updated)
+        assert_eq!(
+            next_board.to_fen(),
+            Some("2kr3r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w KQ - 1 2".to_string())
+        );
     }
 
     #[test]
@@ -172,7 +180,11 @@ mod make_move_tests {
         let board = Board::new(); // Initial position
         let mv = create_move("a1", "a2"); // Ra2
         let next_board = board.apply_move_to_board(mv);
-        assert!(!next_board.castling_rights.white_queenside); // Q-side right removed
-        assert!(next_board.castling_rights.white_kingside); // K-side right remains
+        // Test that castling rights are properly updated via FEN
+        // After Ra2, white should lose queenside castling but keep kingside
+        assert_eq!(
+            next_board.to_fen(),
+            Some("rnbqkbnr/pppppppp/8/8/8/8/RPPPPPPP/1NBQKBNR b Kkq - 0 1".to_string())
+        );
     }
 }

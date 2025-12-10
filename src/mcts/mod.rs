@@ -71,7 +71,7 @@ use crate::boardstack::BoardStack; // Needed for mate_search
 use crate::eval::PestoEval; // Import PestoEval
 use crate::move_generation::MoveGen;
 use crate::move_types::Move;
-use crate::neural_net::NeuralNetPolicy; // Import neural network
+ // Import neural network
 use crate::search::mate_search; // Import mate_search function
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -222,8 +222,8 @@ pub fn mcts_pesto_search(
         let leaf_node_rc = select_leaf_for_expansion(root_node_rc.clone(), EXPLORATION_CONSTANT);
 
         // --- 2. Mate Check / Evaluation / Expansion ---
-        let mut node_to_propagate_from: Rc<RefCell<MctsNode>>;
-        let mut value_to_propagate: f64; // Value relative to White [0.0, 1.0]
+        let node_to_propagate_from: Rc<RefCell<MctsNode>>;
+        let value_to_propagate: f64; // Value relative to White [0.0, 1.0]
 
         {
             // Scope for borrowing leaf_node
