@@ -126,9 +126,17 @@ impl PestoEval {
     /// (eval, game_phase)
     // Note: Added move_gen parameter
     // Pass MoveGen explicitly now as it's needed for king attack calculation
-    fn eval_plus_game_phase(&self, board: &Board, move_gen: &MoveGen) -> (i32, i32) {
-        // Use move_gen now
-
+    /// Computes the eval components (mg, eg) and game phase
+    ///
+    /// # Arguments
+    ///
+    /// * `board` - A reference to the current Bitboard
+    /// * `move_gen` - A reference to the MoveGen
+    ///
+    /// # Returns
+    ///
+    /// (mg_score, eg_score, game_phase)
+    pub fn eval_plus_game_phase(&self, board: &Board, move_gen: &MoveGen) -> (i32, i32, i32) {
         let mut mg: [i32; 2] = [0, 0];
         let mut eg: [i32; 2] = [0, 0];
         let mut game_phase: i32 = 0;
@@ -192,9 +200,9 @@ impl PestoEval {
                 };
 
                 if let Some(defend1_sq) = defend1_sq_opt {
-                    // Check bounds and if squares are actually diagonal (same color squares) and on board
+                    // Check bounds and if squares are adjacent files (prevent wrapping)
                     if defend1_sq < 64
-                        && (sq % 2 == defend1_sq % 2)
+                        && (sq_to_file(sq) as i8 - sq_to_file(defend1_sq) as i8).abs() == 1
                         && (friendly_pawns & sq_ind_to_bit(defend1_sq) != 0)
                     {
                         chain_bonus_mg += self.weights.pawn_chain_bonus[0];
@@ -202,9 +210,9 @@ impl PestoEval {
                     }
                 }
                 if let Some(defend2_sq) = defend2_sq_opt {
-                    // Check bounds and if squares are actually diagonal (same color squares) and on board
+                    // Check bounds and if squares are adjacent files
                     if defend2_sq < 64
-                        && (sq % 2 == defend2_sq % 2)
+                        && (sq_to_file(sq) as i8 - sq_to_file(defend2_sq) as i8).abs() == 1
                         && (friendly_pawns & sq_ind_to_bit(defend2_sq) != 0)
                     {
                         chain_bonus_mg += self.weights.pawn_chain_bonus[0];
@@ -432,23 +440,14 @@ impl PestoEval {
             eg[color] += mobility_eg[color];
         }
 
-        // --- Tapered Eval ---
         let mg_score = mg[0] - mg[1]; // White - Black
         let eg_score = eg[0] - eg[1]; // White - Black
 
-        let mg_phase: i32 = min(24, game_phase);
-        let eg_phase: i32 = 24 - mg_phase;
-
-        // Ensure eg_phase is not negative if game_phase > 24 (e.g., promotions)
-        let eg_phase_clamped = if eg_phase < 0 { 0 } else { eg_phase };
-
-        let score = (mg_score * mg_phase + eg_score * eg_phase_clamped) / 24;
-
-        // Return score from the perspective of the side to move
+        // Return raw scores and game phase
         if board.w_to_move {
-            (score, game_phase)
+            (mg_score, eg_score, game_phase)
         } else {
-            (-score, game_phase)
+            (-mg_score, -eg_score, game_phase)
         }
     }
 
@@ -464,8 +463,21 @@ impl PestoEval {
     /// A tuple (i32, i32) representing the middlegame and endgame scores
     // Note: Added move_gen parameter
     pub fn eval(&self, board: &Board, move_gen: &MoveGen) -> i32 {
-        let (eval, _) = self.eval_plus_game_phase(board, move_gen);
-        eval
+        let (mg, eg, phase) = self.eval_plus_game_phase(board, move_gen);
+        
+        let mg_phase: i32 = min(24, phase);
+        let eg_phase: i32 = 24 - mg_phase;
+        // Ensure eg_phase is not negative
+        let eg_phase_clamped = if eg_phase < 0 { 0 } else { eg_phase };
+
+        // Taper
+        let score = (mg * mg_phase + eg * eg_phase_clamped) / 24;
+        
+        if board.w_to_move {
+            score
+        } else {
+            -score
+        }
     }
 
     /// Evaluates and updates the board's evaluation and game phase
@@ -484,7 +496,13 @@ impl PestoEval {
     // Note: Added move_gen parameter
     pub fn eval_update_board(&self, board: &mut Board, move_gen: &MoveGen) -> i32 {
         // Evaluate and save the eval and game phase
-        let (score, game_phase) = self.eval_plus_game_phase(board, move_gen);
+        let (mg, eg, game_phase) = self.eval_plus_game_phase(board, move_gen);
+
+        let mg_phase: i32 = min(24, game_phase);
+        let eg_phase: i32 = 24 - mg_phase;
+        let eg_phase_clamped = if eg_phase < 0 { 0 } else { eg_phase };
+
+        let score = (mg * mg_phase + eg * eg_phase_clamped) / 24;
 
         // Save eval and game phase
         board.eval = if board.w_to_move { score } else { -score };

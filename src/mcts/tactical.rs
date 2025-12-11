@@ -526,12 +526,12 @@ mod tests {
                 "Pawn takes pawn should not be losing");
         
         // Test bishop takes pawn (likely bad due to knight defending)
-        let bishop_capture = Move::new(26, 36, None); // Bc4 x e5 (not possible from this position, but for testing)
+        let _bishop_capture = Move::new(26, 36, None); // Bc4 x e5 (not possible from this position, but for testing)
         // Note: This might not be a losing capture depending on the exact position
         
         // Test in starting position (no captures should be losing since no pieces can be captured)
-        let starting_board = Board::new();
-        let fake_capture = Move::new(0, 8, None); // Any move in starting position
+        let _starting_board = Board::new();
+        let _fake_capture = Move::new(0, 8, None); // Any move in starting position
         // This won't be a capture in starting position, so SEE should handle gracefully
     }
     

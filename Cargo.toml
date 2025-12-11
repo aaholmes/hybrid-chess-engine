@@ -24,10 +24,6 @@ name = "texel_tune"
 path = "src/bin/texel_tune.rs"
 
 [[bin]]
-name = "neural_test"
-path = "src/bin/neural_test.rs"
-
-[[bin]]
 name = "generate_training_data"
 path = "src/bin/generate_training_data.rs"
 

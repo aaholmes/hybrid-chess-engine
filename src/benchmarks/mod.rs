@@ -70,7 +70,6 @@ impl BenchmarkSummary {
     }
 }
 
-/// Global instances for benchmarking to avoid lifetime issues
 lazy_static::lazy_static! {
     static ref BENCH_MOVE_GEN: MoveGen = MoveGen::new();
     static ref BENCH_PESTO_EVAL: PestoEval = PestoEval::new();

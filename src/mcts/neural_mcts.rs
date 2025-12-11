@@ -124,7 +124,7 @@ fn initialize_root_node(
     }
     
     // Get neural network policy guidance if available
-    let move_priors = if let Some(ref mut nn) = nn_policy {
+    let _move_priors = if let Some(ref mut nn) = nn_policy {
         if nn.is_available() {
             if let Some((policy, _value)) = nn.predict(root_state) {
                 println!("🧠 Using neural network policy guidance");
