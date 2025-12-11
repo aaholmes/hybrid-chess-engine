@@ -1,3 +1,15 @@
+//! Classical Search Algorithms
+//!
+//! This module contains the implementation of standard chess search algorithms
+//! used by the engine's "SimpleAgent" and as components of the hybrid "HumanlikeAgent".
+//!
+//! Key components:
+//! - **Alpha-Beta Pruning**: The core minimax search optimized with alpha-beta pruning.
+//! - **Iterative Deepening**: Time-managed search that progressively deepens.
+//! - **Mate Search**: Specialized exhaustive search for finding forced mates.
+//! - **Quiescence Search**: Tactical resolution to ensure stable leaf evaluations.
+//! - **SEE (Static Exchange Evaluation)**: Heuristic to prune bad captures.
+
 mod alpha_beta;
 mod history;
 mod iterative_deepening;
