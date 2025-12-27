@@ -147,6 +147,14 @@ The primary binary is a UCI-compliant engine, suitable for use in any standard c
 ```
 (Type `uci` to verify connection)
 
+### Self-Play Data Generation
+To generate training data for the neural network, use the `self_play` binary. This runs parallel games where the engine plays against itself.
+
+```bash
+# Generate 100 games with 800 simulations per move, saving to 'data/'
+cargo run --release --bin self_play -- 100 800 data
+```
+
 ## Testing and Benchmarking
 The project includes a comprehensive suite of tests and benchmarks to validate functionality and performance.
 
@@ -163,6 +171,7 @@ The crate is organized to produce several distinct binaries for different tasks:
 
 - **caissawary**: The main UCI chess engine.
 - **benchmark**: A suite for performance testing, measuring nodes-per-second and puzzle-solving speed.
+- **self_play**: A high-throughput data generation tool that plays games against itself to create training datasets for the neural network.
 
 ## References
 The architecture of Caissawary is inspired by decades of research in computer chess and artificial intelligence. Key influences include:
