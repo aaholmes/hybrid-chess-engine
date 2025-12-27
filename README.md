@@ -27,39 +27,30 @@ Before any expansion, the engine runs ultra-fast "Safety Gates" to detect immedi
 
 #### 2. Tactical Integration (Tier 2):
 If the node is not a terminal state, the engine performs a "Tactical Graft":
-- **Quiescence Search (QS):** A tactical search runs to resolve captures and checks.
-- **Grafting:** The best tactical move found by QS is "grafted" into the MCTS tree immediately as a child node.
-- **Shadow Priors:** Other promising tactical moves are stored with "shadow priors"—extrapolated values derived from their static evaluation scores relative to the parent. This guides the MCTS to explore these tactical possibilities before quiet moves.
+- **Quiescence Search (QS):** An integer-based tactical search runs on the CPU to resolve captures and checks using hard-coded piece values (1, 3, 3, 5, 9).
+- **Grafting:** The best tactical move found by QS is "grafted" into the MCTS tree immediately.
+- **Dynamic Value Extrapolation:** The engine uses the **Symbolic Residual Formula** to price the material won by the CPU:
+  $$V_{final} = \tanh\left(\text{arctanh}(V_{parent}) + k \cdot \Delta M\right)$$
+  Where $k$ is a **position-specific confidence scalar** predicted by the neural network. This allows the engine to determine if a material advantage is decisive or irrelevant in the current strategic context.
 
 #### 3. Strategic Evaluation (Tier 3):
-If no tactical resolution is sufficient, the engine engages the neural network (if enabled):
-- **Policy Network:** Computes priors for all legal moves.
-- **Lazy Evaluation:** The network is queried only when necessary, saving compute.
-
-## Tier 1: Safety Gates
-The engine includes specialized "Gates" that act as high-priority filters:
-
-1.  **Checks-Only Search:**
-    *   **Logic:** Recursively searches lines where the attacker *must* give check and the defender tries to evade.
-    *   **Goal:** Instantly finding forced mates (e.g., Back Rank Mate) without expanding thousands of MCTS nodes.
-
-2.  **KOTH Geometric Pruning:**
-    *   **Logic:** Uses distance rings around the center squares (e4, d4, e5, d5).
-    *   **Goal:** Prunes any search branch where the King fails to make optimal progress towards the center, allowing the engine to solve KOTH races instantly.
+If no tactical resolution is sufficient, the engine engages the **LogosNet** (if enabled):
+- **Dual Value Heads:** The network predicts both a deep strategic logit ($V_{net}$) and a material confidence logit ($K_{net}$).
+- **Lazy Evaluation:** The network is queried only when necessary, and its predictions guide the selection of "Quiet" moves via PUCT.
 
 ## Tier 2: Tactical Grafting
-Instead of treating all new nodes as equal, Caissawary injects tactical knowledge directly into the tree structure.
+Instead of treating all new nodes as equal, Caissawary injects tactical knowledge directly into the tree structure. This "Neurosymbolic" approach separates **Logical Truth** from **Contextual Interpretation**.
 
-- **The Problem:** MCTS struggles with sharp tactics because it starts with random/uniform exploration.
-- **The Solution:** A Quiescence Search resolves the position first. The resulting Principal Variation (PV) is explicitly added to the tree.
-- **Value Extrapolation:** The engine uses a custom formula, `v = tanh(arctanh(v0) + k * delta)`, to estimate the value of tactical moves based on material changes (like winning a Queen) without running a full neural network inference.
+- **The CPU (Logical Truth):** Runs minimax on captures using raw integers. It is blazing fast and ignores strategic "noise."
+- **The Neural Net (Contextual Interpretation):** Predicts $k$, the "price" of material.
+- **Symbolic Recombination:** By combining these, the engine "grafts" tactical sequences into the MCTS tree with highly accurate initial values, solving the "cold start" problem for sharp positions.
 
-## Tier 3: Neural Network Policy (Optional)
-The engine supports a **Hybrid** mode where strategic evaluation is handled by a PyTorch-trained Neural Network.
+## Tier 3: LogosNet Architecture (Optional)
+The engine supports a **Neurosymbolic** mode using the LogosNet architecture.
 
-- **Architecture:** ResNet-style (or custom) architecture defined in Python.
-- **Inference:** Uses **tch-rs** (LibTorch bindings) for high-performance inference within the Rust engine.
-- **Lazy Evaluation:** The network is queried only when tactical resolution (Tier 1 & 2) fails to determine a clear result, saving precious GPU/CPU cycles for deep strategic thinking.
+- **Architecture:** A 10-block ResNet backbone with a standard Policy head and a **Symbolic Residual Value Head**.
+- **Dynamic K:** The network learns how much to trust material imbalance. At initialization ($K_{net} = 0$), $k$ is exactly $0.5$. During training, the network adjusts $k$ to prioritize material or strategic compensation.
+- **Inference:** Uses **tch-rs** (LibTorch) for high-performance inference. The forward pass accepts both the board features and the raw material scalar.
 
 > **Note:** Neural network support is optional. Compile with `cargo build --features neural` to enable it. You must have a compatible LibTorch installed or let `tch-rs` download one.
 
