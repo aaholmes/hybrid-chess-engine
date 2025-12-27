@@ -350,6 +350,8 @@ dependencies = [
  "lazy_static",
  "rand",
  "rayon",
+ "serde",
+ "serde_json",
  "shakmaty 0.25.0",
  "shakmaty-syzygy",
  "tch",

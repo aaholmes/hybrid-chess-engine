@@ -1,4 +1,6 @@
 .cargo/
+data/
+IMPLEMENTATION_PLAN.md
 models/
 python/__pycache__/
 target/

@@ -80,7 +80,10 @@ use std::time::{Duration, Instant}; // Use trait from submodule
 // Import necessary components from submodules
 pub use self::neural_mcts::neural_mcts_search;
 pub use self::node::{select_leaf_for_expansion, MctsNode, MoveCategory};
-pub use self::tactical_mcts::{tactical_mcts_search, TacticalMctsConfig, TacticalMctsStats, print_search_stats};
+pub use self::tactical_mcts::{
+    print_search_stats, tactical_mcts_search, tactical_mcts_search_for_training, MctsTrainingResult,
+    TacticalMctsConfig, TacticalMctsStats,
+};
 
 // pub use self::policy::PolicyNetwork; // No longer needed for pesto search
                                      // pub use self::simulation::simulate_random_playout; // Don't export by default

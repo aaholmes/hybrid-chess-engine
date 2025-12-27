@@ -413,6 +413,81 @@ fn select_best_move_from_root(
     best_move
 }
 
+/// Result structure for training data generation
+pub struct MctsTrainingResult {
+    pub best_move: Option<Move>,
+    pub root_policy: Vec<(Move, u32)>, // Move and visit count
+    pub root_value_prediction: f64,    // Q-value of root
+    pub stats: TacticalMctsStats,
+}
+
+/// MCTS search that returns full training data (policy distribution)
+pub fn tactical_mcts_search_for_training(
+    board: Board,
+    move_gen: &MoveGen,
+    pesto_eval: &PestoEval,
+    nn_policy: &mut Option<NeuralNetPolicy>,
+    config: TacticalMctsConfig,
+) -> MctsTrainingResult {
+    let start_time = Instant::now();
+    let mut stats = TacticalMctsStats::default();
+    
+    // Mate search pre-check (omitted for training purity? No, we want the engine's best effort).
+    // However, if mate is found instantly, policy is a one-hot vector.
+    
+    // Create root node
+    let root_node = MctsNode::new_root(board, move_gen);
+    
+    // Check terminal
+    if root_node.borrow().is_game_terminal() {
+        return MctsTrainingResult {
+            best_move: None,
+            root_policy: vec![],
+            root_value_prediction: 0.0,
+            stats,
+        };
+    }
+    
+    // Initial expansion
+    evaluate_and_expand_node(root_node.clone(), move_gen, pesto_eval, &mut stats);
+    
+    // MCTS Loop
+    let mut transposition_table = TranspositionTable::new();
+    for iteration in 0..config.max_iterations {
+        if start_time.elapsed() > config.time_limit { break; }
+        
+        let leaf = select_leaf_node(root_node.clone(), move_gen, nn_policy, config.exploration_constant, &mut stats);
+        let value = evaluate_leaf_node(leaf.clone(), move_gen, pesto_eval, config.mate_search_depth, &mut transposition_table, &mut stats);
+        
+        if !leaf.borrow().is_game_terminal() && leaf.borrow().visits == 0 {
+            evaluate_and_expand_node(leaf.clone(), move_gen, pesto_eval, &mut stats);
+        }
+        backpropagate_value(leaf, value);
+        stats.iterations = iteration + 1;
+    }
+    
+    // Extract Policy
+    let root = root_node.borrow();
+    let mut policy = Vec::new();
+    for child in &root.children {
+        if let Some(mv) = child.borrow().action {
+            policy.push((mv, child.borrow().visits));
+        }
+    }
+    
+    // Normalize? No, return counts. Python handles temperature/normalization.
+    
+    let best_move = select_best_move_from_root(root_node.clone(), &config);
+    let root_val = if root.visits > 0 { root.total_value / root.visits as f64 } else { 0.5 };
+    
+    MctsTrainingResult {
+        best_move,
+        root_policy: policy,
+        root_value_prediction: root_val,
+        stats,
+    }
+}
+
 /// Print search statistics
 pub fn print_search_stats(stats: &TacticalMctsStats, best_move: Option<Move>) {
     println!("🎯 Tactical-First MCTS Search Complete");

@@ -1,360 +1,92 @@
-# Kingfisher Neural Network Training Guide
+# Design Doc: Self-Play Reinforcement Learning Loop
 
-This comprehensive guide walks you through training neural networks for the Kingfisher Chess Engine, from basic setup to advanced optimization techniques.
+## 1. Objective
+To demonstrate the superior training efficiency of the **Caissawary** (Hybrid MCTS + Mate Search) architecture compared to standard AlphaZero. We aim to create a fully automated pipeline that iteratively improves the neural network through self-play, leveraging the engine's tactical priors to accelerate learning.
 
-## 🚀 Quick Start
+## 2. Core Hypothesis
+Standard AlphaZero starts from random play and must "learn" basic tactics (like mate-in-1) through trial and error, which is computationally expensive.
+**Caissawary Hypothesis:** By injecting "Tactical Priors" (Mate Search + Tier 2 Tactics) into the MCTS:
+1.  The engine plays tactically valid chess from Generation 0.
+2.  The neural network receives cleaner, higher-quality training data (fewer random blunders).
+3.  **Result:** The engine reaches a respectable Elo with significantly fewer training games/compute than AlphaZero.
 
-### Prerequisites
-```bash
-# Install Python dependencies
-pip install torch torchvision torchaudio python-chess numpy tqdm requests
+## 3. Architecture
 
-# Verify PyTorch installation
-python3 -c "import torch; print(f'PyTorch {torch.__version__} installed successfully')"
+### A. The Loop (Python Controller)
+A master Python script (`python/rl_loop.py`) orchestrates the cycle:
+1.  **Generation Phase:** Call Rust engine to play `N` self-play games.
+2.  **Training Phase:** Train PyTorch model on the generated games.
+3.  **Evaluation Phase:** Play matches between `New Model` vs `Best Model`.
+4.  **Promotion:** If `New` > `Best` (win rate > 55%), replace `Best`.
 
-# Build Rust components
-cargo build --release
-```
+### B. Rust Self-Play Binary (`src/bin/self_play.rs`)
+A specialized binary focused on high-throughput data generation.
+*   **Input:** Path to `model.pt`, number of games, simulations per move.
+*   **Concurrency:** Runs multiple games in parallel threads (using Rayon).
+*   **Output:** `training_data_{gen}.json` containing a list of states, each with:
+    *   **FEN (Board State):** The position in algebraic notation.
+    *   **MCTS Policy Target (`pi`):** The visit counts for each legal move from the MCTS search, representing the "best move" according to the search. (Normalized to a probability distribution).
+    *   **Game Outcome Value Target (`z`):** The final outcome of the game (+1 for win, 0 for draw, -1 for loss) from the perspective of the player to move in that specific FEN. This value is backpropagated to all positions in the game.
 
-### Basic Training (5 minutes)
-```bash
-# Train with built-in sample data
-python3 python/train_chess_ai.py --data-source sample --epochs 10
+### C. Training Pipeline (`python/train_gen.py`)
+*   **Input:** `training_data_{gen}.json`.
+*   **Model:** Uses `MinimalViableNet` (7-layer ResNet) for speed.
+*   **Output:** `model_candidate.pt`.
 
-# This creates: python/models/chess_model.pth
-```
+## 4. Implementation Steps & Estimates
 
-### Intermediate Training (30 minutes)
-```bash
-# Train with Lichess database sample
-python3 python/train_chess_ai.py --data-source lichess --epochs 20
+### Phase 1: Rust Data Generation (Estimated: 2 Hours)
+**Goal:** A binary that plays games and outputs training data.
+1.  **`DataPoint` Struct:** Define serializable struct for FEN, Policy, Value.
+2.  **Self-Play Logic:**
+    *   Load `NeuralNetPolicy`.
+    *   For each move in a game:
+        *   Run `tactical_mcts_search` for a fixed number of simulations (e.g., 800).
+        *   Store `(FEN, MCTS Visit Counts)` for the current position.
+        *   Select a move based on `MCTS Visit Counts` (with temperature exploration).
+        *   Play the move on the board.
+    *   When the game ends:
+        *   Determine the game outcome (win, loss, draw).
+        *   Backpropagate this outcome to all stored positions in the game, setting it as the **Value Target (`z`)**.
+3.  **Parallel Execution:** Use Rayon to play ~10 games concurrently.
+4.  **Output:** Save to JSON/CSV.
 
-# Monitor training progress in terminal
-```
+### Phase 2: Python Training Integration (Estimated: 1.5 Hours)
+**Goal:** Train the model on the Rust-generated data.
+1.  **Dataset Class:** Create a PyTorch `Dataset` that reads the JSON output.
+2.  **Training Script:**
+    *   Load `model.pt`.
+    *   Train on new data:
+        *   **Policy Loss:** Optimize network's policy head to match `MCTS Policy Target` (visit counts).
+        *   **Value Loss:** Optimize network's value head to match `Game Outcome Value Target`.
+    *   Export new `model_new.pt`.
 
-### Advanced Training (2+ hours)
-```bash
-# Full training with large dataset
-python3 python/train_chess_ai.py \
-    --data-source lichess \
-    --epochs 100 \
-    --batch-size 128 \
-    --device cuda  # if GPU available
-```
+### Phase 3: The Loop Controller (Estimated: 1 Hour)
+**Goal:** Automate the cycle.
+1.  **`rl_loop.py`:**
+    *   Loop `Generation` 1 to 50.
+    *   Run `cargo run --bin self_play ...`.
+    *   Run `python train_gen.py ...`.
+    *   (Optional) Run evaluation match.
+    *   Update `latest_model.pt`.
 
-## 📊 Training Pipeline Overview
+### Phase 4: Visualization (Estimated: 0.5 Hours)
+**Goal:** Show the results.
+1.  **Elo Tracker:** Simple CSV log of `Generation, WinRate, EstElo`.
+2.  **Plotting:** Matplotlib script to graph improvement.
 
-```
-Data Collection → Data Processing → Model Training → Evaluation → Integration
-      ↓               ↓               ↓              ↓            ↓
-  PGN Files      CSV Positions   PyTorch Model   Validation   Rust Engine
-```
+## 5. Execution Order
 
-### Step 1: Data Collection
+1.  **Create `src/bin/self_play.rs`:** This is the hardest part (serialization, extracting MCTS internals).
+2.  **Create `python/train_gen.py`:** Standard PyTorch boilerplate.
+3.  **Create `python/rl_loop.py`:** Glue code.
+4.  **Run & Verify:** Run a 1-generation loop to verify data flows.
 
-**Option A: Sample Data (Fastest)**
-```python
-# Built-in tactical and strategic positions
-python3 python/data_collection.py --action sample
-# Creates: data/sample_games.pgn
-```
+## 6. Training Constraints (AlphaZero Style)
+To match standard RL practices:
+*   **Exploration:** Use Dirichlet noise at the root node.
+*   **Temperature:** First 30 moves $\tau=1$ (probabilistic), then $\tau \to 0$ (deterministic).
+*   **Simulations:** Fixed 800 simulations per move.
 
-**Option B: Lichess Database (Recommended)**
-```python
-# Download rated games from Lichess
-python3 python/data_collection.py \
-    --action lichess \
-    --year 2023 \
-    --month 6 \
-    --variant rapid \
-    --min-rating 1800
-```
-
-**Option C: Custom PGN**
-```python
-# Filter your own game collection
-python3 python/data_collection.py \
-    --action filter \
-    --input my_games.pgn \
-    --output filtered_games.pgn \
-    --min-rating 1600
-```
-
-### Step 2: Data Processing
-
-**Generate Training Positions**:
-```bash
-# Use Rust engine to analyze positions
-cargo run --bin generate_training_data
-
-# Or use Python pipeline
-python3 python/training_pipeline.py \
-    --pgn data/sample_games.pgn \
-    --output data/training_positions.csv \
-    --max-positions 10000
-```
-
-**Quality Filtering Criteria**:
-- Player rating ≥ 1800 (configurable)
-- Game length: 20-100 moves
-- Time control ≥ 3 minutes
-- Exclude positions in check (too tactical)
-- Minimum 12 pieces remaining
-- Sample every 3rd move from middle game
-
-### Step 3: Model Training
-
-**Architecture Configuration**:
-```python
-# In chess_net.py - adjustable parameters
-class ChessNet(nn.Module):
-    def __init__(self, 
-                 input_channels=12,     # 6 pieces × 2 colors
-                 hidden_channels=256,   # ResNet channel width
-                 num_res_blocks=8,      # Network depth
-                 policy_output_size=4096): # 64×64 move encoding
-```
-
-**Training Parameters**:
-```python
-# Key hyperparameters to tune
-learning_rate = 0.001
-batch_size = 32        # Increase to 128+ for GPU
-weight_decay = 0.0001  # L2 regularization
-epochs = 50            # More for larger datasets
-```
-
-**Loss Function**:
-```python
-# Combined policy and value loss
-policy_loss = F.cross_entropy(policy_pred, policy_target)
-value_loss = F.mse_loss(value_pred, value_target)
-total_loss = policy_loss + value_loss
-```
-
-## 📈 Training Monitoring
-
-### Progress Tracking
-```bash
-# Training output shows:
-Epoch 15/50: Loss=0.847 (Policy=0.523, Value=0.324) | Acc=41.2% | Time=2.3s
-```
-
-**Key Metrics**:
-- **Total Loss**: Should decrease consistently
-- **Policy Loss**: Cross-entropy on move prediction
-- **Value Loss**: MSE on position evaluation
-- **Accuracy**: Top-1 move prediction rate
-- **Time per Epoch**: Monitor for performance issues
-
-### Validation Monitoring
-```python
-# Automatic validation every 5 epochs
-if epoch % 5 == 0:
-    val_loss, val_acc = validate_model(model, val_loader)
-    print(f"Validation: Loss={val_loss:.3f}, Accuracy={val_acc:.1f}%")
-```
-
-## 🎯 Model Integration & Testing
-
-### Integration with Engine
-```bash
-# Test neural network with Rust engine
-cargo run --bin neural_test
-
-# Run strength comparison
-cargo run --bin strength_test --neural-model python/models/chess_model.pth
-```
-
-### Expected Performance
-**Well-Trained Model Targets**:
-- Policy Accuracy: >40% top-1 move prediction
-- Value Correlation: >0.7 with engine evaluation  
-- MCTS Improvement: 50-100 Elo gain over classical
-- Training Time: 2-4 hours for 50k positions
-
-## 🔧 Advanced Training Techniques
-
-### Hyperparameter Optimization
-
-**Learning Rate Scheduling**:
-```python
-# Reduce learning rate when validation plateaus
-scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-    optimizer, mode='min', factor=0.5, patience=5
-)
-```
-
-**Data Augmentation**:
-```python
-# Chess-specific augmentations
-def augment_position(board_tensor):
-    # Horizontal flip (mirror board)
-    if random.random() < 0.5:
-        board_tensor = torch.flip(board_tensor, dims=[2])
-    return board_tensor
-```
-
-**Advanced Architecture**:
-```python
-# Attention mechanisms for long-range dependencies
-class ChessAttention(nn.Module):
-    def __init__(self, channels):
-        self.attention = nn.MultiheadAttention(channels, num_heads=8)
-        
-# Squeeze-and-Excitation blocks
-class SEBlock(nn.Module):
-    def __init__(self, channels, reduction=16):
-        self.se = nn.Sequential(
-            nn.AdaptiveAvgPool2d(1),
-            nn.Conv2d(channels, channels // reduction, 1),
-            nn.ReLU(),
-            nn.Conv2d(channels // reduction, channels, 1),
-            nn.Sigmoid()
-        )
-```
-
-### Large-Scale Training
-
-**Multi-GPU Training**:
-```python
-# Data parallel training
-if torch.cuda.device_count() > 1:
-    model = nn.DataParallel(model)
-    batch_size *= torch.cuda.device_count()
-```
-
-**Memory Optimization**:
-```python
-# Gradient accumulation for large effective batch sizes
-accumulation_steps = 4
-for i, batch in enumerate(dataloader):
-    loss = model(batch) / accumulation_steps
-    loss.backward()
-    
-    if (i + 1) % accumulation_steps == 0:
-        optimizer.step()
-        optimizer.zero_grad()
-```
-
-**Checkpointing**:
-```python
-# Save/resume training state
-torch.save({
-    'epoch': epoch,
-    'model_state_dict': model.state_dict(),
-    'optimizer_state_dict': optimizer.state_dict(),
-    'loss': loss,
-    'best_val_acc': best_val_acc
-}, f'checkpoint_epoch_{epoch}.pth')
-```
-
-## 🐛 Troubleshooting
-
-### Common Issues
-
-**1. Poor Convergence**
-```
-Symptoms: Loss not decreasing, accuracy stuck around 20%
-Solutions:
-- Reduce learning rate (try 0.0001)
-- Increase dataset size (need 10k+ positions)
-- Check data quality (filter low-rated games)
-- Verify loss function implementation
-```
-
-**2. Overfitting**
-```
-Symptoms: Training accuracy high, validation accuracy low
-Solutions:
-- Add dropout (0.1-0.3)
-- Increase dataset size
-- Reduce model complexity (fewer residual blocks)
-- Add weight decay regularization
-```
-
-**3. Memory Issues**
-```
-Symptoms: CUDA out of memory, system RAM exhausted
-Solutions:
-- Reduce batch size (try 16 or 8)
-- Use gradient accumulation
-- Enable mixed precision training
-- Reduce dataset size loaded at once
-```
-
-**4. Slow Training**
-```
-Symptoms: Very slow epochs, high CPU usage
-Solutions:
-- Use GPU if available (--device cuda)
-- Increase batch size
-- Use multiple DataLoader workers
-- Optimize data loading pipeline
-```
-
-### Performance Debugging
-
-**Profile Training**:
-```python
-# Add timing to identify bottlenecks
-import time
-
-start_time = time.time()
-# ... training code ...
-print(f"Epoch time: {time.time() - start_time:.2f}s")
-```
-
-**Memory Profiling**:
-```python
-# Monitor GPU memory usage
-if torch.cuda.is_available():
-    print(f"GPU Memory: {torch.cuda.memory_allocated() / 1e9:.2f}GB")
-```
-
-## 📊 Advanced Evaluation
-
-### Custom Metrics
-```python
-def calculate_move_quality(predictions, targets, board_evaluations):
-    """Custom metric: How much does predicted move improve position?"""
-    quality_scores = []
-    for pred, target, eval_before in zip(predictions, targets, board_evaluations):
-        # Implementation depends on your evaluation function
-        pass
-    return np.mean(quality_scores)
-```
-
-### A/B Testing
-```bash
-# Compare model versions
-cargo run --bin strength_test --neural-model models/baseline.pth > baseline_results.txt
-cargo run --bin strength_test --neural-model models/improved.pth > improved_results.txt
-
-# Analyze improvements
-python3 scripts/compare_models.py baseline_results.txt improved_results.txt
-```
-
-## 🎯 Next Steps
-
-### Immediate Improvements
-1. **Collect More Data**: 50k+ positions for production models
-2. **Hyperparameter Tuning**: Grid search on learning rate, architecture
-3. **Data Quality**: Higher rating thresholds, better position filtering
-4. **Validation**: Cross-validation for robust performance estimates
-
-### Advanced Techniques
-1. **Self-Play Training**: Generate data from engine vs engine games
-2. **Curriculum Learning**: Start with simple positions, progress to complex
-3. **Multi-Task Learning**: Train on multiple chess objectives simultaneously
-4. **Transfer Learning**: Pre-train on large datasets, fine-tune on specific styles
-
-### Research Directions
-1. **Architecture Search**: Automated neural network design
-2. **Interpretability**: Understand what the network learns
-3. **Efficiency**: Faster inference for real-time play
-4. **Robustness**: Performance across different playing styles
-
----
-
-**Success Criteria**: A well-trained model should achieve >40% move prediction accuracy and provide meaningful Elo improvements when integrated with the MCTS search algorithm. Monitor both training metrics and engine performance to validate improvements.
+## 7. Success Metric
+If we can show that **Generation 5** beats **Generation 0** by >75%, the hypothesis is validated for a portfolio demonstration.
