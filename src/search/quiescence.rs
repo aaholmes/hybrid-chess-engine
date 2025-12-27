@@ -2,7 +2,16 @@ use super::see::see;
 use crate::boardstack::BoardStack;
 use crate::eval::PestoEval;
 use crate::move_generation::MoveGen;
+use crate::move_types::Move;
 use std::time::{Duration, Instant};
+
+/// Tactical result from Quiescence Search for MCTS grafting
+#[derive(Clone, Debug)]
+pub struct TacticalTree {
+    pub principal_variation: Vec<Move>,
+    pub leaf_score: i32,
+    pub siblings: Vec<(Move, i32)>, // Other tactical moves at root and their scores
+}
 
 /// Performs a quiescence search to evaluate tactical sequences and avoid the horizon effect.
 pub fn quiescence_search(
@@ -12,54 +21,41 @@ pub fn quiescence_search(
     mut alpha: i32,
     beta: i32,
     max_depth: i32, // Remaining q-search depth
-    verbose: bool,
-    start_time: Option<Instant>, // Added
-    time_limit: Option<Duration>, // Added
-) -> (i32, i32) { // Return type remains (score, nodes) for now, termination checked after call
+    _verbose: bool,
+    start_time: Option<Instant>,
+    time_limit: Option<Duration>,
+) -> (i32, i32) {
     let mut nodes = 1;
 
-    // --- Time Check (Periodic) ---
-    // Check time at the start of each quiescence call
     if let (Some(start), Some(limit)) = (start_time, time_limit) {
-        // Check every N nodes? Simpler to check every call for now.
         if start.elapsed() >= limit {
-            // Return stand_pat score if time runs out during qsearch
              let stand_pat = pesto.eval(&board.current_state(), move_gen);
              return (stand_pat, nodes);
         }
     }
 
-    // --- Stand-Pat Evaluation ---
     let stand_pat = pesto.eval(&board.current_state(), move_gen);
 
-    // --- Beta Cutoff Check ---
     if stand_pat >= beta {
-        return (beta, nodes); // Fail-high
+        return (beta, nodes);
     }
 
-    // --- Update Alpha ---
     if stand_pat > alpha {
         alpha = stand_pat;
     }
 
-    // --- Max Depth Check ---
-    if max_depth <= 0 { // Check depth limit
-        return (alpha, nodes); // Return current best score (alpha)
+    if max_depth <= 0 {
+        return (alpha, nodes);
     }
 
-    // --- Generate Captures ---
     let captures = move_gen.gen_pseudo_legal_captures(&board.current_state());
-
-    // If no captures and not in check, return stand-pat based alpha
     if captures.is_empty() && !board.is_check(move_gen) {
         return (alpha, nodes);
     }
 
-    // --- Iterate Through Captures ---
     for capture in captures {
-        // --- Static Exchange Evaluation (SEE) Pruning ---
         if see(&board.current_state(), move_gen, capture.to, capture.from) < 0 {
-            continue; // Skip this likely losing capture
+            continue;
         }
 
         board.make_move(capture);
@@ -68,7 +64,6 @@ pub fn quiescence_search(
             continue;
         }
 
-        // Recursive call
         let (mut score, n) = quiescence_search(
             board,
             move_gen,
@@ -76,23 +71,73 @@ pub fn quiescence_search(
             -beta,
             -alpha,
             max_depth - 1,
-            verbose,
-            start_time, // Pass time info down
-            time_limit, // Pass time info down
+            _verbose,
+            start_time,
+            time_limit,
         );
-        score = -score; // Negamax adjustment
+        score = -score;
         nodes += n;
 
         board.undo_move();
 
-        // --- Alpha-Beta Pruning ---
         if score >= beta {
-            return (beta, nodes); // Fail-high (beta cutoff)
+            return (beta, nodes);
         }
         if score > alpha {
-            alpha = score; // Update best score found so far
+            alpha = score;
         }
     }
 
-    (alpha, nodes) // Return the best score found within the alpha-beta bounds
+    (alpha, nodes)
+}
+
+/// Specialized Quiescence Search for Tier 2 MCTS Integration
+/// Returns the full TacticalTree instead of just a score.
+pub fn quiescence_search_tactical(
+    board: &mut BoardStack,
+    move_gen: &MoveGen,
+    pesto: &PestoEval,
+) -> TacticalTree {
+    let mut siblings = Vec::new();
+    let stand_pat = pesto.eval(&board.current_state(), move_gen);
+    let mut best_score = stand_pat;
+    let mut best_pv = Vec::new();
+
+    let captures = move_gen.gen_pseudo_legal_captures(&board.current_state());
+    
+    for capture in captures {
+        board.make_move(capture);
+        if !board.current_state().is_legal(move_gen) {
+            board.undo_move();
+            continue;
+        }
+
+        // Full search for the first level to find best tactical line
+        let (score, _nodes) = quiescence_search(
+            board,
+            move_gen,
+            pesto,
+            -1000001,
+            1000001,
+            8,
+            false,
+            None,
+            None,
+        );
+        let score = -score;
+        board.undo_move();
+
+        siblings.push((capture, score));
+
+        if score > best_score {
+            best_score = score;
+            best_pv = vec![capture];
+        }
+    }
+
+    TacticalTree {
+        principal_variation: best_pv,
+        leaf_score: best_score,
+        siblings,
+    }
 }

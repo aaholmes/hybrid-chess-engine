@@ -133,7 +133,12 @@ fn select_ucb_with_policy(
         
         // Get policy value for this move
         let policy_value = if let Some(mv) = child_ref.action {
-            node_ref.move_priorities.get(&mv).copied().unwrap_or(1.0 / num_legal_moves as f64)
+            // Tier 2: Use shadow priors from QS if available
+            if let Some(shadow_v) = node_ref.shadow_priors.get(&mv) {
+                *shadow_v // Use the extrapolated tactical value
+            } else {
+                node_ref.move_priorities.get(&mv).copied().unwrap_or(1.0 / num_legal_moves as f64)
+            }
         } else {
             1.0 / num_legal_moves as f64
         };
@@ -205,6 +210,10 @@ fn ensure_policy_evaluated(
         return; // Already evaluated
     }
     
+    // Strategic Tag: If this node was part of a tactical PV graft,
+    // we still need policy priors for the *other* (quiet) moves eventually.
+    // However, if we're just starting, we use the NN.
+
     // Collect moves first to avoid borrowing conflicts
     let mut moves_to_prioritize = Vec::new();
     for child in &node_ref.children {
@@ -213,18 +222,26 @@ fn ensure_policy_evaluated(
         }
     }
     
-    // If no neural network available, use uniform priors
-    if nn_policy.is_none() {
-        let uniform_prior = 1.0 / moves_to_prioritize.len() as f64;
-        for mv in moves_to_prioritize {
-            node_ref.move_priorities.insert(mv, uniform_prior);
-        }
+    if moves_to_prioritize.is_empty() {
         node_ref.policy_evaluated = true;
         return;
     }
+
+    // If neural network available, use it
+    if let Some(nn) = nn_policy {
+        if nn.is_available() {
+            if let Some((policy_probs, _)) = nn.predict(&node_ref.state) {
+                let priors = nn.policy_to_move_priors(&policy_probs, &moves_to_prioritize);
+                for (mv, prob) in priors {
+                    node_ref.move_priorities.insert(mv, prob as f64);
+                }
+                node_ref.policy_evaluated = true;
+                return;
+            }
+        }
+    }
     
-    // For now, use uniform priors since NN integration needs more work
-    // TODO: Implement proper neural network policy evaluation
+    // Fallback: uniform priors
     let uniform_prior = 1.0 / moves_to_prioritize.len() as f64;
     for mv in moves_to_prioritize {
         node_ref.move_priorities.insert(mv, uniform_prior);

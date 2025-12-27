@@ -14,7 +14,7 @@ mod alpha_beta;
 mod history;
 mod iterative_deepening;
 mod mate_search;
-mod quiescence;
+pub mod quiescence;
 mod see;
 pub mod koth;
 
