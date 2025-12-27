@@ -13,7 +13,7 @@ from model import LogosNet
 # Configuration
 INPUT_CHANNELS = 12
 BOARD_SIZE = 8 * 8
-POLICY_SIZE = 4096
+POLICY_SIZE = 4672
 SAMPLE_SIZE_FLOATS = (INPUT_CHANNELS * BOARD_SIZE) + 1 + 1 + POLICY_SIZE 
 
 class ChessDataset(Dataset):
@@ -73,7 +73,7 @@ def train():
     # Hyperparameters
     BATCH_SIZE = 64
     LEARNING_RATE = 0.001
-    EPOCHS = 10
+    EPOCHS = 2
     DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
     
     # Command line args

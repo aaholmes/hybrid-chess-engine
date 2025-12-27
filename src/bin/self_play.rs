@@ -9,6 +9,7 @@ use kingfisher::move_generation::MoveGen;
 use kingfisher::mcts::{tactical_mcts_search_for_training, TacticalMctsConfig};
 use kingfisher::neural_net::NeuralNetPolicy;
 use kingfisher::piece_types::{PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING, WHITE, BLACK};
+use kingfisher::tensor::move_to_index;
 use std::fs::File;
 use std::io::Write;
 use std::sync::Mutex;
@@ -107,7 +108,7 @@ fn play_game(_game_num: usize, simulations: u32, model_path: Option<String>) -> 
         let mut policy_dist = Vec::new();
         if total_visits > 0 {
             for (mv, visits) in &result.root_policy {
-                let idx = (mv.from as u16) * 64 + (mv.to as u16);
+                let idx = move_to_index(*mv) as u16;
                 let prob = *visits as f32 / total_visits as f32;
                 policy_dist.push((idx, prob));
             }
@@ -198,11 +199,11 @@ fn save_binary_data(filename: &str, samples: &[TrainingSample]) -> std::io::Resu
         // 3. Value Target [1 float]
         buffer.extend_from_slice(&sample.value_target.to_le_bytes());
 
-        // 4. Policy Target [4096 floats]
+        // 4. Policy Target [4672 floats]
         // Initialize zero vector
-        let mut policy_vec = vec![0.0f32; 4096];
+        let mut policy_vec = vec![0.0f32; 4672];
         for (idx, prob) in &sample.policy {
-            if (*idx as usize) < 4096 {
+            if (*idx as usize) < 4672 {
                 policy_vec[*idx as usize] = *prob;
             }
         }

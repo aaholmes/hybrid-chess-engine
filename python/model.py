@@ -32,7 +32,7 @@ class LogosNet(nn.Module):
     Policy: Standard
     Value: Dual Head (Deep Value + Confidence Scalar)
     """
-    def __init__(self, input_channels=12, filters=128, num_res_blocks=10, policy_output_size=4096):
+    def __init__(self, input_channels=12, filters=128, num_res_blocks=10, policy_output_size=4672):
         super(LogosNet, self).__init__()
         
         # Input Block
@@ -44,10 +44,11 @@ class LogosNet(nn.Module):
             ResidualBlock(filters) for _ in range(num_res_blocks)
         ])
         
-        # Policy Head (Standard)
-        self.policy_conv = nn.Conv2d(filters, 32, kernel_size=1, bias=False)
-        self.policy_bn = nn.BatchNorm2d(32)
-        self.policy_fc = nn.Linear(32 * 8 * 8, policy_output_size)
+        # Policy Head (Convolutional)
+        # Output: 73 planes per square (8x8x73) -> 4672 moves
+        self.policy_conv = nn.Conv2d(filters, 73, kernel_size=1, bias=False)
+        self.policy_bn = nn.BatchNorm2d(73)
+        # No Linear layer for policy! We flatten the conv output directly.
         
         # Value Backbone (Shared by V and K)
         self.value_conv = nn.Conv2d(filters, 1, kernel_size=1, bias=False)
@@ -77,7 +78,7 @@ class LogosNet(nn.Module):
             x: [B, C, 8, 8] Board features
             material_scalar: [B] or [B, 1] Material Imbalance
         Returns:
-            policy: [B, 4096] Log probabilities
+            policy: [B, 4672] Log probabilities
             value: [B, 1] Final evaluation (-1 to 1)
             k: [B, 1] The predicted material confidence scalar
         """
@@ -88,8 +89,25 @@ class LogosNet(nn.Module):
             
         # Policy Head
         p = F.relu(self.policy_bn(self.policy_conv(x)))
-        p = p.view(p.size(0), -1)
-        policy = F.log_softmax(self.policy_fc(p), dim=1)
+        # Flatten to [B, 4672] (8*8*73)
+        # Note: PyTorch flattens Channel-first by default?
+        # Conv2d output is [B, 73, 8, 8].
+        # We want alignment with our move_to_index which is (src * 73 + plane).
+        # Src is 0..63 (Rank*8 + File).
+        # So we want [B, 8, 8, 73] then flattened? 
+        # Or does [B, 73, 8, 8] flatten to something else?
+        # x.view(B, -1) flattens [B, C, H, W] -> [B, C*H*W].
+        # Index order: C changes slowest, then H, then W.
+        # Index = c * (H*W) + h * W + w.
+        # Our target index is: src * 73 + plane.
+        # src = h*8 + w.
+        # Target Index = (h*8 + w) * 73 + c.
+        # This matches permuting to [B, 8, 8, 73] then flattening.
+        
+        p = p.permute(0, 2, 3, 1) # [B, 8, 8, 73]
+        p = p.contiguous().view(p.size(0), -1) # [B, 8*8*73]
+        
+        policy = F.log_softmax(p, dim=1) # Log probabilities
         
         # Value Backbone
         v = F.relu(self.value_bn(self.value_conv(x)))

@@ -14,6 +14,7 @@ mod real {
     use crate::board::Board;
     use crate::move_types::Move;
     use crate::piece_types::{PieceType, Color};
+    use crate::tensor::move_to_index;
     use tch::{CModule, Tensor, Device, Kind};
     use std::path::Path;
 
@@ -119,7 +120,7 @@ mod real {
             let mut result = Vec::with_capacity(moves.len());
             let mut total_prob = 0.0;
             for &mv in moves {
-                let idx = (mv.from as usize * 64) + (mv.to as usize);
+                let idx = move_to_index(mv);
                 if idx < policy.len() {
                     let prob = policy[idx];
                     result.push((mv, prob));
