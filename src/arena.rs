@@ -1,74 +1,49 @@
-//! This module provides an Arena for staging chess engine matches.
-
-use crate::agent::Agent;
+use crate::agent;
 use crate::boardstack::BoardStack;
-use crate::utils::print_move;
 
-/// Struct representing an arena for chess engine matches.
-pub struct Arena<'a> {
-    /// The agent playing as White.
-    white_player: &'a dyn Agent,
-    /// The agent playing as Black.
-    black_player: &'a dyn Agent,
-    /// The maximum number of moves allowed in the game.
-    max_moves: i32,
-    /// The current state of the chess board.
+pub struct Match {
+    pub white: Box<dyn agent::Agent>,
+    pub black: Box<dyn agent::Agent>,
     pub boardstack: BoardStack,
+    pub max_moves: u32,
 }
 
-impl Arena<'_> {
-    /// Creates a new Arena with the specified players and maximum number of moves.
-    ///
-    /// # Arguments
-    ///
-    /// * `white_player` - The agent playing as White.
-    /// * `black_player` - The agent playing as Black.
-    /// * `max_moves` - The maximum number of moves allowed in the game.
-    ///
-    /// # Returns
-    ///
-    /// A new `Arena` instance.
-    pub fn new<'a>(
-        white_player: &'a dyn Agent,
-        black_player: &'a dyn Agent,
-        max_moves: i32,
-    ) -> Arena<'a> {
-        Arena {
-            white_player,
-            black_player,
+impl Match {
+    pub fn new(
+        white: Box<dyn agent::Agent>,
+        black: Box<dyn agent::Agent>,
+        boardstack: BoardStack,
+        max_moves: u32,
+    ) -> Self {
+        Match {
+            white,
+            black,
+            boardstack,
             max_moves,
-            boardstack: BoardStack::new(),
         }
     }
 
-    /// Plays a game between the two agents in the arena.
-    ///
-    /// This method alternates moves between White and Black players until the maximum
-    /// number of moves is reached. It prints the game state after each move.
-    pub fn play_game(&mut self) {
-        println!("Playing game (max {} moves)", self.max_moves);
-        self.boardstack.current_state().print();
-
+    pub fn play(&mut self) -> i32 {
         for i in 0..self.max_moves {
-            println!("Move {}", i);
-
-            let (current_player, color) = if i % 2 == 0 {
-                (self.white_player, "White")
+            let (current_player, color_str) = if i % 2 == 0 {
+                (&mut *self.white as &mut dyn agent::Agent, "White")
             } else {
-                (self.black_player, "Black")
+                (&mut *self.black as &mut dyn agent::Agent, "Black")
             };
 
-            // Get and make the move for the current player
             let m = current_player.get_move(&mut self.boardstack);
-            println!("{} to move: {}", color, print_move(&m));
+            println!("{} to move: {}", color_str, m.to_uci());
             self.boardstack.make_move(m);
 
-            // Print the updated board state
-            self.boardstack.current_state().print();
-
-            // TODO: Add game termination conditions (checkmate, stalemate, etc.)
+            if self.boardstack.current_state().is_checkmate_or_stalemate(&crate::move_generation::MoveGen::new()).0 {
+                println!("Checkmate!");
+                return if i % 2 == 0 { 1 } else { -1 };
+            }
+            if self.boardstack.current_state().is_checkmate_or_stalemate(&crate::move_generation::MoveGen::new()).1 {
+                println!("Stalemate!");
+                return 0;
+            }
         }
-
-        // TODO: Determine and print the game result
+        0
     }
 }

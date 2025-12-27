@@ -104,7 +104,7 @@ pub fn get_tactical_test_suite() -> Vec<TacticalPosition> {
 /// Benchmark a single position with the given agent
 pub fn benchmark_position<T: Agent>(
     position: &TacticalPosition, 
-    agent: &T,
+    agent: &mut T,
     time_limit: Duration
 ) -> BenchmarkResult {
     let start_time = Instant::now();
@@ -135,22 +135,21 @@ pub fn benchmark_position<T: Agent>(
 
 /// Run the complete tactical benchmark suite
 pub fn run_tactical_benchmark<T: Agent>(
-    agent: &T,
-    engine_name: &str,
+    agent: &mut T, 
+    engine_name: &str, 
     time_limit_per_position: Duration
 ) -> Vec<BenchmarkResult> {
-    let positions = get_tactical_test_suite();
+    let _positions = get_tactical_test_suite();
     let mut results = Vec::new();
     
     println!("\n🎯 Running Tactical Benchmark for {}", engine_name);
     println!("Testing {} positions with {}ms time limit per position\n", 
-             positions.len(), time_limit_per_position.as_millis());
+             _positions.len(), time_limit_per_position.as_millis());
     
-    for (i, position) in positions.iter().enumerate() {
-        print!("Position {}/{}: {} ... ", i + 1, positions.len(), position.name);
+    for (i, position) in _positions.iter().enumerate() {
+        print!("Position {}/{}: {} ... ", i + 1, _positions.len(), position.name);
         
-        let mut result = benchmark_position(position, agent, time_limit_per_position);
-        result.engine_name = engine_name.to_string();
+        let mut result = benchmark_position(position, agent, time_limit_per_position);        result.engine_name = engine_name.to_string();
         
         if result.found_mate {
             println!("✅ SOLVED in {:.1}ms", result.time_taken.as_millis());

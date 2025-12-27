@@ -63,7 +63,7 @@ pub fn tactical_mcts_search(
     pesto_eval: &PestoEval,
     nn_policy: &mut Option<NeuralNetPolicy>,
     config: TacticalMctsConfig,
-) -> (Option<Move>, TacticalMctsStats) {
+) -> (Option<Move>, TacticalMctsStats, Rc<RefCell<MctsNode>>) {
     let mut transposition_table = TranspositionTable::new();
     tactical_mcts_search_with_tt(board, move_gen, pesto_eval, nn_policy, config, &mut transposition_table)
 }
@@ -75,7 +75,7 @@ pub fn tactical_mcts_search_with_tt(
     nn_policy: &mut Option<NeuralNetPolicy>,
     config: TacticalMctsConfig,
     transposition_table: &mut TranspositionTable,
-) -> (Option<Move>, TacticalMctsStats) {
+) -> (Option<Move>, TacticalMctsStats, Rc<RefCell<MctsNode>>) {
     let start_time = Instant::now();
     let mut stats = TacticalMctsStats::default();
     
@@ -87,7 +87,9 @@ pub fn tactical_mcts_search_with_tt(
             let next = board.apply_move_to_board(*m);
             if next.is_legal(move_gen) && next.is_koth_win().0 == board.w_to_move {
                 stats.search_time = start_time.elapsed();
-                return (Some(*m), stats);
+                // Create dummy root for return
+                let root_node = MctsNode::new_root(board, move_gen);
+                return (Some(*m), stats, root_node);
             }
         }
     }
@@ -110,13 +112,14 @@ pub fn tactical_mcts_search_with_tt(
     
     if let Some(immediate_mate_move) = mate_move_result {
         stats.search_time = start_time.elapsed();
-        return (Some(immediate_mate_move), stats);
+        let root_node = MctsNode::new_root(board, move_gen);
+        return (Some(immediate_mate_move), stats, root_node);
     }
     
     let root_node = MctsNode::new_root(board, move_gen);
     
     if root_node.borrow().is_game_terminal() {
-        return (None, stats);
+        return (None, stats, root_node);
     }
     
     evaluate_and_expand_node(root_node.clone(), move_gen, pesto_eval, &mut stats);
@@ -137,8 +140,8 @@ pub fn tactical_mcts_search_with_tt(
     }
     
     stats.search_time = start_time.elapsed();
-    let best_move = select_best_move_from_root(root_node, &config);
-    (best_move, stats)
+    let best_move = select_best_move_from_root(root_node.clone(), &config);
+    (best_move, stats, root_node)
 }
 
 fn select_leaf_node(

@@ -110,23 +110,23 @@ pub fn run_performance_comparison(time_limit_per_position: Duration) -> Performa
     
     // Test 1: Traditional AlphaBeta (baseline)
     println!("1️⃣ Testing Traditional Alpha-Beta Search");
-    let simple_agent = create_simple_agent();
-    let ab_results = run_tactical_benchmark(&simple_agent, "AlphaBeta", time_limit_per_position);
+    let mut simple_agent = create_simple_agent();
+    let ab_results = run_tactical_benchmark(&mut simple_agent, "AlphaBeta", time_limit_per_position);
     let ab_summary = BenchmarkSummary::from_results(&ab_results);
     ab_summary.print_summary("Traditional AlphaBeta");
     comparison.add_benchmark("AlphaBeta".to_string(), ab_summary);
     
     // Test 2: Humanlike Agent with Mate-Search-First MCTS
     println!("2️⃣ Testing Mate-Search-First MCTS");
-    let humanlike_agent = create_humanlike_agent();
-    let mcts_results = run_tactical_benchmark(&humanlike_agent, "MateSearchFirst-MCTS", time_limit_per_position);
+    let mut humanlike_agent = create_humanlike_agent();
+    let mcts_results = run_tactical_benchmark(&mut humanlike_agent, "MateSearchFirst-MCTS", time_limit_per_position);
     let mcts_summary = BenchmarkSummary::from_results(&mcts_results);
     mcts_summary.print_summary("MateSearchFirst-MCTS");
     comparison.add_benchmark("MateSearchFirst-MCTS".to_string(), mcts_summary);
     
     // Test 3: AlphaBeta with deeper mate search
     println!("3️⃣ Testing Deep Mate Search AlphaBeta");
-    let deep_mate_agent = SimpleAgent::new(
+    let mut deep_mate_agent = SimpleAgent::new(
         5,     // deeper mate_search_depth
         6,     // shallower ab_search_depth to compensate
         16,    // q_search_max_depth
@@ -134,7 +134,7 @@ pub fn run_performance_comparison(time_limit_per_position: Duration) -> Performa
         &*BENCH_MOVE_GEN,
         &*BENCH_PESTO_EVAL,
     );
-    let deep_results = run_tactical_benchmark(&deep_mate_agent, "DeepMate-AlphaBeta", time_limit_per_position);
+    let deep_results = run_tactical_benchmark(&mut deep_mate_agent, "DeepMate-AlphaBeta", time_limit_per_position);
     let deep_summary = BenchmarkSummary::from_results(&deep_results);
     deep_summary.print_summary("DeepMate-AlphaBeta");
     comparison.add_benchmark("DeepMate-AlphaBeta".to_string(), deep_summary);
@@ -158,11 +158,11 @@ pub fn mate_speed_benchmark() {
     for time_limit in time_limits {
         println!("\n⏱️  Testing with {}ms time limit:", time_limit.as_millis());
         
-        let simple_agent = create_simple_agent();
-        let humanlike_agent = create_humanlike_agent();
+        let mut simple_agent = create_simple_agent();
+        let mut humanlike_agent = create_humanlike_agent();
         
-        let ab_results = run_tactical_benchmark(&simple_agent, "AlphaBeta", time_limit);
-        let mcts_results = run_tactical_benchmark(&humanlike_agent, "MateSearchFirst", time_limit);
+        let ab_results = run_tactical_benchmark(&mut simple_agent, "AlphaBeta", time_limit);
+        let mcts_results = run_tactical_benchmark(&mut humanlike_agent, "MateSearchFirst", time_limit);
         
         let ab_summary = BenchmarkSummary::from_results(&ab_results);
         let mcts_summary = BenchmarkSummary::from_results(&mcts_results);

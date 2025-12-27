@@ -158,6 +158,20 @@ impl UCIEngine {
                 "position" => self.handle_position(&tokens[1..]),
                 "setoption" => self.handle_setoption(&tokens[1..]), // Added handler for setoption
                 "go" => self.handle_go(&tokens[1..]),
+                "debug" => {
+                    if tokens.len() >= 2 && tokens[1] == "viz" {
+                        let filename = if tokens.len() >= 3 { tokens[2] } else { "debug.dot" };
+                        if let Some(root) = self.agent.get_last_search_tree() {
+                            let dot = root.borrow().export_dot(10);
+                            match std::fs::write(filename, dot) {
+                                Ok(_) => println!("info string Tree dumped to {}. Use xdot or edotor.net to view.", filename),
+                                Err(e) => println!("info string Failed to write viz file: {}", e),
+                            }
+                        } else {
+                            println!("info string No search tree available. Run a search first!");
+                        }
+                    }
+                }
                 "quit" => break,
                 _ => println!("Unknown command: {}", tokens[0]),
             }

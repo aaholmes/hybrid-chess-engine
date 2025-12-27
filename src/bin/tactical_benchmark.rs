@@ -223,7 +223,7 @@ fn benchmark_tactical_mcts(
     };
     
     let start_time = Instant::now();
-    let (best_move, stats) = tactical_mcts_search(
+    let (best_move, stats, _root) = tactical_mcts_search(
         board.clone(),
         move_gen,
         pesto_eval,

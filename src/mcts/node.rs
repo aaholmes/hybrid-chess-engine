@@ -382,6 +382,77 @@ impl MctsNode {
         }
         legal_moves
     }
+
+    /// Exports the MCTS tree to a Graphviz DOT string for visualization.
+    pub fn export_dot(&self, depth_limit: usize) -> String {
+        let mut output = String::from("digraph MCTS {\n");
+        output.push_str("  node [shape=record, style=filled, fontname=\"Arial\"];\n");
+        
+        let mut id_counter = 0;
+        self.recursive_dot(&mut output, 0, &mut id_counter, 0, depth_limit);
+        
+        output.push_str("}");
+        output
+    }
+
+    fn recursive_dot(&self, out: &mut String, my_id: usize, id_counter: &mut usize, depth: usize, limit: usize) {
+        if depth > limit { return; }
+
+        // 1. Determine Color
+        // Red (firebrick1): Tier 1 Solution (Mate/KOTH found). Check terminal/mate value.
+        // Important: Gate solutions have visits == 0 (solved before simulation).
+        // Standard solved nodes (visits > 0) are also red but maybe a different shade? 
+        // Instructions say: "Tier 1 ONLY if terminal value and visits == 0".
+        // Actually, if visits > 0 and solved, it's just a solved node. 
+        // Let's stick to the instruction: Red if Tier 1 Gate (visits == 0 && terminal value).
+        
+        // However, if we found mate deep in the tree, terminal_or_mate_value is set.
+        // If it's a leaf node that we just evaluated as mate, visits might be 0.
+        // Let's implement logic:
+        
+        let color = if self.terminal_or_mate_value.is_some() && self.visits == 0 {
+            "firebrick1" // Tier 1 Gate (Solved immediately)
+        } else if self.is_tactical_node {
+            "gold"       // Tier 2 Graft
+        } else {
+            "lightblue"  // Tier 3 / Standard
+        };
+
+        // 2. Format Label
+        let move_str = self.action.map_or("Root".to_string(), |m| m.to_uci());
+        let val = if self.visits > 0 { self.total_value / self.visits as f64 } else { 0.0 };
+        // Show Visits (N), Value (Q), and maybe Evaluation (NN/Pesto)
+        let eval_str = if let Some(ev) = self.nn_value { format!("{:.2}", ev) } else { "?".to_string() };
+        
+        let label = format!("{{ {} | N:{} | Q:{:.2} | Eval:{} }}", 
+            move_str, self.visits, val, eval_str);
+
+        // 3. Write Node Definition
+        out.push_str(&format!("  {} [label=\"{}\", fillcolor={}];\n", my_id, label, color));
+
+        // 4. Handle Real Children
+        for child in &self.children {
+            *id_counter += 1;
+            let child_id = *id_counter;
+            
+            out.push_str(&format!("  {} -> {};\n", my_id, child_id));
+            child.borrow().recursive_dot(out, child_id, id_counter, depth + 1, limit);
+        }
+
+        // 5. Handle Shadow Priors (Ghost Nodes)
+        for (mv, score) in &self.shadow_priors {
+            // Need unique IDs for ghosts too
+            *id_counter += 1;
+            let ghost_id = *id_counter;
+            
+            let ghost_label = format!("{{ {} | QS:{:.2} | (Refuted) }}", mv.to_uci(), score);
+            
+            // Write Ghost Node
+            out.push_str(&format!("  {} [label=\"{}\", style=dashed, fillcolor=lightgrey];\n", ghost_id, ghost_label));
+            // Write Dashed Edge
+            out.push_str(&format!("  {} -> {} [style=dashed];\n", my_id, ghost_id));
+        }
+    }
 }
 
 fn should_expand_not_select(node: &MctsNode) -> bool {
