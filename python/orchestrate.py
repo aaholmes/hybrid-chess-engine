@@ -59,20 +59,22 @@ def orchestrate():
 
         # 1. Self Play
         print(f"🎮 Generating {GAMES_PER_GEN} games...")
-        # cargo run --bin self_play -- <games> <sims> <output_dir> <model_path>
+        # Ensure libtorch is in LD_LIBRARY_PATH
+        import torch
+        torch_lib_path = os.path.join(os.path.dirname(torch.__file__), "lib")
+        env = os.environ.copy()
+        env["LD_LIBRARY_PATH"] = torch_lib_path + ":" + env.get("LD_LIBRARY_PATH", "")
+        
+        # cargo run --release --features neural --bin self_play -- <games> <sims> <output_dir> <model_path>
         cmd = [
-            "cargo", "run", "--release", "--bin", "self_play", "--",
+            "cargo", "run", "--release", "--features", "neural", "--bin", "self_play", "--",
             str(GAMES_PER_GEN), str(SIMULATIONS), current_data_dir, prev_model_pt
         ]
-        subprocess.check_call(cmd)
+        subprocess.check_call(cmd, env=env)
 
         # 2. Training
         print(f"🧠 Training on last {BUFFER_SIZE} generations...")
         
-        # Aggregate data folders (Rolling Window)
-        # For simplicity in this v1, pass the current gen folder. 
-        # python/train.py logic needs to change to accept multiple folders if we strictly follow the guide.
-        # OR we just copy files into a 'training_buffer' dir.
         buffer_dir = "data/training_buffer"
         if os.path.exists(buffer_dir):
             shutil.rmtree(buffer_dir)
@@ -82,7 +84,6 @@ def orchestrate():
         for g in range(start_gen, generation + 1):
             src = f"data/gen_{g}"
             if os.path.exists(src):
-                # Symlink or copy files
                 for f in os.listdir(src):
                     if f.endswith(".bin"):
                         shutil.copy(os.path.join(src, f), os.path.join(buffer_dir, f"{g}_{f}"))
@@ -98,7 +99,7 @@ def orchestrate():
         # 3. Export to TorchScript for Rust
         print("📦 Exporting model for engine...")
         model = LogosNet()
-        model.load_state_dict(torch.load(next_model_pth))
+        model.load_state_dict(torch.load(next_model_pth, weights_only=True))
         export_model_for_rust(model, next_model_pt)
         
         # 4. Update Symlink

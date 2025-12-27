@@ -13,7 +13,7 @@
 mod real {
     use crate::board::Board;
     use crate::move_types::Move;
-    use crate::piece_types::{PieceType, Color};
+    use crate::piece_types::{PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING, WHITE, BLACK};
     use crate::tensor::move_to_index;
     use tch::{CModule, Tensor, Device, Kind};
     use std::path::Path;
@@ -58,13 +58,10 @@ mod real {
 
         pub fn board_to_tensor(&self, board: &Board) -> Tensor {
             let mut planes = Vec::with_capacity(12);
-            for &color in &[Color::White, Color::Black] {
-                for &pt in &[
-                    PieceType::Pawn, PieceType::Knight, PieceType::Bishop,
-                    PieceType::Rook, PieceType::Queen, PieceType::King
-                ] {
+            for &color in &[WHITE, BLACK] {
+                for &pt in &[PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING] {
                     let mut plane = vec![0.0f32; 64];
-                    let bitboard = board.get_piece_bitboard(pt, color);
+                    let bitboard = board.get_piece_bitboard(color, pt);
                     for i in 0..64 {
                         if (bitboard >> i) & 1 == 1 {
                             let rank = i / 8;
@@ -106,7 +103,10 @@ mod real {
                     _ => return None,
                 };
 
-                let policy_probs = policy_tensor.exp().view([-1]).to_vec::<f32>().ok()?;
+                // Use copy_data to convert Tensor to Vec<f32>
+                let mut policy_probs = vec![0.0f32; 4672];
+                policy_tensor.exp().view([-1]).to_device(Device::Cpu).copy_data(&mut policy_probs, 4672);
+                
                 let value = value_tensor.double_value(&[0, 0]) as f32;
                 let k_val = k_tensor.double_value(&[0, 0]) as f32;
 
