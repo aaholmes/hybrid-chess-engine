@@ -42,6 +42,9 @@ pub struct MctsNode {
     pub mate_move: Option<Move>,
     /// Stores the value from the evaluation (Pesto or NN) (0.0 to 1.0 for White) when node is first evaluated.
     pub nn_value: Option<f64>, 
+    /// The material confidence scalar (k) predicted by the neural network for this node.
+    /// Used for extrapolating values of child tactical nodes.
+    pub k_val: f32,
     /// Neural network prior probability for this move (from parent's perspective)
     pub prior_probability: f32,
 
@@ -102,6 +105,7 @@ impl MctsNode {
             terminal_or_mate_value: initial_terminal_value,
             mate_move: None,
             nn_value: None,
+            k_val: 0.5, // Default confidence
             prior_probability: 0.0,
             unexplored_moves_by_cat: HashMap::new(),
             current_priority_category: None,
@@ -146,6 +150,7 @@ impl MctsNode {
             terminal_or_mate_value: initial_terminal_value,
             mate_move: None,
             nn_value: None,
+            k_val: 0.5, // Default confidence
             prior_probability: 0.0,
             unexplored_moves_by_cat: HashMap::new(),
             current_priority_category: None,

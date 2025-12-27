@@ -230,11 +230,12 @@ fn ensure_policy_evaluated(
     // If neural network available, use it
     if let Some(nn) = nn_policy {
         if nn.is_available() {
-            if let Some((policy_probs, _)) = nn.predict(&node_ref.state) {
+            if let Some((policy_probs, _value, k)) = nn.predict(&node_ref.state) {
                 let priors = nn.policy_to_move_priors(&policy_probs, &moves_to_prioritize);
                 for (mv, prob) in priors {
                     node_ref.move_priorities.insert(mv, prob as f64);
                 }
+                node_ref.k_val = k; // Store k for tactical expansion
                 node_ref.policy_evaluated = true;
                 return;
             }

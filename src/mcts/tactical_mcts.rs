@@ -87,7 +87,6 @@ pub fn tactical_mcts_search_with_tt(
             let next = board.apply_move_to_board(*m);
             if next.is_legal(move_gen) && next.is_koth_win().0 == board.w_to_move {
                 stats.search_time = start_time.elapsed();
-                // Create dummy root for return
                 let root_node = MctsNode::new_root(board, move_gen);
                 return (Some(*m), stats, root_node);
             }
@@ -128,7 +127,7 @@ pub fn tactical_mcts_search_with_tt(
         if start_time.elapsed() > config.time_limit { break; }
         
         let leaf_node = select_leaf_node(root_node.clone(), move_gen, nn_policy, config.exploration_constant, &mut stats);
-        let value = evaluate_leaf_node(leaf_node.clone(), move_gen, pesto_eval, config.mate_search_depth, transposition_table, &mut stats);
+        let value = evaluate_leaf_node(leaf_node.clone(), move_gen, pesto_eval, nn_policy, config.mate_search_depth, transposition_table, &mut stats);
         
         if !leaf_node.borrow().is_game_terminal() && leaf_node.borrow().visits == 0 {
             evaluate_and_expand_node(leaf_node.clone(), move_gen, pesto_eval, &mut stats);
@@ -180,6 +179,7 @@ fn evaluate_leaf_node(
     node: Rc<RefCell<MctsNode>>,
     move_gen: &MoveGen,
     pesto_eval: &PestoEval,
+    nn_policy: &mut Option<NeuralNetPolicy>,
     mate_search_depth: i32,
     transposition_table: &mut TranspositionTable,
     stats: &mut TacticalMctsStats,
@@ -221,9 +221,27 @@ fn evaluate_leaf_node(
     }
     
     if node_ref.nn_value.is_none() {
-        let eval_score = pesto_eval.eval(&node_ref.state, move_gen);
-        let normalized_value = 1.0 / (1.0 + (-eval_score as f64 / 400.0).exp());
-        node_ref.nn_value = Some(normalized_value);
+        // Retrieve k from NN if available
+        let mut k_val = 0.5;
+        let mut eval_val = -999.0; // Marker for no NN result
+
+        if let Some(nn) = nn_policy {
+            if nn.is_available() {
+                if let Some((_policy, value, k)) = nn.predict(&node_ref.state) {
+                    eval_val = value as f64;
+                    k_val = k;
+                }
+            }
+        }
+
+        if eval_val < -1.0 {
+            // Fallback to Pesto
+            let eval_score = pesto_eval.eval(&node_ref.state, move_gen);
+            eval_val = 1.0 / (1.0 + (-eval_score as f64 / 400.0).exp());
+        }
+
+        node_ref.nn_value = Some(eval_val);
+        node_ref.k_val = k_val;
     }
     
     node_ref.nn_value.unwrap_or(0.5)
@@ -246,22 +264,21 @@ fn evaluate_and_expand_node(
     let tactical_tree = quiescence_search_tactical(&mut board_stack, move_gen, pesto_eval);
 
     if !tactical_tree.siblings.is_empty() {
-        // Graft the PV and shadow siblings
         let parent_eval = pesto_eval.eval(&node_ref.state, move_gen);
-        let parent_v = 1.0 / (1.0 + (-parent_eval as f64 / 400.0).exp());
+        let parent_v = node_ref.nn_value.unwrap_or(0.5);
+        let k = node_ref.k_val;
 
         for (mv, qs_score) in tactical_tree.siblings {
             let material_delta = qs_score - parent_eval;
-            let extrapolated_v = extrapolate_value(parent_v, material_delta);
+            let extrapolated_v = extrapolate_value(parent_v, material_delta, k);
             
-            // Store in shadow priors or create child
             node_ref.shadow_priors.insert(mv, extrapolated_v);
             
-            // For the PV move, create the node immediately (Grafting)
             if tactical_tree.principal_variation.contains(&mv) {
                 let next_board = node_ref.state.apply_move_to_board(mv);
                 let child = MctsNode::new_child(Rc::downgrade(&node), mv, next_board, move_gen);
                 child.borrow_mut().nn_value = Some(extrapolated_v);
+                child.borrow_mut().k_val = k; 
                 child.borrow_mut().is_tactical_node = true;
                 node_ref.children.push(child);
                 stats.nodes_expanded += 1;
@@ -270,10 +287,8 @@ fn evaluate_and_expand_node(
         node_ref.tactical_resolution_done = true;
     }
 
-    // Normal expansion for remaining moves (lazy)
     let (captures, non_captures) = move_gen.gen_pseudo_legal_moves(&node_ref.state);
     for mv in captures.iter().chain(non_captures.iter()) {
-        // Skip if already grafted
         if node_ref.children.iter().any(|c| c.borrow().action == Some(*mv)) {
             continue;
         }
@@ -352,7 +367,7 @@ pub fn tactical_mcts_search_for_training(
     for iteration in 0..config.max_iterations {
         if start_time.elapsed() > config.time_limit { break; }
         let leaf = select_leaf_node(root_node.clone(), move_gen, nn_policy, config.exploration_constant, &mut stats);
-        let value = evaluate_leaf_node(leaf.clone(), move_gen, pesto_eval, config.mate_search_depth, &mut transposition_table, &mut stats);
+        let value = evaluate_leaf_node(leaf.clone(), move_gen, pesto_eval, nn_policy, config.mate_search_depth, &mut transposition_table, &mut stats);
         if !leaf.borrow().is_game_terminal() && leaf.borrow().visits == 0 {
             evaluate_and_expand_node(leaf.clone(), move_gen, pesto_eval, &mut stats);
         }

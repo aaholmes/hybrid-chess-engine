@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import math
 
 # ==========================================
 # Shared Components
@@ -22,60 +23,17 @@ class ResidualBlock(nn.Module):
         return F.relu(out)
 
 # ==========================================
-# Symbolic Value Head
+# Logos Network (Dynamic Symbolic Residual)
 # ==========================================
-class SymbolicValueHead(nn.Module):
+class LogosNet(nn.Module):
     """
-    A value head that learns a residual correction to a hard-coded material imbalance.
-    Formula: V = tanh( V_net + k * DeltaM )
-    """
-    def __init__(self, input_channels, hidden_dim=256):
-        super(SymbolicValueHead, self).__init__()
-        
-        # Standard Value Head components
-        self.conv = nn.Conv2d(input_channels, 1, kernel_size=1, bias=False)
-        self.bn = nn.BatchNorm2d(1)
-        self.fc1 = nn.Linear(8 * 8, hidden_dim)
-        self.fc2 = nn.Linear(hidden_dim, 1) # Output V_net (logit)
-        
-        # The Learnable Symbolic Parameter k
-        # Initialized to 0.5 as per specification
-        self.k = nn.Parameter(torch.tensor(0.5))
-
-    def forward(self, x, material_scalar):
-        """
-        Args:
-            x: Input feature map from the backbone [B, C, 8, 8]
-            material_scalar: Material imbalance delta [B, 1] (or [B])
-        """
-        # Deep Value Calculation (V_net)
-        v = F.relu(self.bn(self.conv(x)))
-        v = v.view(v.size(0), -1) # Flatten [B, 64]
-        v = F.relu(self.fc1(v))
-        v_net = self.fc2(v) # Logit [B, 1]
-        
-        # Ensure material_scalar shape matches v_net
-        if material_scalar.dim() == 1:
-            material_scalar = material_scalar.unsqueeze(1) # [B] -> [B, 1]
-            
-        # Symbolic Residual Connection
-        v_combined = v_net + (self.k * material_scalar)
-        
-        # Final Activation
-        return torch.tanh(v_combined)
-
-# ==========================================
-# Caissawary Network
-# ==========================================
-class CaissawaryNet(nn.Module):
-    """
-    Neurosymbolic Chess Network
+    Neurosymbolic Chess Network with Dynamic Confidence
     Backbone: ResNet
     Policy: Standard
-    Value: Symbolic Residual
+    Value: Dual Head (Deep Value + Confidence Scalar)
     """
     def __init__(self, input_channels=12, filters=128, num_res_blocks=10, policy_output_size=4096):
-        super(CaissawaryNet, self).__init__()
+        super(LogosNet, self).__init__()
         
         # Input Block
         self.conv_input = nn.Conv2d(input_channels, filters, kernel_size=3, padding=1, bias=False)
@@ -91,23 +49,68 @@ class CaissawaryNet(nn.Module):
         self.policy_bn = nn.BatchNorm2d(32)
         self.policy_fc = nn.Linear(32 * 8 * 8, policy_output_size)
         
-        # Value Head (Symbolic)
-        self.value_head = SymbolicValueHead(filters)
+        # Value Backbone (Shared by V and K)
+        self.value_conv = nn.Conv2d(filters, 1, kernel_size=1, bias=False)
+        self.value_bn = nn.BatchNorm2d(1)
+        self.value_fc_hidden = nn.Linear(8 * 8, 256)
+        
+        # Dual Heads
+        # 1. Deep Value Head (V_net) - outputs Logit
+        self.val_head = nn.Linear(256, 1)
+        
+        # 2. Confidence Head (K_net) - outputs Logit
+        self.k_head = nn.Linear(256, 1)
+        
+        # Zero Initialization for K-head
+        # Result: k_logit starts at 0.0
+        # Softplus(0) = ln(1 + e^0) = ln(2)
+        # k = ln(2) / (2 * ln(2)) = 0.5
+        nn.init.constant_(self.k_head.weight, 0.0)
+        nn.init.constant_(self.k_head.bias, 0.0)
+        
+        # Denominator Constant: 2 * ln(2)
+        self.k_scale = 2 * math.log(2)
 
     def forward(self, x, material_scalar):
-        # Input
+        """
+        Args:
+            x: [B, C, 8, 8] Board features
+            material_scalar: [B] or [B, 1] Material Imbalance
+        Returns:
+            policy: [B, 4096] Log probabilities
+            value: [B, 1] Final evaluation (-1 to 1)
+            k: [B, 1] The predicted material confidence scalar
+        """
+        # Backbone
         x = F.relu(self.bn_input(self.conv_input(x)))
-        
-        # Tower
         for block in self.res_blocks:
             x = block(x)
             
         # Policy Head
         p = F.relu(self.policy_bn(self.policy_conv(x)))
         p = p.view(p.size(0), -1)
-        policy = F.log_softmax(self.policy_fc(p), dim=1) # Log probabilities
+        policy = F.log_softmax(self.policy_fc(p), dim=1)
         
-        # Value Head
-        value = self.value_head(x, material_scalar)
+        # Value Backbone
+        v = F.relu(self.value_bn(self.value_conv(x)))
+        v = v.view(v.size(0), -1)
+        v = F.relu(self.value_fc_hidden(v))
         
-        return policy, value
+        # Dual Heads
+        v_logit = self.val_head(v) # [B, 1]
+        k_logit = self.k_head(v)   # [B, 1]
+        
+        # Calculate k (Confidence Scalar)
+        # k = Softplus(k_logit) / (2 * ln2)
+        k = F.softplus(k_logit) / self.k_scale
+        
+        # Ensure material_scalar matches shape [B, 1]
+        if material_scalar.dim() == 1:
+            material_scalar = material_scalar.unsqueeze(1)
+            
+        # Residual Recombination
+        # V_final = Tanh( V_net + k * DeltaM )
+        total_logit = v_logit + (k * material_scalar)
+        value = torch.tanh(total_logit)
+        
+        return policy, value, k
