@@ -20,52 +20,39 @@ Caissawary's intelligence stems from how it handles each node during an MCTS tra
 ### The MCTS Node Handling Flow
 When the MCTS search selects a node, its state determines the next action:
 
-#### 1. If the node is a new LEAF (never visited):
-It is evaluated immediately to determine its value.
+#### 1. Safety Gates (Tier 1):
+Before any expansion, the engine runs ultra-fast "Safety Gates" to detect immediate win/loss conditions:
+- **Checks-Only Mate Search:** A depth-limited DFS that only considers checking moves. It instantly spots forced mate sequences (like Mate-in-2) that standard MCTS might miss due to low visit counts.
+- **KOTH Geometric Gate:** A geometric pruning algorithm that detects if a King can reach the center (King of the Hill win) within 3 moves faster than the opponent.
 
-- **Tier 1 (Mate Search)**: A fast, parallel mate search is run. If a mate is found, this becomes the node's value.
-- **Tier 2 (Quiescence Eval)**: If no mate is found, a tactical quiescence search is run to get a stable, accurate evaluation score. This score becomes the leaf's value, which is then backpropagated.
+#### 2. Tactical Integration (Tier 2):
+If the node is not a terminal state, the engine performs a "Tactical Graft":
+- **Quiescence Search (QS):** A tactical search runs to resolve captures and checks.
+- **Grafting:** The best tactical move found by QS is "grafted" into the MCTS tree immediately as a child node.
+- **Shadow Priors:** Other promising tactical moves are stored with "shadow priors"—extrapolated values derived from their static evaluation scores relative to the parent. This guides the MCTS to explore these tactical possibilities before quiet moves.
 
-#### 2. If the node is INTERNAL with unexplored TACTICAL moves:
-The engine is forced to explore a tactical move first.
+#### 3. Strategic Evaluation (Tier 3):
+If no tactical resolution is sufficient, the engine engages the neural network (if enabled):
+- **Policy Network:** Computes priors for all legal moves.
+- **Lazy Evaluation:** The network is queried only when necessary, saving compute.
 
-- A simple heuristic (e.g., MVV-LVA) selects the next capture or promotion to analyze. 
-- Quiet moves are ignored until all tactical options at this node have been tried.
+## Tier 1: Safety Gates
+The engine includes specialized "Gates" that act as high-priority filters:
 
-#### 3. If the node is INTERNAL with only QUIET moves left:
-The engine engages the powerful ResNet policy network with a "lazy evaluation" strategy.
+1.  **Checks-Only Search:**
+    *   **Logic:** Recursively searches lines where the attacker *must* give check and the defender tries to evade.
+    *   **Goal:** Instantly finding forced mates (e.g., Back Rank Mate) without expanding thousands of MCTS nodes.
 
-- **First Visit**: The policy network is called exactly once to compute and store the policy priors for all available quiet moves.
-- **Subsequent Visits**: The standard UCB1 formula is used to select a move, using the already-stored policy priors without needing to call the network again.
+2.  **KOTH Geometric Pruning:**
+    *   **Logic:** Uses distance rings around the center squares (e4, d4, e5, d5).
+    *   **Goal:** Prunes any search branch where the King fails to make optimal progress towards the center, allowing the engine to solve KOTH races instantly.
 
-## Tier 1: Parallel Portfolio Mate Search
-To find checkmates with maximum speed, the Tier 1 search utilizes **Rayon** to execute a parallel portfolio of three specialized searches that run concurrently against a shared **Atomic Node Budget**. This ensures that the most efficient algorithm for the specific type of mate finds it first, terminating the others immediately.
+## Tier 2: Tactical Grafting
+Instead of treating all new nodes as equal, Caissawary injects tactical knowledge directly into the tree structure.
 
-### Default Behavior
-1.  **Sanity Check:** The engine first performs a quick, sequential check for any exhaustive Mate-in-2 or Checks-Only Mate-in-3 to instantly catch trivial wins.
-2.  **Portfolio Launch:** If no shallow mate is found, the parallel portfolio is launched.
-
-### The Portfolio Strategies
-1.  **Search A: "The Spearhead" (Checks-Only)**
-    *   **Constraint**: The side to move can *only* play checking moves.
-    *   **Behavior**: Reaches immense depths (e.g., Mate-in-15+) because the branching factor is tiny. It finds long, forcing "check-check-check-mate" sequences that standard searches miss due to horizon effects.
-
-2.  **Search B: "The Flanker" (One Quiet Move)**
-    *   **Constraint**: Allows checks, but permits **exactly one** quiet (non-checking) move in the entire variation.
-    *   **Behavior**: Finds mates requiring a setup move (e.g., blocking an escape square or a quiet sacrifice) followed by a forced sequence. This is computationally more expensive than the Spearhead but sharper than the Guardsman.
-
-3.  **Search C: "The Guardsman" (Exhaustive)**
-    *   **Constraint**: No constraints.
-    *   **Behavior**: Standard Alpha-Beta search. It guarantees finding *any* mate within its depth limit (e.g., Mate-in-5) but is the shallowest of the three.
-
-## Tier 2: Quiescence Search for Leaf Evaluation
-When the MCTS traversal reaches a new leaf node and the Tier 1 search does not find a mate, the engine must still produce a robust evaluation for that position. This is the role of the Tier 2 Quiescence Search.
-
-Instead of relying on a potentially noisy value from a neural network in a sharp position, this search resolves all immediate tactical possibilities to arrive at a stable, "quiet" position to evaluate.
-
-- **Process**: The search expands tactical moves—primarily captures, promotions, and pressing checks—and ignores quiet moves. It continues until no more tactical moves are available.
-- **Evaluation**: The final, quiet position is then scored by a classical evaluation function (Pesto) or the Neural Network (if enabled).
-- **Purpose**: This process avoids the classic problem of a fixed-depth search mis-evaluating a position in the middle of a capture sequence. The resulting score is a much more reliable measure of the leaf node's true value, which is then backpropagated up the MCTS tree.
+- **The Problem:** MCTS struggles with sharp tactics because it starts with random/uniform exploration.
+- **The Solution:** A Quiescence Search resolves the position first. The resulting Principal Variation (PV) is explicitly added to the tree.
+- **Value Extrapolation:** The engine uses a custom formula, `v = tanh(arctanh(v0) + k * delta)`, to estimate the value of tactical moves based on material changes (like winning a Queen) without running a full neural network inference.
 
 ## Tier 3: Neural Network Policy (Optional)
 The engine supports a **Hybrid** mode where strategic evaluation is handled by a PyTorch-trained Neural Network.
