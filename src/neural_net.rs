@@ -206,11 +206,13 @@ mod real {
             }
         }
 
-        pub fn policy_to_move_priors(&self, policy: &[f32], moves: &[Move]) -> Vec<(Move, f32)> {
+        pub fn policy_to_move_priors(&self, policy: &[f32], moves: &[Move], board: &Board) -> Vec<(Move, f32)> {
             let mut result = Vec::with_capacity(moves.len());
             let mut total_prob = 0.0;
             for &mv in moves {
-                let idx = move_to_index(mv);
+                // If Black to move, flip move vertically to match flipped tensor perspective
+                let relative_mv = if board.w_to_move { mv } else { mv.flip_vertical() };
+                let idx = move_to_index(relative_mv);
                 if idx < policy.len() {
                     let prob = policy[idx];
                     result.push((mv, prob));
@@ -258,7 +260,7 @@ mod stub {
         pub fn board_to_tensor(&self, _board: &Board) -> () { () }
         pub fn predict(&mut self, _board: &Board) -> Option<(Vec<f32>, f32, f32)> { None }
         pub fn predict_batch(&mut self, boards: &[Board]) -> Vec<Option<(Vec<f32>, f32, f32)>> { vec![None; boards.len()] }
-        pub fn policy_to_move_priors(&self, _policy: &[f32], _moves: &[Move]) -> Vec<(Move, f32)> { Vec::new() }
+        pub fn policy_to_move_priors(&self, _policy: &[f32], _moves: &[Move], _board: &Board) -> Vec<(Move, f32)> { Vec::new() }
         pub fn get_position_value(&mut self, _board: &Board) -> Option<i32> { None }
         pub fn cache_stats(&self) -> (usize, usize) { (0, 0) }
     }

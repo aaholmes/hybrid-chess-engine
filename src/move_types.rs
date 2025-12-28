@@ -256,6 +256,16 @@ impl Move {
         result
     }
 
+    /// Returns a new move with squares flipped vertically.
+    pub fn flip_vertical(&self) -> Move {
+        use crate::board_utils::flip_sq_ind_vertically;
+        Move {
+            from: flip_sq_ind_vertically(self.from),
+            to: flip_sq_ind_vertically(self.to),
+            promotion: self.promotion,
+        }
+    }
+
     /// Change the way a move is printed so that it uses algebraic notation
     pub fn print_algebraic(&self) -> String {
         let from = sq_ind_to_algebraic(self.from);

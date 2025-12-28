@@ -63,7 +63,7 @@ class ChessDataset(Dataset):
         value_idx = material_idx + 1
         value_target = torch.tensor([flat_data[value_idx]])
         
-        # 4. Policy Target [4096]
+        # 4. Policy Target [4672]
         policy_start = value_idx + 1
         policy_target = torch.from_numpy(flat_data[policy_start:])
         

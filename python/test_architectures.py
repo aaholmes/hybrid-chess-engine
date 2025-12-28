@@ -172,12 +172,12 @@ def get_starting_position_tensor():
 def print_tensor_as_board(tensor):
     # tensor shape: [1, 17, 8, 8]
     # We only care about first 12 channels for visualization
-    print("Board State:")
+    print("Board State (Us vs Them perspective):")
     print("  +-----------------+")
     
     # Mapping: Channel -> Char
-    # 0-5: White P, N, B, R, Q, K
-    # 6-11: Black p, n, b, r, q, k
+    # 0-5: Us P, N, B, R, Q, K
+    # 6-11: Them p, n, b, r, q, k
     chars = "PNBRQKpnbrqk"
     
     for row in range(8): # Tensor row 0 to 7 (Rank 8 to 1)

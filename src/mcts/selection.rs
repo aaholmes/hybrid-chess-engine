@@ -215,7 +215,7 @@ fn ensure_policy_evaluated(
     if let Some(nn) = nn_policy {
         if nn.is_available() {
             if let Some((policy_probs, _value, k)) = nn.predict(&node_ref.state) {
-                let priors = nn.policy_to_move_priors(&policy_probs, &moves_to_prioritize);
+                let priors = nn.policy_to_move_priors(&policy_probs, &moves_to_prioritize, &node_ref.state);
                 for (mv, prob) in priors {
                     node_ref.move_priorities.insert(mv, prob as f64);
                 }

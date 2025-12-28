@@ -109,7 +109,9 @@ fn play_game(_game_num: usize, simulations: u32, model_path: Option<String>) -> 
         let mut policy_dist = Vec::new();
         if total_visits > 0 {
             for (mv, visits) in &result.root_policy {
-                let idx = move_to_index(*mv) as u16;
+                // If Black to move, flip move to relative perspective before indexing
+                let relative_mv = if board.w_to_move { *mv } else { mv.flip_vertical() };
+                let idx = move_to_index(relative_mv) as u16;
                 let prob = *visits as f32 / total_visits as f32;
                 policy_dist.push((idx, prob));
             }
@@ -178,16 +180,21 @@ fn save_binary_data(filename: &str, samples: &[TrainingSample]) -> std::io::Resu
         // 1. Board Features [17, 8, 8] -> 1088 floats
         let mut board_planes = vec![0.0f32; 17 * 8 * 8];
         
-        // 0-11: Pieces
-        for color in 0..2 {
+        let stm = if sample.board.w_to_move { WHITE } else { BLACK };
+        let opp = if sample.board.w_to_move { BLACK } else { WHITE };
+
+        // 0-5: Our Pieces | 6-11: Their Pieces
+        for (p_idx, &color) in [stm, opp].iter().enumerate() {
             for pt in 0..6 {
-                let offset = (color * 6 + pt) * 64;
+                let offset = (p_idx * 6 + pt) * 64;
                 let bb = sample.board.get_piece_bitboard(color, pt);
                 for i in 0..64 {
                     if (bb >> i) & 1 == 1 {
                         let rank = i / 8;
                         let file = i % 8;
-                        board_planes[offset + (7 - rank) * 8 + file] = 1.0;
+                        // If Black to move, flip rank: 0 becomes 7, 7 becomes 0
+                        let tensor_rank = if sample.board.w_to_move { 7 - rank } else { rank };
+                        board_planes[offset + tensor_rank * 8 + file] = 1.0;
                     }
                 }
             }
@@ -196,18 +203,30 @@ fn save_binary_data(filename: &str, samples: &[TrainingSample]) -> std::io::Resu
         // 12: En Passant
         if let Some(sq) = sample.board.en_passant() {
             let offset = 12 * 64;
-            let rank = sq / 8;
-            let file = sq % 8;
-            board_planes[offset + (usize::from(7 - rank)) * 8 + usize::from(file)] = 1.0;
+            let rank = (sq / 8) as usize;
+            let file = (sq % 8) as usize;
+            let tensor_rank = if sample.board.w_to_move { 7 - rank } else { rank };
+            board_planes[offset + tensor_rank * 8 + file] = 1.0;
         }
 
         // 13-16: Castling
-        let rights = [
-            sample.board.castling_rights.white_kingside,
-            sample.board.castling_rights.white_queenside,
-            sample.board.castling_rights.black_kingside,
-            sample.board.castling_rights.black_queenside,
-        ];
+        // Swapping based on StM
+        let rights = if sample.board.w_to_move {
+            [
+                sample.board.castling_rights.white_kingside,
+                sample.board.castling_rights.white_queenside,
+                sample.board.castling_rights.black_kingside,
+                sample.board.castling_rights.black_queenside,
+            ]
+        } else {
+            [
+                sample.board.castling_rights.black_kingside,
+                sample.board.castling_rights.black_queenside,
+                sample.board.castling_rights.white_kingside,
+                sample.board.castling_rights.white_queenside,
+            ]
+        };
+
         for (i, &allowed) in rights.iter().enumerate() {
             if allowed {
                 let offset = (13 + i) * 64;

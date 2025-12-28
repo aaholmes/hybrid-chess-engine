@@ -246,30 +246,49 @@ class ChessAITrainer:
                         chess.ROOK: 3, chess.QUEEN: 4, chess.KING: 5
                     }
                     
+                    is_white = board.turn == chess.WHITE
+                    
                     for square in chess.SQUARES:
                         piece = board.piece_at(square)
                         if piece:
                             rank, file = divmod(square, 8)
-                            tensor_rank = 7 - rank
-                            color_offset = 0 if piece.color == chess.WHITE else 6
+                            
+                            # Flip rank if Black to move
+                            tensor_rank = 7 - rank if is_white else rank
+                            
+                            # Swap colors: 0-5 is "Us", 6-11 is "Them"
+                            is_us = piece.color == board.turn
+                            color_offset = 0 if is_us else 6
+                            
                             channel = color_offset + piece_map[piece.piece_type]
                             board_array[channel, tensor_rank, file] = 1.0
 
                     # 12: En Passant
                     if board.ep_square is not None:
                         rank, file = divmod(board.ep_square, 8)
-                        tensor_rank = 7 - rank
+                        tensor_rank = 7 - rank if is_white else rank
                         board_array[12, tensor_rank, file] = 1.0
                         
                     # 13-16: Castling
-                    if board.has_kingside_castling_rights(chess.WHITE):
-                        board_array[13, :, :] = 1.0
-                    if board.has_queenside_castling_rights(chess.WHITE):
-                        board_array[14, :, :] = 1.0
-                    if board.has_kingside_castling_rights(chess.BLACK):
-                        board_array[15, :, :] = 1.0
-                    if board.has_queenside_castling_rights(chess.BLACK):
-                        board_array[16, :, :] = 1.0
+                    # Swap based on StM
+                    if is_white:
+                        rights = [
+                            board.has_kingside_castling_rights(chess.WHITE),
+                            board.has_queenside_castling_rights(chess.WHITE),
+                            board.has_kingside_castling_rights(chess.BLACK),
+                            board.has_queenside_castling_rights(chess.BLACK)
+                        ]
+                    else:
+                        rights = [
+                            board.has_kingside_castling_rights(chess.BLACK),
+                            board.has_queenside_castling_rights(chess.BLACK),
+                            board.has_kingside_castling_rights(chess.WHITE),
+                            board.has_queenside_castling_rights(chess.WHITE)
+                        ]
+                        
+                    for i, allowed in enumerate(rights):
+                        if allowed:
+                            board_array[13 + i, :, :] = 1.0
                     
                     # Get prediction
                     policy, value = interface.predict(board_array)

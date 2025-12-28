@@ -31,6 +31,58 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 
+def move_to_index(move: chess.Move) -> int:
+    """
+    Converts a chess.Move to a flat index in the 8x8x73 policy tensor.
+    Matches the logic in src/tensor.rs
+    """
+    src = move.from_square
+    dst = move.to_square
+    
+    src_rank, src_file = divmod(src, 8)
+    dst_rank, dst_file = divmod(dst, 8)
+    
+    dx = dst_file - src_file
+    dy = dst_rank - src_rank
+    
+    # Directions: N, NE, E, SE, S, SW, W, NW
+    directions = [(0, 1), (1, 1), (1, 0), (1, -1), (0, -1), (-1, -1), (-1, 0), (-1, 1)]
+    
+    plane = 0
+    
+    # 1. Underpromotions (N, B, R)
+    if move.promotion and move.promotion != chess.QUEEN:
+        promo_map = {chess.KNIGHT: 0, chess.BISHOP: 3, chess.ROOK: 6}
+        direction_offset = 0 if dx == 0 else (1 if dx == -1 else 2)
+        plane = 64 + direction_offset + promo_map[move.promotion]
+        
+    # 2. Knight Moves
+    elif (abs(dx) == 1 and abs(dy) == 2) or (abs(dx) == 2 and abs(dy) == 1):
+        knight_moves = [(1, 2), (2, 1), (2, -1), (1, -2), (-1, -2), (-2, -1), (-2, 1), (-1, 2)]
+        plane = 56 + knight_moves.index((dx, dy))
+        
+    # 3. Queen Moves (Slides)
+    else:
+        direction = -1
+        for i, (pdx, pdy) in enumerate(directions):
+            # Check if (dx, dy) is a multiple of (pdx, pdy)
+            if dx == 0 and pdx == 0:
+                if dy * pdy > 0: direction = i
+            elif dy == 0 and pdy == 0:
+                if dx * pdx > 0: direction = i
+            elif pdx != 0 and pdy != 0 and dx / pdx == dy / pdy and dx / pdx > 0:
+                direction = i
+        
+        if direction == -1:
+            # Should not happen for legal moves
+            return 0
+            
+        distance = max(abs(dx), abs(dy))
+        plane = direction * 7 + (distance - 1)
+        
+    return src * 73 + plane
+
+
 class ChessPosition:
     """Represents a chess position for training"""
     
@@ -50,30 +102,51 @@ class ChessPosition:
             chess.ROOK: 3, chess.QUEEN: 4, chess.KING: 5
         }
         
+        # Determine perspective
+        is_white = self.board.turn == chess.WHITE
+        
         for square in chess.SQUARES:
             piece = self.board.piece_at(square)
             if piece:
                 rank, file = divmod(square, 8)
-                tensor_rank = 7 - rank
-                color_offset = 0 if piece.color == chess.WHITE else 6
+                
+                # Flip rank if Black to move
+                tensor_rank = 7 - rank if is_white else rank
+                
+                # Swap colors: 0-5 is "Us", 6-11 is "Them"
+                is_us = piece.color == self.board.turn
+                color_offset = 0 if is_us else 6
+                
                 channel = color_offset + piece_map[piece.piece_type]
                 tensor[channel, tensor_rank, file] = 1.0
 
         # 12: En Passant
         if self.board.ep_square is not None:
             rank, file = divmod(self.board.ep_square, 8)
-            tensor_rank = 7 - rank
+            tensor_rank = 7 - rank if is_white else rank
             tensor[12, tensor_rank, file] = 1.0
             
         # 13-16: Castling
-        if self.board.has_kingside_castling_rights(chess.WHITE):
-            tensor[13, :, :] = 1.0
-        if self.board.has_queenside_castling_rights(chess.WHITE):
-            tensor[14, :, :] = 1.0
-        if self.board.has_kingside_castling_rights(chess.BLACK):
-            tensor[15, :, :] = 1.0
-        if self.board.has_queenside_castling_rights(chess.BLACK):
-            tensor[16, :, :] = 1.0
+        # Swap based on StM
+        # Us: Kingside, Queenside | Them: Kingside, Queenside
+        if is_white:
+            rights = [
+                self.board.has_kingside_castling_rights(chess.WHITE),
+                self.board.has_queenside_castling_rights(chess.WHITE),
+                self.board.has_kingside_castling_rights(chess.BLACK),
+                self.board.has_queenside_castling_rights(chess.BLACK)
+            ]
+        else:
+            rights = [
+                self.board.has_kingside_castling_rights(chess.BLACK),
+                self.board.has_queenside_castling_rights(chess.BLACK),
+                self.board.has_kingside_castling_rights(chess.WHITE),
+                self.board.has_queenside_castling_rights(chess.WHITE)
+            ]
+            
+        for i, allowed in enumerate(rights):
+            if allowed:
+                tensor[13 + i, :, :] = 1.0
                 
         return tensor
     
@@ -82,10 +155,14 @@ class ChessPosition:
         if self.best_move is None:
             return None
         
-        # Convert move to from-to encoding (64*64)
-        from_square = self.best_move.from_square
-        to_square = self.best_move.to_square
-        return from_square * 64 + to_square
+        # If Black to move, flip move vertically before encoding
+        move = self.best_move
+        if self.board.turn == chess.BLACK:
+            from_sq = chess.square_mirror(move.from_square)
+            to_sq = chess.square_mirror(move.to_square)
+            move = chess.Move(from_sq, to_sq, move.promotion)
+            
+        return move_to_index(move)
 
 
 class ChessDataset(Dataset):
@@ -104,12 +181,19 @@ class ChessDataset(Dataset):
         board_tensor = torch.from_numpy(pos.to_tensor())
         
         # Value target (game result)
-        value_target = torch.tensor([pos.result * 2 - 1], dtype=torch.float32)  # Convert to [-1, 1]
+        # Note: result is already relative to WHITE.
+        # NN value target should be relative to StM.
+        # white wins: result=1.0. If White to move, target=1.0. If Black to move, target=-1.0.
+        res = pos.result * 2 - 1  # [-1, 1] relative to White
+        if pos.board.turn == chess.BLACK:
+            res = -res
+            
+        value_target = torch.tensor([res], dtype=torch.float32)
         
         # Policy target (one-hot encoded move)
-        policy_target = torch.zeros(4096, dtype=torch.float32)
+        policy_target = torch.zeros(4672, dtype=torch.float32)
         move_idx = pos.get_move_target()
-        if move_idx is not None and move_idx < 4096:
+        if move_idx is not None and move_idx < 4672:
             policy_target[move_idx] = 1.0
             
         return board_tensor, policy_target, value_target

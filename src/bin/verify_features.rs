@@ -42,11 +42,11 @@ fn main() {
         tensor.view([-1]).to_device(Device::Cpu).copy_data(&mut flat_data, 17 * 8 * 8);
         
         let plane_names = [
-            "White Pawn", "White Knight", "White Bishop", "White Rook", "White Queen", "White King",
-            "Black Pawn", "Black Knight", "Black Bishop", "Black Rook", "Black Queen", "Black King",
+            "Us Pawn", "Us Knight", "Us Bishop", "Us Rook", "Us Queen", "Us King",
+            "Them Pawn", "Them Knight", "Them Bishop", "Them Rook", "Them Queen", "Them King",
             "En Passant", 
-            "W King-side Castle", "W Queen-side Castle", 
-            "B King-side Castle", "B Queen-side Castle"
+            "Us King-side Castle", "Us Queen-side Castle", 
+            "Them King-side Castle", "Them Queen-side Castle"
         ];
         
         for (i, name) in plane_names.iter().enumerate() {
