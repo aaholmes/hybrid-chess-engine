@@ -20,7 +20,7 @@ use crate::move_types::Move;
 use std::time::Duration;
 
 // Re-export common components
-pub use self::node::{MctsNode, MoveCategory, select_leaf_for_expansion};
+pub use self::node::{MctsNode, MoveCategory, NodeOrigin, select_leaf_for_expansion};
 pub use self::tactical_mcts::{
     tactical_mcts_search, tactical_mcts_search_for_training, tactical_mcts_search_with_tt,
     TacticalMctsConfig, TacticalMctsStats,

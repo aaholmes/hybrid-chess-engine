@@ -9,7 +9,7 @@
 use crate::board::Board;
 use crate::boardstack::BoardStack;
 use crate::eval::{PestoEval, extrapolate_value};
-use crate::mcts::node::MctsNode;
+use crate::mcts::node::{MctsNode, NodeOrigin};
 use crate::mcts::selection::select_child_with_tactical_priority;
 use crate::mcts::inference_server::InferenceServer;
 use crate::move_generation::MoveGen;
@@ -90,6 +90,7 @@ pub fn tactical_mcts_search_with_tt(
             if next.is_legal(move_gen) && next.is_koth_win().0 == board.w_to_move {
                 stats.search_time = start_time.elapsed();
                 let root_node = MctsNode::new_root(board, move_gen);
+                root_node.borrow_mut().origin = NodeOrigin::Gate;
                 return (Some(*m), stats, root_node);
             }
         }
@@ -114,6 +115,8 @@ pub fn tactical_mcts_search_with_tt(
     if let Some(immediate_mate_move) = mate_move_result {
         stats.search_time = start_time.elapsed();
         let root_node = MctsNode::new_root(board, move_gen);
+        root_node.borrow_mut().origin = NodeOrigin::Gate;
+        root_node.borrow_mut().mate_move = Some(immediate_mate_move);
         return (Some(immediate_mate_move), stats, root_node);
     }
     
@@ -205,6 +208,7 @@ fn evaluate_leaf_node(
             if mate_depth != 0 {
                 let mate_value = if mate_depth > 0 { 1.0 } else { -1.0 };
                 node_ref.terminal_or_mate_value = Some(mate_value);
+                node_ref.origin = NodeOrigin::Gate;
                 return mate_value;
             }
         } else {
@@ -242,6 +246,9 @@ fn evaluate_leaf_node(
                 panic!("Neural Network produced value out of range [-1, 1]: {}. issues must be caught immediately.", raw_val);
             }
             node_ref.nn_value = Some(raw_val);
+            if node_ref.origin == NodeOrigin::Unknown {
+                node_ref.origin = NodeOrigin::Neural;
+            }
         } else {
             // If the user explicitly requested neural policy, do not fail silently to classical eval.
             if config.use_neural_policy {
@@ -293,6 +300,7 @@ fn evaluate_and_expand_node(
                 child.borrow_mut().nn_value = Some(-extrapolated_v);
                 child.borrow_mut().k_val = k; 
                 child.borrow_mut().is_tactical_node = true;
+                child.borrow_mut().origin = NodeOrigin::Grafted;
                 node_ref.children.push(child);
                 stats.nodes_expanded += 1;
             }

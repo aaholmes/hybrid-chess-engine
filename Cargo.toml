@@ -71,3 +71,7 @@ path = "tests/property/mod.rs"
 name = "regression_tests"
 path = "tests/regression/mod.rs"
 
+
+[[bin]]
+name = "mcts_inspector"
+path = "src/bin/mcts_inspector.rs"

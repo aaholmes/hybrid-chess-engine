@@ -24,7 +24,7 @@ fn main() {
     };
 
     let (_mv, _stats, root) = tactical_mcts_search(board, &move_gen, &pesto, &mut nn, config);
-    let dot = root.borrow().export_dot(3);
+    let dot = root.borrow().export_dot(3, 0);
     
     match std::fs::write("test_tree.dot", dot) {
         Ok(_) => println!("✅ MCTS Inspector: test_tree.dot generated successfully."),

@@ -162,7 +162,7 @@ impl UCIEngine {
                     if tokens.len() >= 2 && tokens[1] == "viz" {
                         let filename = if tokens.len() >= 3 { tokens[2] } else { "debug.dot" };
                         if let Some(root) = self.agent.get_last_search_tree() {
-                            let dot = root.borrow().export_dot(10);
+                            let dot = root.borrow().export_dot(10, 0);
                             match std::fs::write(filename, dot) {
                                 Ok(_) => println!("info string Tree dumped to {}. Use xdot or edotor.net to view.", filename),
                                 Err(e) => println!("info string Failed to write viz file: {}", e),

@@ -3,6 +3,7 @@ mod move_generation_tests;
 mod tensor_tests;
 mod node_tests;
 mod selection_tests;
+mod graphviz_tests;
 
 // Re-export common utilities
 mod common {

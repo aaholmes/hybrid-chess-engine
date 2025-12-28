@@ -17,6 +17,39 @@ pub enum MoveCategory {
     Quiet = 2,   // Lowest priority
 }
 
+/// Tracks how this node was created/evaluated for visualization
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum NodeOrigin {
+    #[default]
+    Unknown,
+    /// Tier 1: Solved by mate search or KOTH gate
+    Gate,
+    /// Tier 2: Created from quiescence search graft
+    Grafted,
+    /// Tier 3: Standard neural network evaluation
+    Neural,
+}
+
+impl NodeOrigin {
+    pub fn to_color(&self) -> &'static str {
+        match self {
+            NodeOrigin::Gate => "firebrick1",
+            NodeOrigin::Grafted => "gold",
+            NodeOrigin::Neural => "lightblue",
+            NodeOrigin::Unknown => "white",
+        }
+    }
+    
+    pub fn to_label(&self) -> &'static str {
+        match self {
+            NodeOrigin::Gate => "T1:Gate",
+            NodeOrigin::Grafted => "T2:QS",
+            NodeOrigin::Neural => "T3:NN",
+            NodeOrigin::Unknown => "?",
+        }
+    }
+}
+
 /// A node in the Monte Carlo Search Tree
 #[derive(Debug)]
 pub struct MctsNode {
@@ -25,6 +58,9 @@ pub struct MctsNode {
 
     /// The move that led to this state (None for root)
     pub action: Option<Move>,
+
+    /// Origin/tier of this node for visualization
+    pub origin: NodeOrigin,
 
     /// Number of times this node has been visited
     pub visits: u32,
@@ -96,6 +132,7 @@ impl MctsNode {
         Rc::new(RefCell::new(Self {
             state,
             action: None,
+            origin: NodeOrigin::Unknown,
             visits: 0,
             total_value: 0.0,
             total_value_squared: 0.0,
@@ -141,6 +178,7 @@ impl MctsNode {
         Rc::new(RefCell::new(Self {
             state: new_state,
             action: Some(action),
+            origin: NodeOrigin::Unknown,
             visits: 0,
             total_value: 0.0,
             total_value_squared: 0.0,
@@ -370,73 +408,160 @@ impl MctsNode {
     }
 
     /// Exports the MCTS tree to a Graphviz DOT string for visualization.
-    pub fn export_dot(&self, depth_limit: usize) -> String {
+    /// 
+    /// # Arguments
+    /// * `depth_limit` - Maximum tree depth to export
+    /// * `min_visits` - Minimum visits for a node to be included (filters noise)
+    /// 
+    /// # Returns
+    /// A DOT format string suitable for `dot -Tpng -o tree.png`
+    pub fn export_dot(&self, depth_limit: usize, min_visits: u32) -> String {
         let mut output = String::from("digraph MCTS {\n");
-        output.push_str("  node [shape=record, style=filled, fontname=\"Arial\"];\n");
+        output.push_str("  rankdir=TB;\n");
+        output.push_str("  node [shape=record, style=filled, fontname=\"Helvetica\", fontsize=10];\n");
+        output.push_str("  edge [fontsize=8];\n");
+        output.push_str("\n  // Legend\n");
+        output.push_str("  subgraph cluster_legend {\n");
+        output.push_str("    label=\"Legend\";\n");
+        output.push_str("    style=dashed;\n");
+        output.push_str("    leg_gate [label=\"Tier 1: Gate\\n(Mate/KOTH)\", fillcolor=firebrick1];\n");
+        output.push_str("    leg_graft [label=\"Tier 2: Grafted\\n(QS)\", fillcolor=gold];\n");
+        output.push_str("    leg_neural [label=\"Tier 3: Neural\", fillcolor=lightblue];\n");
+        output.push_str("    leg_ghost [label=\"Shadow Prior\\n(Refuted)\", style=dashed, fillcolor=lightgrey];\n");
+        output.push_str("  }\n\n");
         
         let mut id_counter = 0;
-        self.recursive_dot(&mut output, 0, &mut id_counter, 0, depth_limit);
+        self.recursive_dot(&mut output, 0, &mut id_counter, 0, depth_limit, min_visits);
         
-        output.push_str("}");
+        output.push_str("}\n");
         output
     }
 
-    fn recursive_dot(&self, out: &mut String, my_id: usize, id_counter: &mut usize, depth: usize, limit: usize) {
-        if depth > limit { return; }
-
-        // 1. Determine Color
-        // Red (firebrick1): Tier 1 Solution (Mate/KOTH found). Check terminal/mate value.
-        // Important: Gate solutions have visits == 0 (solved before simulation).
-        // Standard solved nodes (visits > 0) are also red but maybe a different shade? 
-        // Instructions say: "Tier 1 ONLY if terminal value and visits == 0".
-        // Actually, if visits > 0 and solved, it's just a solved node. 
-        // Let's stick to the instruction: Red if Tier 1 Gate (visits == 0 && terminal value).
+    fn recursive_dot(
+        &self, 
+        out: &mut String, 
+        my_id: usize, 
+        id_counter: &mut usize, 
+        depth: usize, 
+        limit: usize,
+        min_visits: u32,
+    ) {
+        if depth > limit {
+            return;
+        }
         
-        // However, if we found mate deep in the tree, terminal_or_mate_value is set.
-        // If it's a leaf node that we just evaluated as mate, visits might be 0.
-        // Let's implement logic:
-        
-        let color = if self.terminal_or_mate_value.is_some() && self.visits == 0 {
-            "firebrick1" // Tier 1 Gate (Solved immediately)
-        } else if self.is_tactical_node {
-            "gold"       // Tier 2 Graft
-        } else {
-            "lightblue"  // Tier 3 / Standard
-        };
+        // Filter low-visit nodes (except root)
+        if depth > 0 && self.visits < min_visits {
+            return;
+        }
 
-        // 2. Format Label
+        // Determine color based on origin
+        let color = self.determine_node_color();
+        
+        // Format node label
         let move_str = self.action.map_or("Root".to_string(), |m| m.to_uci());
-        let val = if self.visits > 0 { self.total_value / self.visits as f64 } else { 0.0 };
-        // Show Visits (N), Value (Q), and maybe Evaluation (NN/Pesto)
-        let eval_str = if let Some(ev) = self.nn_value { format!("{:.2}", ev) } else { "?".to_string() };
+        let q_value = if self.visits > 0 { 
+            self.total_value / self.visits as f64 
+        } else { 
+            0.0 
+        };
+        let eval_str = self.nn_value
+            .map(|v| format!("{:.2}", v))
+            .unwrap_or_else(|| "—".to_string());
         
-        let label = format!("{{ {} | N:{} | Q:{:.2} | Eval:{} }}", 
-            move_str, self.visits, val, eval_str);
+        let tier_label = self.origin.to_label();
+        
+        // Multi-line label with escape sequences for Graphviz
+        let label = format!(
+            "{{ {} | {} | N: {} | Q: {:.2} | V: {} }}",
+            move_str,
+            tier_label,
+            self.visits,
+            q_value,
+            eval_str
+        );
 
-        // 3. Write Node Definition
-        out.push_str(&format!("  {} [label=\"{}\", fillcolor={}];\n", my_id, label, color));
+        // Write node definition
+        out.push_str(&format!(
+            "  {} [label=\"{}\", fillcolor={}];\n",
+            my_id, label, color
+        ));
 
-        // 4. Handle Real Children
+        // Process real children
         for child in &self.children {
+            let child_ref = child.borrow();
+            
+            // Skip low-visit children
+            if child_ref.visits < min_visits && min_visits > 0 {
+                continue;
+            }
+            
             *id_counter += 1;
             let child_id = *id_counter;
             
-            out.push_str(&format!("  {} -> {};\n", my_id, child_id));
-            child.borrow().recursive_dot(out, child_id, id_counter, depth + 1, limit);
+            // Edge label shows prior probability if available
+            let edge_label = if let Some(mv) = child_ref.action {
+                if let Some(prob) = self.move_priorities.get(&mv) {
+                    format!(" [label=\"P:{:.2}\"]", prob)
+                } else {
+                    String::new()
+                }
+            } else {
+                String::new()
+            };
+            
+            out.push_str(&format!("  {} -> {}{};\n", my_id, child_id, edge_label));
+            child_ref.recursive_dot(out, child_id, id_counter, depth + 1, limit, min_visits);
         }
 
-        // 5. Handle Shadow Priors (Ghost Nodes)
-        for (mv, score) in &self.tactical_values {
-            // Need unique IDs for ghosts too
-            *id_counter += 1;
-            let ghost_id = *id_counter;
-            
-            let ghost_label = format!("{{ {} | QS:{:.2} | (Refuted) }}", mv.to_uci(), score);
-            
-            // Write Ghost Node
-            out.push_str(&format!("  {} [label=\"{}\", style=dashed, fillcolor=lightgrey];\n", ghost_id, ghost_label));
-            // Write Dashed Edge
-            out.push_str(&format!("  {} -> {} [style=dashed];\n", my_id, ghost_id));
+        // Add ghost nodes for tactical values (shadow priors)
+        if depth < limit {
+            for (mv, score) in &self.tactical_values {
+                // Only show if not already a child
+                let already_child = self.children.iter()
+                    .any(|c| c.borrow().action == Some(*mv));
+                
+                if !already_child {
+                    *id_counter += 1;
+                    let ghost_id = *id_counter;
+                    
+                    let ghost_label = format!(
+                        "{{ {} | QS: {:.2} | (Pruned) }}",
+                        mv.to_uci(),
+                        score
+                    );
+                    
+                    out.push_str(&format!(
+                        "  {} [label=\"{}\", style=dashed, fillcolor=lightgrey];\n",
+                        ghost_id, ghost_label
+                    ));
+                    out.push_str(&format!(
+                        "  {} -> {} [style=dashed, color=grey];\n",
+                        my_id, ghost_id
+                    ));
+                }
+            }
+        }
+    }
+    
+    fn determine_node_color(&self) -> &'static str {
+        // Priority: explicit origin > inferred from state
+        match self.origin {
+            NodeOrigin::Gate => "firebrick1",
+            NodeOrigin::Grafted => "gold", 
+            NodeOrigin::Neural => "lightblue",
+            NodeOrigin::Unknown => {
+                // Infer from node state
+                if self.terminal_or_mate_value.is_some() && self.visits == 0 {
+                    "firebrick1" // Solved by gate before expansion
+                } else if self.is_tactical_node {
+                    "gold" // Tactical graft
+                } else if self.nn_value.is_some() {
+                    "lightblue" // Has neural evaluation
+                } else {
+                    "white" // Unexpanded
+                }
+            }
         }
     }
 }
