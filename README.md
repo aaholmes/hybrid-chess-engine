@@ -161,11 +161,44 @@ cargo test
 cargo test --test perft_tests
 ```
 
+## Visualization & Debugging
+Caissawary includes a powerful **MCTS Inspector** tool to visualize the search tree and debug its state-dependent logic. This tool generates Graphviz DOT files that color-code nodes based on their origin (Tier 1, 2, or 3).
+
+### Using the MCTS Inspector
+Run the inspector on any FEN position to generate a search tree visualization:
+
+```bash
+# Analyze a position (defaults to depth 4, 500 iterations)
+cargo run --release --bin mcts_inspector -- "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+
+# Customize depth and iteration count
+cargo run --release --bin mcts_inspector -- "6k1/5ppp/8/8/8/8/8/4R1K1 w - - 0 1" --depth 6 --iterations 1000 --output mate_search.dot
+```
+
+### Rendering the Output
+The tool produces a `.dot` file. You can render this to an image using Graphviz:
+
+```bash
+# Render to PNG
+dot -Tpng mcts_tree.dot -o tree.png
+
+# Render to interactive SVG
+dot -Tsvg mcts_tree.dot -o tree.svg
+```
+
+### Interpreting the Tree
+Nodes are color-coded to reveal how the engine solved or evaluated them:
+- **🟥 Red (Tier 1 Gate):** Solved immediately by "Safety Gates" (Mate Search or KOTH logic) without expansion.
+- **🟠 Gold (Tier 2 Graft):** A tactical move found by Quiescence Search and "grafted" into the tree.
+- **🔵 Blue (Tier 3 Neural):** A standard node evaluated by the neural network (or Pesto in classical mode).
+- **⚪ Grey (Shadow Prior):** A tactical move that was considered but refuted/pruned by the engine.
+
 ## Binary Targets
 The crate is organized to produce several distinct binaries for different tasks:
 
 - **caissawary**: The main UCI chess engine.
 - **benchmark**: A suite for performance testing, measuring nodes-per-second and puzzle-solving speed.
+- **mcts_inspector**: A tool for visualizing and debugging the MCTS search tree.
 - **self_play**: A high-throughput data generation tool that plays games against itself to create training datasets for the neural network.
 
 ## References
