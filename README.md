@@ -148,14 +148,17 @@ cargo run --release --bin self_play -- 100 800 data
 ```
 
 ## Testing and Benchmarking
-The project includes a comprehensive suite of tests and benchmarks to validate functionality and performance.
+The project includes a comprehensive suite of tests and benchmarks to validate functionality and performance. For detailed documentation, see [TESTING.md](TESTING.md).
 
 ```bash
-# Run all unit and integration tests
+# Run the full test suite (Unit, Integration, Property, Regression)
+./scripts/test.sh
+
+# Run standard cargo tests
 cargo test
 
-# Run a specific benchmark for mate-finding performance
-cargo run --release --bin mate_benchmark
+# Run perft tests (Move Generation Correctness)
+cargo test --test perft_tests
 ```
 
 ## Binary Targets
