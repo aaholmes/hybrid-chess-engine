@@ -194,7 +194,7 @@ fn evaluate_leaf_node(
     }
 
     if koth_center_in_3(board, move_gen) {
-        let win_val = if board.w_to_move { 1.0 } else { -1.0 };
+        let win_val = 1.0; // StM wins
         node_ref.terminal_or_mate_value = Some(win_val);
         return win_val;
     }
@@ -287,7 +287,10 @@ fn evaluate_and_expand_node(
             if tactical_tree.principal_variation.contains(&mv) {
                 let next_board = node_ref.state.apply_move_to_board(mv);
                 let child = MctsNode::new_child(Rc::downgrade(&node), mv, next_board, move_gen);
-                child.borrow_mut().nn_value = Some(extrapolated_v);
+                // extrapolated_v is relative to Parent (Side to Move at Node).
+                // child.nn_value must be relative to Child (Side to Move at Child).
+                // These are opposite sides, so we negate.
+                child.borrow_mut().nn_value = Some(-extrapolated_v);
                 child.borrow_mut().k_val = k; 
                 child.borrow_mut().is_tactical_node = true;
                 node_ref.children.push(child);
@@ -317,19 +320,32 @@ fn backpropagate_value(mut node: Rc<RefCell<MctsNode>>, mut value: f64) {
         {
             let mut node_ref = node.borrow_mut();
             node_ref.visits += 1;
-            // value is White's perspective.
-            // Reward side that just moved:
-            // If it's White to move now, Black just moved. Reward is -value.
-            // If it's Black to move now, White just moved. Reward is value.
-            let reward = if node_ref.state.w_to_move { -value } else { value };
+            
+            // value is relative to node.state.side_to_move (StM).
+            // node.total_value is relative to the player who reached this node (The player who just moved).
+            // The player who just moved is the OPPONENT of StM.
+            // So if StM is winning (+value), it's bad for the player who just moved (-value).
+            let reward = -value;
+            
             node_ref.total_value += reward;
             node_ref.total_value_squared += reward * reward;
         }
+
+        // Move to parent. 
+        // Value is currently relative to Node StM.
+        // Parent StM is the Opponent of Node StM.
+        // So we flip the value to be relative to Parent StM.
         let parent = {
             let node_ref = node.borrow();
             if let Some(parent_weak) = &node_ref.parent { parent_weak.upgrade() } else { None }
         };
-        if let Some(parent_node) = parent { node = parent_node; } else { break; }
+        
+        if let Some(parent_node) = parent { 
+            node = parent_node; 
+            value = -value;
+        } else { 
+            break; 
+        }
     }
 }
 

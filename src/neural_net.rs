@@ -58,43 +58,49 @@ mod real {
 
         pub fn board_to_tensor(&self, board: &Board) -> Tensor {
             let mut planes = vec![0.0f32; 17 * 8 * 8];
-            
-            // 0-11: Pieces (P1 then P2)
-            for color in 0..2 {
+            let stm = if board.w_to_move { WHITE } else { BLACK };
+            let opp = if board.w_to_move { BLACK } else { WHITE };
+
+            // 0-5: Our Pieces | 6-11: Their Pieces
+            for (p_idx, &color) in [stm, opp].iter().enumerate() {
                 for pt in 0..6 {
-                    let offset = (color * 6 + pt) * 64;
+                    let plane_idx = p_idx * 6 + pt;
+                    let offset = plane_idx * 64;
                     let bb = board.get_piece_bitboard(color, pt);
                     for i in 0..64 {
                         if (bb >> i) & 1 == 1 {
                             let rank = i / 8;
                             let file = i % 8;
-                            planes[offset + (7 - rank) * 8 + file] = 1.0;
+                            // If Black to move, flip rank: 0 becomes 7, 7 becomes 0
+                            let tensor_rank = if board.w_to_move { 7 - rank } else { rank };
+                            planes[offset + tensor_rank * 8 + file] = 1.0;
                         }
                     }
                 }
             }
 
-            // 12: En Passant (Target square only)
+            // 12: En Passant (Target square)
             if let Some(sq) = board.en_passant {
-                let offset = 12 * 64;
                 let rank = sq / 8;
                 let file = sq % 8;
-                planes[offset + (usize::from(7 - rank)) * 8 + usize::from(file)] = 1.0;
+                let tensor_rank = if board.w_to_move { 7 - rank } else { rank };
+                planes[12 * 64 + tensor_rank * 8 + usize::from(file)] = 1.0;
             }
 
-            // 13-16: Castling (Full planes of 1s)
-            let rights = [
-                board.castling_rights.white_kingside,
-                board.castling_rights.white_queenside,
-                board.castling_rights.black_kingside,
-                board.castling_rights.black_queenside,
-            ];
+            // 13-16: Castling (Full planes)
+            // Swapping based on StM
+            let rights = if board.w_to_move {
+                [board.castling_rights.white_kingside, board.castling_rights.white_queenside,
+                 board.castling_rights.black_kingside, board.castling_rights.black_queenside]
+            } else {
+                [board.castling_rights.black_kingside, board.castling_rights.black_queenside,
+                 board.castling_rights.white_kingside, board.castling_rights.white_queenside]
+            };
+
             for (i, &allowed) in rights.iter().enumerate() {
                 if allowed {
                     let offset = (13 + i) * 64;
-                    for j in 0..64 {
-                        planes[offset + j] = 1.0;
-                    }
+                    for j in 0..64 { planes[offset + j] = 1.0; }
                 }
             }
 
