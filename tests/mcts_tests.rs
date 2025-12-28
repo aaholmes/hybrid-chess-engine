@@ -105,8 +105,8 @@ mod mcts_tests {
         assert!(root_node.is_terminal);
         assert!(root_node.unexplored_moves_by_cat.is_empty());
         assert!(root_node.children.is_empty());
-        // Check terminal value is set correctly (White to move is mated -> 0.0 for White)
-        assert_eq!(root_node.terminal_or_mate_value, Some(0.0));
+        // Check terminal value is set correctly (White to move is mated -> -1.0)
+        assert_eq!(root_node.terminal_or_mate_value, Some(-1.0));
     }
 
     // UCT/PUCT test needs rework as priors are not stored on child node directly
@@ -126,23 +126,23 @@ mod mcts_tests {
     #[test]
     fn test_simulation_immediate_white_win() {
         let move_gen = setup();
-        // Fool's Mate position (Black checkmated, White to move - White won)
+        // Fool's Mate position (White checkmated, Black won)
         let board =
             Board::new_from_fen("rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 0 3");
         let result = simulate_random_playout(&board, &move_gen);
-        // White is checkmated, Black wins. Result is from White's perspective.
+        // White is checkmated, Black wins. Result is 0.0 for White Loss.
         assert_eq!(result, 0.0);
     }
 
     #[test]
     fn test_simulation_immediate_black_win() {
         let move_gen = setup();
-        // Position where White is checkmated, Black to move (Black won)
+        // Position where Black is checkmated, White won
         let board =
             Board::new_from_fen("rnbqkbnr/ppppp2p/5p2/6pQ/4P3/8/PPPP1PPP/RNB1KBNR b KQkq - 0 3");
         let result = simulate_random_playout(&board, &move_gen);
-        // Black is checkmated, White wins. Result is from White's perspective.
-        assert_eq!(result, 1.0); // Corrected expected result
+        // Black is checkmated, White wins. Result is 1.0 for White Win.
+        assert_eq!(result, 1.0);
     }
 
     #[test]

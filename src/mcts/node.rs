@@ -81,7 +81,6 @@ pub struct MctsNode {
 }
 
 impl MctsNode {
-    /// Creates a new root node for MCTS
     pub fn new_root(state: Board, move_gen: &MoveGen) -> Rc<RefCell<Self>> {
         let (is_checkmate, is_stalemate) = state.is_checkmate_or_stalemate(move_gen);
         let is_terminal = is_checkmate || is_stalemate;
@@ -89,7 +88,7 @@ impl MctsNode {
         let initial_terminal_value = if is_stalemate {
             Some(0.0)
         } else if is_checkmate {
-            Some(if state.w_to_move { -1.0 } else { 1.0 })
+            Some(-1.0)
         } else {
             None
         };
@@ -134,7 +133,7 @@ impl MctsNode {
         let initial_terminal_value = if is_stalemate {
             Some(0.0)
         } else if is_checkmate {
-            Some(if new_state.w_to_move { -1.0 } else { 1.0 })
+            Some(-1.0)
         } else {
             None
         };
