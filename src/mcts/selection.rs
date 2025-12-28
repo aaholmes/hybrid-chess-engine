@@ -131,22 +131,19 @@ fn select_ucb_with_policy(
     for child in &node_ref.children {
         let child_ref = child.borrow();
         
-        // Get policy value for this move
-        let policy_value = if let Some(mv) = child_ref.action {
-            // Tier 2: Use shadow priors from QS if available
-            if let Some(shadow_v) = node_ref.shadow_priors.get(&mv) {
-                *shadow_v // Use the extrapolated tactical value
-            } else {
-                node_ref.move_priorities.get(&mv).copied().unwrap_or(1.0 / num_legal_moves as f64)
-            }
+        let (prior_prob, q_init) = if let Some(mv) = child_ref.action {
+            let p = node_ref.move_priorities.get(&mv).copied().unwrap_or(1.0 / num_legal_moves as f64);
+            let q = node_ref.tactical_values.get(&mv).copied().unwrap_or(0.0);
+            (p, q)
         } else {
-            1.0 / num_legal_moves as f64
+            (1.0 / num_legal_moves as f64, 0.0)
         };
         
         let ucb_value = calculate_ucb_value(
             &child_ref,
             parent_visits,
-            policy_value,
+            prior_prob,
+            q_init,
             exploration_constant,
         );
         
@@ -163,24 +160,26 @@ fn select_ucb_with_policy(
 fn calculate_ucb_value(
     child: &MctsNode,
     parent_visits: u32,
-    policy_value: f64,
+    prior_prob: f64,
+    q_init: f64,
     exploration_constant: f64,
 ) -> f64 {
-    if child.visits == 0 {
-        // Unvisited node gets high exploration value
-        return f64::INFINITY;
-    }
+    // Q Value
+    let q = if child.visits == 0 {
+        // TIER 2 INTEGRATION:
+        // Use tactical evaluation as starting Q for unvisited nodes.
+        q_init
+    } else {
+        child.total_value / child.visits as f64
+    };
     
-    // Q value: Average reward from this child's perspective (already relative to side that just moved)
-    let q_value = child.total_value / child.visits as f64;
-    
-    // U value: Exploration term
-    let exploration_term = exploration_constant
-        * policy_value
-        * (parent_visits as f64).sqrt()
+    // U Value (PUCT)
+    let u = exploration_constant 
+        * prior_prob 
+        * (parent_visits as f64).sqrt() 
         / (1.0 + child.visits as f64);
     
-    q_value + exploration_term
+    q + u
 }
 
 /// Ensure neural network policy has been evaluated for the node
@@ -315,7 +314,8 @@ mod tests {
         
         // Test UCB calculation for unvisited node
         let child_ref = child.borrow();
-        let ucb = calculate_ucb_value(&child_ref, 10, 0.1, 1.414);
-        assert!(ucb.is_infinite()); // Unvisited nodes get infinite UCB
+        let ucb = calculate_ucb_value(&child_ref, 10, 0.1, 0.0, 1.414);
+        assert!(!ucb.is_infinite()); // Unvisited nodes now get finite UCB based on Q-init + Prior
+        assert!(ucb > 0.0);
     }
 }

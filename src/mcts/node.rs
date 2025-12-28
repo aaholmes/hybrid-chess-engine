@@ -72,8 +72,8 @@ pub struct MctsNode {
     pub policy_evaluated: bool,
     /// Move priorities for UCB selection (after tactical phase)
     pub move_priorities: HashMap<Move, f64>,
-    /// Shadow priors for tactical moves that were not the best PV (logit space or raw values)
-    pub shadow_priors: HashMap<Move, f64>,
+    /// Extrapolated values for tactical moves that were not the best PV (logit space or raw values)
+    pub tactical_values: HashMap<Move, f64>,
     /// Whether Tier 2 tactical resolution (QS) has been performed for this node
     pub tactical_resolution_done: bool,
     /// Whether this node was created as part of a tactical PV graft
@@ -115,7 +115,7 @@ impl MctsNode {
             tactical_moves_explored: HashSet::new(),
             policy_evaluated: false,
             move_priorities: HashMap::new(),
-            shadow_priors: HashMap::new(),
+            tactical_values: HashMap::new(),
             tactical_resolution_done: false,
             is_tactical_node: false,
         }))
@@ -160,7 +160,7 @@ impl MctsNode {
             tactical_moves_explored: HashSet::new(),
             policy_evaluated: false,
             move_priorities: HashMap::new(),
-            shadow_priors: HashMap::new(),
+            tactical_values: HashMap::new(),
             tactical_resolution_done: false,
             is_tactical_node: false,
         }))
@@ -427,7 +427,7 @@ impl MctsNode {
         }
 
         // 5. Handle Shadow Priors (Ghost Nodes)
-        for (mv, score) in &self.shadow_priors {
+        for (mv, score) in &self.tactical_values {
             // Need unique IDs for ghosts too
             *id_counter += 1;
             let ghost_id = *id_counter;

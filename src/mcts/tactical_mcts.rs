@@ -282,7 +282,7 @@ fn evaluate_and_expand_node(
             let material_delta = qs_score - parent_eval;
             let extrapolated_v = extrapolate_value(parent_v, material_delta, k);
             
-            node_ref.shadow_priors.insert(mv, extrapolated_v);
+            node_ref.tactical_values.insert(mv, extrapolated_v);
             
             if tactical_tree.principal_variation.contains(&mv) {
                 let next_board = node_ref.state.apply_move_to_board(mv);
