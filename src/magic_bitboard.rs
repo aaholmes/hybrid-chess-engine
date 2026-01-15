@@ -308,7 +308,11 @@ pub fn init_bishop_moves(
 
             // Assign the captures and moves for this blocker combination
             out1[from_sq_ind][key] = bishop_attacks(from_sq_ind, current_blockers);
+            // Include both captures (.0) and moves (.1) in the attack bitboard
             for i in out1[from_sq_ind][key].0.iter() {
+                out2[from_sq_ind][key] |= sq_ind_to_bit(*i);
+            }
+            for i in out1[from_sq_ind][key].1.iter() {
                 out2[from_sq_ind][key] |= sq_ind_to_bit(*i);
             }
         }
@@ -357,7 +361,11 @@ pub fn init_rook_moves(r_magics: [u64; 64]) -> (Vec<Vec<(Vec<usize>, Vec<usize>)
 
             // Assign the captures and moves for this blocker combination
             out1[from_sq_ind][key] = rook_attacks(from_sq_ind, current_blockers);
+            // Include both captures (.0) and moves (.1) in the attack bitboard
             for i in out1[from_sq_ind][key].0.iter() {
+                out2[from_sq_ind][key] |= sq_ind_to_bit(*i);
+            }
+            for i in out1[from_sq_ind][key].1.iter() {
                 out2[from_sq_ind][key] |= sq_ind_to_bit(*i);
             }
         }

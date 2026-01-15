@@ -107,3 +107,4 @@ fn test_stalemate_detection() {
     assert!(!is_checkmate);
     assert!(is_stalemate);
 }
+

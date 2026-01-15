@@ -152,7 +152,13 @@ pub fn tactical_mcts_search_with_tt(
         let (captures, moves) = move_gen.gen_pseudo_legal_moves(&board);
         for m in captures.iter().chain(moves.iter()) {
             let next = board.apply_move_to_board(*m);
-            if next.is_legal(move_gen) && next.is_koth_win().0 == board.w_to_move {
+            if !next.is_legal(move_gen) {
+                continue;
+            }
+            let (white_won, black_won) = next.is_koth_win();
+            // Check if the side that just moved won (white moved if w_to_move was true)
+            let stm_won = (board.w_to_move && white_won) || (!board.w_to_move && black_won);
+            if stm_won {
                 if let Some(log) = logger {
                     log.log_tier1_gate(&GateReason::KothWin, Some(*m));
                 }
@@ -199,11 +205,11 @@ pub fn tactical_mcts_search_with_tt(
         
         let mut mate_search_stack = BoardStack::with_board(board.clone());
         let (mate_score, mate_move, nodes) = mate_search(&mut mate_search_stack, move_gen, config.mate_search_depth, false);
-        
+
         if let Some(log) = logger {
             log.log_mate_search_result(mate_score, mate_move, nodes as u64);
         }
-        
+
         if mate_score >= 1_000_000 {
             stats.mates_found += 1;
             stats.tier1_solutions += 1;
