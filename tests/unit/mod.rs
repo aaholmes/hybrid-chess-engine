@@ -15,6 +15,12 @@ mod iterative_deepening_tests;
 mod history_tests;
 mod transposition_tests;
 mod hash_tests;
+mod board_utils_tests;
+mod bits_tests;
+mod eval_tests;
+mod boardstack_tests;
+mod simulation_tests;
+mod make_move_tests;
 
 // Re-export common utilities
 mod common {

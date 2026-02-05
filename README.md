@@ -11,17 +11,17 @@ Caissawary is a chess engine that combines the strategic guidance of a modern Mo
 ## The Name: Caissawary
 Like the engine itself, the name Caissawary is also a hybrid:
 
-- **Caïssa**: The mythical goddess of chess, representing the engine's strategic intelligence and artistry.
+- **Caissa**: The mythical goddess of chess, representing the engine's strategic intelligence and artistry.
 - **Cassowary**: A large, formidable, and famously aggressive bird, representing the engine's raw tactical power and speed.
 
-## 🔬 Research: Safe & Sample-Efficient RL
+## Research: Safe & Sample-Efficient RL
 
 Caissawary is designed as a research platform exploring **how structured inductive biases improve reinforcement learning**. Our key insight: many RL domains contain tractable subproblems where exact analysis outperforms learned approximations.
 
 ### The Three-Tier Hypothesis
 
 | Tier | Mechanism | Property |
-|------|-----------|
+|------|-----------|----------|
 | **Tier 1** | Safety Gates | Provably correct in forced situations |
 | **Tier 2** | Tactical Grafting | Classical expertise without NN overhead |
 | **Tier 3** | Neural Networks | Handles genuinely uncertain positions |
@@ -34,14 +34,11 @@ cargo run --release --bin run_experiments -- --config ablation
 
 # Generate publication figures
 python scripts/analyze_results.py results/ablation_results.json
-
-# View results
-# (Output will be in results/figures/)
 ```
 
 See [RESEARCH.md](RESEARCH.md) for full methodology and analysis.
 
-## 🏗 Architecture
+## Architecture
 Caissawary's intelligence stems from how it handles each node during an MCTS traversal. Instead of a single, uniform approach, its behavior adapts based on the node's state, ensuring that cheap, powerful analysis is always performed before expensive strategic evaluation.
 
 ### The MCTS Node Handling Flow
@@ -98,9 +95,8 @@ Where $\Delta M$ is the material imbalance. This architecture allows the network
 ## Training Philosophy
 Caissawary is designed for high learning efficiency, making it feasible to train without nation-state-level resources.
 
-- **Supervised Pre-training**: The recommended approach is to begin with supervised learning. The ResNet policy and the fast evaluation function should be pre-trained on a large corpus of high-quality human games. This bootstraps the engine with a strong foundation of strategic and positional knowledge.
-
-- **Efficient Reinforcement Learning**: During subsequent self-play (RL), the engine's learning is accelerated. The built-in tactical search (Tiers 1 and 2) acts as a powerful "inductive bias," preventing the engine from making simple tactical blunders. This provides a cleaner, more focused training signal to the neural networks, allowing them to learn high-level strategy far more effectively than a "blank slate" MCTS architecture.
+- **Supervised Pre-training**: Begin with supervised learning on a large corpus of high-quality human games to bootstrap strategic and positional knowledge.
+- **Efficient Reinforcement Learning**: The built-in tactical search (Tiers 1 and 2) acts as a powerful inductive bias during self-play, preventing simple tactical blunders and providing a cleaner training signal for the neural networks.
 
 ## Configuration
 The node budgets for the tactical searches and other key parameters are designed to be configurable.
@@ -110,41 +106,39 @@ pub struct CaissawaryConfig {
     pub max_iterations: u32,
     pub time_limit: Duration,
     pub exploration_constant: f64,
-    
+
     // Node budget for the parallel mate search at each node
     pub mate_search_nodes: u32,
-    
+
     // Node budget for the quiescence search at each leaf
     pub quiescence_nodes: u32,
 }
 ```
 
 ## Technical Stack
-- **Core Logic**: Rust, for its performance, memory safety, and concurrency.
+- **Core Logic**: Rust (~17k LOC), for performance, memory safety, and concurrency.
+- **Board Representation**: Bitboards with magic bitboard move generation.
+- **Evaluation**: Pesto-style tapered evaluation with Texel-tuned weights.
+- **Search**: Alpha-beta with iterative deepening, transposition tables, history heuristic, null move pruning, and quiescence search.
+- **MCTS**: Tactical-first MCTS with lazy policy evaluation and UCB/PUCT selection.
 - **Parallelism**: **Rayon** for data parallelism in the mate search portfolio.
-- **Neural Networks**: **PyTorch** (in Python) for training; **tch-rs** (LibTorch) for Rust inference.
-- **Board Representation**: Bitboards, for highly efficient move generation and position manipulation.
+- **Neural Networks** (optional): **PyTorch** for training; **tch-rs** (LibTorch) for Rust inference.
+- **Endgame Tablebases**: Syzygy support via **shakmaty-syzygy**.
 
 ## Building and Running
 
 ### Prerequisites
-First, ensure you have the Rust toolchain installed.
-
 ```bash
 # Install Rust and Cargo
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-For the neural network components (optional), you will also need Python and PyTorch.
-
+For the neural network components (optional):
 ```bash
-# Install Python dependencies
 pip install torch numpy python-chess
 ```
 
 ### Build
-Clone the repository and build the optimized release binary:
-
 ```bash
 git clone https://github.com/aaholmes/caissawary.git
 cd caissawary
@@ -153,12 +147,11 @@ cd caissawary
 cargo build --release
 
 # Hybrid Build (With Neural Network support)
-# Requires LibTorch. Automatic download may happen.
 cargo build --release --features neural
 ```
 
 ### Usage
-The primary binary is a UCI-compliant engine, suitable for use in any standard chess GUI like Arena, Cute Chess, or BanksiaGUI.
+The primary binary is a UCI-compliant engine, suitable for use in any standard chess GUI (Arena, Cute Chess, BanksiaGUI).
 
 ```bash
 # Run the engine in UCI mode
@@ -167,33 +160,57 @@ The primary binary is a UCI-compliant engine, suitable for use in any standard c
 (Type `uci` to verify connection)
 
 ### Self-Play Data Generation
-To generate training data for the neural network, use the `self_play` binary. This runs parallel games where the engine plays against itself.
-
 ```bash
 # Generate 100 games with 800 simulations per move, saving to 'data/'
 cargo run --release --bin self_play -- 100 800 data
 ```
 
-## Testing and Benchmarking
-The project includes a comprehensive suite of tests and benchmarks to validate functionality and performance. For detailed documentation, see [TESTING.md](TESTING.md).
+## Testing
+
+The project has a comprehensive test suite with **335+ tests** organized across four categories. For detailed documentation, see [TESTING.md](TESTING.md).
 
 ```bash
-# Run the full test suite (Unit, Integration, Property, Regression)
-./scripts/test.sh
-
-# Run standard cargo tests
+# Run the full test suite
 cargo test
 
-# Run perft tests (Move Generation Correctness)
+# Run unit tests only (188 tests)
+cargo test --test unit_tests
+
+# Run integration, property, or regression tests
+cargo test --test integration_tests
+cargo test --test property_tests
+cargo test --test regression_tests
+
+# Run perft tests (move generation correctness)
 cargo test --test perft_tests
 ```
+
+### Test Coverage
+The unit test suite covers all core modules:
+
+| Module | Tests | Coverage |
+|--------|-------|----------|
+| Board & FEN parsing | board_tests | Positions, checkmate/stalemate detection, KOTH |
+| Board utilities | board_utils_tests | Coordinate conversions, masks, flips |
+| Bitwise operations | bits_tests | Iteration, bit manipulation, popcount |
+| Move generation | move_generation_tests | Castling, en passant, promotions |
+| Move application | make_move_tests | Pawn pushes, en passant, castling, promotion |
+| Board stack | boardstack_tests | Make/undo, repetition detection, null moves |
+| Evaluation | eval_tests | Material, tapered eval, piece-square, king safety |
+| Search | alpha_beta_tests, iterative_deepening_tests | Checkmate detection, depth, time limits |
+| Quiescence search | quiescence_tests, see_tests | Captures, SEE pruning, tactical resolution |
+| MCTS | node_tests, selection_tests, simulation_tests | UCT/PUCT, playout, node lifecycle |
+| Tactical MCTS | tactical_mcts_tests | Mate-in-1, time/iteration limits, grafting |
+| Mate search | mate_search_tests | Mate-in-1/2, depth, node budgets |
+| Transposition table | transposition_tests, hash_tests | Store/probe, depth replacement, Zobrist hashing |
+| History heuristic | history_tests | Scoring, accumulation, saturation |
+| Visualization | graphviz_tests, search_logger_tests | DOT export, verbosity, node coloring |
+| KOTH variant | koth_tests | Center square detection, king proximity |
 
 ## Visualization & Debugging
 Caissawary includes a powerful **MCTS Inspector** tool to visualize the search tree and debug its state-dependent logic. This tool generates Graphviz DOT files that color-code nodes based on their origin (Tier 1, 2, or 3).
 
 ### Using the MCTS Inspector
-Run the inspector on any FEN position to generate a search tree visualization:
-
 ```bash
 # Analyze a position (defaults to depth 4, 500 iterations)
 cargo run --release --bin mcts_inspector -- "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
@@ -203,8 +220,6 @@ cargo run --release --bin mcts_inspector -- "6k1/5ppp/8/8/8/8/8/4R1K1 w - - 0 1"
 ```
 
 ### Rendering the Output
-The tool produces a `.dot` file. You can render this to an image using Graphviz:
-
 ```bash
 # Render to PNG
 dot -Tpng mcts_tree.dot -o tree.png
@@ -215,32 +230,35 @@ dot -Tsvg mcts_tree.dot -o tree.svg
 
 ### Interpreting the Tree
 Nodes are color-coded to reveal how the engine solved or evaluated them:
-- **🟥 Red (Tier 1 Gate):** Solved immediately by "Safety Gates" (Mate Search or KOTH logic) without expansion.
-- **🟠 Gold (Tier 2 Graft):** A tactical move found by Quiescence Search and "grafted" into the tree.
-- **🔵 Blue (Tier 3 Neural):** A standard node evaluated by the neural network (or Pesto in classical mode).
-- **⚪ Grey (Shadow Prior):** A tactical move that was considered but refuted/pruned by the engine.
+- **Red (Tier 1 Gate):** Solved immediately by "Safety Gates" (Mate Search or KOTH logic) without expansion.
+- **Gold (Tier 2 Graft):** A tactical move found by Quiescence Search and "grafted" into the tree.
+- **Blue (Tier 3 Neural):** A standard node evaluated by the neural network (or Pesto in classical mode).
+- **Grey (Shadow Prior):** A tactical move that was considered but refuted/pruned by the engine.
 
 ### Stream of Consciousness Logger
 For real-time insight into the engine's "thought process," use the **Stream of Consciousness Logger**. This tool narrates the search as it happens, explaining why specific moves are being prioritized.
 
-#### Using the Verbose Search
-Run the `verbose_search` binary on any position:
-
 ```bash
-# Narrate the search for a specific position with verbose output
 cargo run --release --bin verbose_search -- "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1" --verbosity verbose
 ```
 
 For more details on verbosity levels and configuration, see [STREAM_OF_CONSCIOUSNESS_LOGGER.md](STREAM_OF_CONSCIOUSNESS_LOGGER.md).
 
 ## Binary Targets
-The crate is organized to produce several distinct binaries for different tasks:
+The crate produces several binaries for different tasks:
 
-- **caissawary**: The main UCI chess engine.
-- **benchmark**: A suite for performance testing, measuring nodes-per-second and puzzle-solving speed.
-- **mcts_inspector**: A tool for visualizing and debugging the MCTS search tree.
-- **verbose_search**: A real-time search narration tool with customizable verbosity.
-- **self_play**: A high-throughput data generation tool that plays games against itself to create training datasets for the neural network.
+| Binary | Description |
+|--------|-------------|
+| `kingfisher` | Main UCI chess engine |
+| `benchmark` | Performance testing and nodes-per-second measurement |
+| `mcts_inspector` | MCTS search tree visualization (Graphviz DOT output) |
+| `verbose_search` | Real-time search narration with configurable verbosity |
+| `self_play` | Self-play data generation for neural network training |
+| `run_experiments` | Ablation studies and experimental framework |
+| `elo_tournament` | Elo rating estimation via engine tournaments |
+| `texel_tune` | Texel tuning for evaluation weight optimization |
+| `strength_test` | Engine strength testing against benchmark positions |
+| `generate_training_data` | Training data generation pipeline |
 
 ## References
 The architecture of Caissawary is inspired by decades of research in computer chess and artificial intelligence. Key influences include:
