@@ -176,8 +176,7 @@ pub fn tactical_mcts_search_with_tt(
             stats.tt_mate_hits += 1;
             if mate_depth != 0 && _mate_move != Move::null() {
                 // Verify move is actually pseudo-legal in this position to guard against collisions
-                let (captures, quiet) = move_gen.gen_pseudo_legal_moves(&board);
-                let is_pseudo_legal = captures.contains(&_mate_move) || quiet.contains(&_mate_move);
+                let is_pseudo_legal = board.is_pseudo_legal(_mate_move, move_gen);
                 
                 if is_pseudo_legal {
                     let next = board.apply_move_to_board(_mate_move);
@@ -368,7 +367,7 @@ fn evaluate_leaf_node(
                 let is_valid = if _mate_move != Move::null() {
                     let (captures, quiet) = move_gen.gen_pseudo_legal_moves(board);
                     let is_pseudo_legal = captures.contains(&_mate_move) || quiet.contains(&_mate_move);
-                    is_pseudo_legal && board.apply_move_to_board(_mate_move).is_legal(move_gen)
+                    is_pseudo_legal && board.is_legal_after_move(_mate_move, move_gen)
                 } else {
                     true
                 };
@@ -538,11 +537,11 @@ fn select_best_move_from_root(
     move_gen: &MoveGen,
 ) -> Option<Move> {
     let root_ref = root.borrow();
-    if let Some(mate_move) = root_ref.mate_move { 
+    if let Some(mate_move) = root_ref.mate_move {
         // Validation check
-        let (captures, quiet) = move_gen.gen_pseudo_legal_moves(&root_ref.state);
-        let is_pseudo_legal = captures.contains(&mate_move) || quiet.contains(&mate_move);
-        if is_pseudo_legal && root_ref.state.apply_move_to_board(mate_move).is_legal(move_gen) {
+        if root_ref.state.is_pseudo_legal(mate_move, move_gen)
+            && root_ref.state.is_legal_after_move(mate_move, move_gen)
+        {
             return Some(mate_move);
         }
     }

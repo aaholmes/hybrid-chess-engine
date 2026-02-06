@@ -73,6 +73,9 @@ name = "regression_tests"
 path = "tests/regression/mod.rs"
 
 
+[profile.release]
+debug = true
+
 [[bin]]
 name = "mcts_inspector"
 path = "src/bin/mcts_inspector.rs"

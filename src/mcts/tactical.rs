@@ -177,9 +177,9 @@ fn identify_tactical_moves_internal(board: &Board, move_gen: &MoveGen) -> Vec<Ta
     // Track moves we've already identified to avoid duplicates
     let mut identified_moves = HashSet::new();
     
-    // 1. Analyze captures with MVV-LVA scoring
+    // 1. Analyze captures with MVV-LVA scoring (uses lightweight legality check)
     for mv in &captures {
-        if board.apply_move_to_board(*mv).is_legal(move_gen) {
+        if board.is_legal_after_move(*mv, move_gen) {
             if !is_losing_capture(*mv, board, move_gen) {
                 let mvv_lva_score = calculate_mvv_lva(*mv, board);
                 tactical_moves.push(TacticalMove::Capture(*mv, mvv_lva_score));
@@ -187,24 +187,23 @@ fn identify_tactical_moves_internal(board: &Board, move_gen: &MoveGen) -> Vec<Ta
             }
         }
     }
-    
-    // 2. Analyze checking moves (including non-captures)
+
+    // 2. Analyze checking moves (uses clone-free gives_check for detection, lightweight legality)
     for mv in captures.iter().chain(non_captures.iter()) {
         if !identified_moves.contains(mv) {
-            let new_board = board.apply_move_to_board(*mv);
-            if new_board.is_legal(move_gen) && new_board.is_check(move_gen) {
+            if board.is_legal_after_move(*mv, move_gen) && board.gives_check(*mv, move_gen) {
                 let check_score = calculate_check_priority(*mv, board);
                 tactical_moves.push(TacticalMove::Check(*mv, check_score));
                 identified_moves.insert(*mv);
             }
         }
     }
-    
-    // 3. Analyze fork moves (knight and pawn forks initially)
+
+    // 3. Analyze fork moves (only needs board clone for fork detection)
     for mv in captures.iter().chain(non_captures.iter()) {
         if !identified_moves.contains(mv) {
-            let new_board = board.apply_move_to_board(*mv);
-            if new_board.is_legal(move_gen) {
+            if board.is_legal_after_move(*mv, move_gen) {
+                let new_board = board.apply_move_to_board(*mv);
                 if let Some(fork_score) = detect_fork_move(*mv, board, &new_board) {
                     tactical_moves.push(TacticalMove::Fork(*mv, fork_score));
                     identified_moves.insert(*mv);
@@ -416,23 +415,22 @@ fn get_pawn_attacks(square: usize, is_white: bool) -> Vec<usize> {
 
 /// Filter tactical moves to remove obviously bad ones
 pub fn filter_tactical_moves(tactical_moves: Vec<TacticalMove>, board: &Board) -> Vec<TacticalMove> {
+    let move_gen = MoveGen::new();
     tactical_moves
         .into_iter()
         .filter(|tactical_move| {
             let mv = tactical_move.get_move();
-            
+
             // Basic legality check (should already be done, but double-check)
-            let new_board = board.apply_move_to_board(mv);
-            if !new_board.is_legal(&MoveGen::new()) {
+            if !board.is_legal_after_move(mv, &move_gen) {
                 return false;
             }
-            
+
             // For captures, ensure they're not obviously losing
             if let TacticalMove::Capture(_, _) = tactical_move {
-                let temp_move_gen = MoveGen::new();
-            return !is_losing_capture(mv, board, &temp_move_gen);
+                return !is_losing_capture(mv, board, &move_gen);
             }
-            
+
             true
         })
         .collect()

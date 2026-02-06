@@ -32,28 +32,15 @@ pub fn simulate_random_playout(state: &Board, move_gen: &MoveGen) -> f64 {
         // Get pseudo-legal moves
         let (captures, moves) = move_gen.gen_pseudo_legal_moves(&current_state);
 
-        // Combine and filter for legal moves
+        // Combine and filter for legal moves using lightweight legality check
         let mut legal_moves = Vec::with_capacity(captures.len() + moves.len());
 
-        // Check captures for legality
-        for m in captures {
+        for m in captures.iter().chain(moves.iter()) {
             if current_state.get_piece(m.from).is_none() {
                 continue;
             }
-            let new_board = current_state.apply_move_to_board(m);
-            if new_board.is_legal(move_gen) {
-                legal_moves.push(m);
-            }
-        }
-
-        // Check moves for legality
-        for m in moves {
-            if current_state.get_piece(m.from).is_none() {
-                continue;
-            }
-            let new_board = current_state.apply_move_to_board(m);
-            if new_board.is_legal(move_gen) {
-                legal_moves.push(m);
+            if current_state.is_legal_after_move(*m, move_gen) {
+                legal_moves.push(*m);
             }
         }
 

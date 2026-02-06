@@ -46,6 +46,27 @@ pub struct ZobristKeys {
 }
 
 impl ZobristKeys {
+    /// Get the Zobrist key for a piece at a specific square.
+    pub fn piece_key(&self, color: usize, piece_type: usize, square: usize) -> u64 {
+        self.piece_keys[color][piece_type][square]
+    }
+
+    /// Get the Zobrist key for a castling right.
+    /// Index: 0=WK, 1=WQ, 2=BK, 3=BQ
+    pub fn castling_key(&self, index: usize) -> u64 {
+        self.castling_keys[index]
+    }
+
+    /// Get the Zobrist key for an en passant file.
+    pub fn en_passant_key(&self, file: usize) -> u64 {
+        self.en_passant_keys[file]
+    }
+
+    /// Get the Zobrist key for the side to move.
+    pub fn side_to_move_key(&self) -> u64 {
+        self.side_to_move_key
+    }
+
     /// Generates a new set of random Zobrist keys.
     ///
     /// This method should typically only be called once to initialize the global ZOBRIST_KEYS.

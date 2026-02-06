@@ -384,23 +384,10 @@ impl Board {
         // Generate all pseudo-legal moves
         let (captures, moves) = move_gen.gen_pseudo_legal_moves(self);
 
-        // Check if any of the captures are legal
-        if !captures.is_empty() {
-            for c in captures {
-                let new_board = self.apply_move_to_board(c);
-                if new_board.is_legal(move_gen) {
-                    return (false, false);
-                }
-            }
-        }
-
-        // Check if any of the non-capture moves are legal
-        if !moves.is_empty() {
-            for m in moves {
-                let new_board = self.apply_move_to_board(m);
-                if new_board.is_legal(move_gen) {
-                    return (false, false);
-                }
+        // Check if any move is legal using lightweight legality check
+        for mv in captures.iter().chain(moves.iter()) {
+            if self.is_legal_after_move(*mv, move_gen) {
+                return (false, false);
             }
         }
 
@@ -411,6 +398,140 @@ impl Board {
             (true, false) // Checkmate
         } else {
             (false, true) // Stalemate
+        }
+    }
+
+    /// Checks if a move is pseudo-legal in the current position without generating
+    /// all pseudo-legal moves. Verifies:
+    /// 1. There is a piece of the correct color at `mv.from`
+    /// 2. The destination is reachable by that piece type
+    /// 3. No own-piece at destination (for non-castling moves)
+    ///
+    /// This is used to validate TT-probed moves without full move generation.
+    pub fn is_pseudo_legal(&self, mv: Move, move_gen: &MoveGen) -> bool {
+        let stm = if self.w_to_move { WHITE } else { BLACK };
+        let opp = 1 - stm;
+        let from_bit = 1u64 << mv.from;
+        let to_bit = 1u64 << mv.to;
+
+        // Check there's a piece of the correct color at from
+        if self.pieces_occ[stm] & from_bit == 0 {
+            return false;
+        }
+
+        // Find piece type at from
+        let piece_type = match self.get_piece(mv.from) {
+            Some((color, pt)) if color == stm => pt,
+            _ => return false,
+        };
+
+        // Can't capture own piece (except castling is handled specially)
+        if !mv.is_castle() && self.pieces_occ[stm] & to_bit != 0 {
+            return false;
+        }
+
+        let all_occ = self.pieces_occ[WHITE] | self.pieces_occ[BLACK];
+
+        match piece_type {
+            PAWN => {
+                let from_rank = mv.from / 8;
+                let to_rank = mv.to / 8;
+                let from_file = mv.from % 8;
+                let to_file = mv.to % 8;
+
+                if self.w_to_move {
+                    // White pawn
+                    if from_file == to_file {
+                        // Push
+                        if mv.to == mv.from + 8 && all_occ & to_bit == 0 {
+                            return true;
+                        }
+                        // Double push
+                        if from_rank == 1 && mv.to == mv.from + 16
+                            && all_occ & (1u64 << (mv.from + 8)) == 0
+                            && all_occ & to_bit == 0
+                        {
+                            return true;
+                        }
+                    } else if (to_file as i32 - from_file as i32).abs() == 1 && to_rank == from_rank + 1 {
+                        // Capture (including en passant)
+                        if self.pieces_occ[opp] & to_bit != 0 {
+                            return true;
+                        }
+                        if self.en_passant == Some(mv.to as u8) {
+                            return true;
+                        }
+                    }
+                } else {
+                    // Black pawn
+                    if from_file == to_file {
+                        if mv.from >= 8 && mv.to == mv.from - 8 && all_occ & to_bit == 0 {
+                            return true;
+                        }
+                        if from_rank == 6 && mv.from >= 16 && mv.to == mv.from - 16
+                            && all_occ & (1u64 << (mv.from - 8)) == 0
+                            && all_occ & to_bit == 0
+                        {
+                            return true;
+                        }
+                    } else if mv.from >= 8
+                        && (to_file as i32 - from_file as i32).abs() == 1
+                        && to_rank + 1 == from_rank
+                    {
+                        if self.pieces_occ[opp] & to_bit != 0 {
+                            return true;
+                        }
+                        if self.en_passant == Some(mv.to as u8) {
+                            return true;
+                        }
+                    }
+                }
+                false
+            }
+            KNIGHT => {
+                move_gen.n_move_bitboard[mv.from] & to_bit != 0
+            }
+            BISHOP => {
+                let attacks = move_gen.gen_bishop_attacks_occ(mv.from, all_occ);
+                attacks & to_bit != 0
+            }
+            ROOK => {
+                let attacks = move_gen.gen_rook_attacks_occ(mv.from, all_occ);
+                attacks & to_bit != 0
+            }
+            QUEEN => {
+                let attacks = move_gen.gen_bishop_attacks_occ(mv.from, all_occ)
+                    | move_gen.gen_rook_attacks_occ(mv.from, all_occ);
+                attacks & to_bit != 0
+            }
+            KING => {
+                // Normal king move
+                if move_gen.k_move_bitboard[mv.from] & to_bit != 0 {
+                    return true;
+                }
+                // Castling: already validated by is_castle()
+                if mv.is_castle() {
+                    // We trust that move generation already validated castling prerequisites.
+                    // Just check the basic structure: correct king position and castling rights.
+                    if self.w_to_move {
+                        if mv.from == 4 && mv.to == 6 && self.castling_rights.white_kingside {
+                            return true;
+                        }
+                        if mv.from == 4 && mv.to == 2 && self.castling_rights.white_queenside {
+                            return true;
+                        }
+                    } else {
+                        if mv.from == 60 && mv.to == 62 && self.castling_rights.black_kingside {
+                            return true;
+                        }
+                        if mv.from == 60 && mv.to == 58 && self.castling_rights.black_queenside {
+                            return true;
+                        }
+                    }
+                }
+                false
+            }
+            _ => false,
         }
     }
 
@@ -625,6 +746,118 @@ impl Board {
         }
 
         false
+    }
+
+    /// Checks if a pseudo-legal move is legal (doesn't leave own king in check)
+    /// without cloning the board. Works by building modified occupancy on the stack
+    /// and checking for attacks against the king.
+    ///
+    /// This is functionally equivalent to `apply_move_to_board(mv).is_legal(move_gen)`
+    /// but avoids the board clone and hash recomputation.
+    pub fn is_legal_after_move(&self, mv: Move, move_gen: &MoveGen) -> bool {
+        let stm = if self.w_to_move { WHITE } else { BLACK };
+        let opp = 1 - stm;
+
+        let from_bit = 1u64 << mv.from;
+        let to_bit = 1u64 << mv.to;
+
+        // Determine the moving piece type
+        let piece_type = match self.get_piece(mv.from) {
+            Some((_, pt)) => pt,
+            None => return false,
+        };
+
+        // Find the king square (may have moved)
+        let king_sq: usize;
+        if piece_type == KING {
+            king_sq = mv.to;
+        } else {
+            let king_bb = self.pieces[stm][KING];
+            if king_bb == 0 { return false; }
+            king_sq = king_bb.trailing_zeros() as usize;
+        }
+
+        // Build modified occupancy: remove piece from `from`, add at `to`, remove captured piece
+        let mut all_occ = (self.pieces_occ[WHITE] | self.pieces_occ[BLACK]) & !from_bit | to_bit;
+
+        // Handle en passant: also remove the captured pawn
+        let mut ep_captured_sq: Option<usize> = None;
+        if piece_type == PAWN && self.en_passant.is_some()
+            && mv.to == self.en_passant.unwrap() as usize
+        {
+            let cap_sq = if self.w_to_move { mv.to - 8 } else { mv.to + 8 };
+            ep_captured_sq = Some(cap_sq);
+            all_occ &= !(1u64 << cap_sq);
+        }
+
+        // For castling, we need to also check that the king doesn't pass through check.
+        // Castling legality is already checked by move generation (which verifies
+        // the king doesn't start in check, doesn't pass through attacked squares,
+        // and doesn't end in check). So for castling we just need to verify the
+        // final king position isn't attacked (which is what we do below).
+        // The rook also moves, so update occupancy for castling.
+        if piece_type == KING {
+            if mv.from == 4 && mv.to == 6 { // White O-O
+                all_occ = (all_occ & !(1u64 << 7)) | (1u64 << 5);
+            } else if mv.from == 4 && mv.to == 2 { // White O-O-O
+                all_occ = (all_occ & !(1u64 << 0)) | (1u64 << 3);
+            } else if mv.from == 60 && mv.to == 62 { // Black O-O
+                all_occ = (all_occ & !(1u64 << 63)) | (1u64 << 61);
+            } else if mv.from == 60 && mv.to == 58 { // Black O-O-O
+                all_occ = (all_occ & !(1u64 << 56)) | (1u64 << 59);
+            }
+        }
+
+        // Check if king_sq is attacked by opponent using modified occupancy.
+        // We need to account for:
+        // - The moving piece is no longer at `from` (already handled via all_occ)
+        // - There may be a captured piece at `to` (already handled via all_occ including to_bit)
+        // - For EP, the captured pawn is removed from its actual square
+
+        // Build opponent piece bitboards accounting for captures
+        let opp_pawns = self.pieces[opp][PAWN] & !to_bit
+            & if let Some(ep_sq) = ep_captured_sq { !(1u64 << ep_sq) } else { !0u64 };
+        let opp_knights = self.pieces[opp][KNIGHT] & !to_bit;
+        let opp_bishops = self.pieces[opp][BISHOP] & !to_bit;
+        let opp_rooks = self.pieces[opp][ROOK] & !to_bit;
+        let opp_queens = self.pieces[opp][QUEEN] & !to_bit;
+        let opp_king = self.pieces[opp][KING] & !to_bit;
+
+        // Check pawn attacks
+        if stm == WHITE {
+            // White king attacked by black pawns: black pawns attack downward
+            if move_gen.wp_capture_bitboard[king_sq] & opp_pawns != 0 {
+                return false;
+            }
+        } else {
+            // Black king attacked by white pawns: white pawns attack upward
+            if move_gen.bp_capture_bitboard[king_sq] & opp_pawns != 0 {
+                return false;
+            }
+        }
+
+        // Check knight attacks
+        if move_gen.n_move_bitboard[king_sq] & opp_knights != 0 {
+            return false;
+        }
+
+        // Check king attacks (opponent king)
+        if move_gen.k_move_bitboard[king_sq] & opp_king != 0 {
+            return false;
+        }
+
+        // Check sliding piece attacks using modified occupancy
+        let bishop_attacks = move_gen.gen_bishop_attacks_occ(king_sq, all_occ);
+        if bishop_attacks & (opp_bishops | opp_queens) != 0 {
+            return false;
+        }
+
+        let rook_attacks = move_gen.gen_rook_attacks_occ(king_sq, all_occ);
+        if rook_attacks & (opp_rooks | opp_queens) != 0 {
+            return false;
+        }
+
+        true
     }
 
     /// Checks if a square is attacked by a given side.
