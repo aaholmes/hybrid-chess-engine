@@ -120,7 +120,7 @@ pub struct CaissawaryConfig {
 - **Board Representation**: Bitboards with magic bitboard move generation.
 - **Evaluation**: Pesto-style tapered evaluation with Texel-tuned weights.
 - **Search**: Alpha-beta with iterative deepening, transposition tables, history heuristic, null move pruning, and quiescence search.
-- **MCTS**: Tactical-first MCTS with lazy policy evaluation and UCB/PUCT selection.
+- **MCTS**: Tactical-first MCTS with lazy policy evaluation, UCB/PUCT selection, tree reuse, and clone-free check detection.
 - **Parallelism**: **Rayon** for data parallelism in the mate search portfolio.
 - **Neural Networks** (optional): **PyTorch** for training; **tch-rs** (LibTorch) for Rust inference.
 - **Endgame Tablebases**: Syzygy support via **shakmaty-syzygy**.
@@ -160,6 +160,8 @@ The primary binary is a UCI-compliant engine, suitable for use in any standard c
 (Type `uci` to verify connection)
 
 ### Self-Play Data Generation
+The self-play pipeline includes MCTS tree reuse between moves, a shared transposition table, and proper draw detection (3-fold repetition, 50-move rule).
+
 ```bash
 # Generate 100 games with 800 simulations per move, saving to 'data/'
 cargo run --release --bin self_play -- 100 800 data
@@ -167,13 +169,13 @@ cargo run --release --bin self_play -- 100 800 data
 
 ## Testing
 
-The project has a comprehensive test suite with **335+ tests** organized across four categories. For detailed documentation, see [TESTING.md](TESTING.md).
+The project has a comprehensive test suite with **355+ tests** organized across four categories. For detailed documentation, see [TESTING.md](TESTING.md).
 
 ```bash
 # Run the full test suite
 cargo test
 
-# Run unit tests only (188 tests)
+# Run unit tests only (210 tests)
 cargo test --test unit_tests
 
 # Run integration, property, or regression tests
@@ -200,8 +202,12 @@ The unit test suite covers all core modules:
 | Search | alpha_beta_tests, iterative_deepening_tests | Checkmate detection, depth, time limits |
 | Quiescence search | quiescence_tests, see_tests | Captures, SEE pruning, tactical resolution |
 | MCTS | node_tests, selection_tests, simulation_tests | UCT/PUCT, playout, node lifecycle |
+| MCTS selection | selection_optimization_tests | Redundancy-free selection, UCB correctness |
+| Tree reuse | tree_reuse_tests | Subtree extraction, visit preservation |
 | Tactical MCTS | tactical_mcts_tests | Mate-in-1, time/iteration limits, grafting |
 | Mate search | mate_search_tests | Mate-in-1/2, depth, node budgets |
+| Check detection | gives_check_tests | Direct/discovered check, property testing |
+| Self-play loop | self_play_loop_tests | Repetition, 50-move rule, shared TT |
 | Transposition table | transposition_tests, hash_tests | Store/probe, depth replacement, Zobrist hashing |
 | History heuristic | history_tests | Scoring, accumulation, saturation |
 | Visualization | graphviz_tests, search_logger_tests | DOT export, verbosity, node coloring |

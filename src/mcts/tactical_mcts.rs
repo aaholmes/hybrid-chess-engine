@@ -562,9 +562,11 @@ fn select_best_move_from_root(
 
 pub struct MctsTrainingResult {
     pub best_move: Option<Move>,
-    pub root_policy: Vec<(Move, u32)> ,
+    pub root_policy: Vec<(Move, u32)>,
     pub root_value_prediction: f64,
     pub stats: TacticalMctsStats,
+    /// The root node of the search tree, for tree reuse on the next move.
+    pub root_node: Rc<RefCell<MctsNode>>,
 }
 
 pub fn tactical_mcts_search_for_training(
@@ -579,7 +581,7 @@ pub fn tactical_mcts_search_for_training(
     let root_node = MctsNode::new_root(board, move_gen);
     
     if root_node.borrow().is_game_terminal() {
-        return MctsTrainingResult { best_move: None, root_policy: vec![], root_value_prediction: 0.0, stats };
+        return MctsTrainingResult { best_move: None, root_policy: vec![], root_value_prediction: 0.0, stats, root_node };
     }
     
     evaluate_and_expand_node(root_node.clone(), move_gen, pesto_eval, &mut stats, &config, None);
@@ -595,21 +597,97 @@ pub fn tactical_mcts_search_for_training(
         stats.iterations = iteration + 1;
     }
     
-    let root = root_node.borrow();
-    let mut policy = Vec::new();
-    for child in &root.children {
-        if let Some(mv) = child.borrow().action {
-            policy.push((mv, child.borrow().visits));
+    let (policy, root_val) = {
+        let root = root_node.borrow();
+        let mut policy = Vec::new();
+        for child in &root.children {
+            if let Some(mv) = child.borrow().action {
+                policy.push((mv, child.borrow().visits));
+            }
         }
-    }
-    
+        let root_val = if root.visits > 0 { -(root.total_value / root.visits as f64) } else { 0.0 };
+        (policy, root_val)
+    };
+
     let best_move = select_best_move_from_root(root_node.clone(), move_gen);
-    // root.total_value stores rewards relative to side that just moved (parent's parent).
-    // For root, this is the opponent of the side to move.
-    // So we negate it to get the side to move's perspective.
-    let root_val = if root.visits > 0 { -(root.total_value / root.visits as f64) } else { 0.0 };
-    
-    MctsTrainingResult { best_move, root_policy: policy, root_value_prediction: root_val, stats }
+
+    MctsTrainingResult { best_move, root_policy: policy, root_value_prediction: root_val, stats, root_node }
+}
+
+/// Search for training with optional tree reuse and shared transposition table.
+pub fn tactical_mcts_search_for_training_with_reuse(
+    board: Board,
+    move_gen: &MoveGen,
+    pesto_eval: &PestoEval,
+    nn_policy: &mut Option<NeuralNetPolicy>,
+    config: TacticalMctsConfig,
+    reused_root: Option<Rc<RefCell<MctsNode>>>,
+    transposition_table: &mut TranspositionTable,
+) -> MctsTrainingResult {
+    let start_time = Instant::now();
+    let mut stats = TacticalMctsStats::default();
+
+    // Use reused root if available, otherwise create new
+    let root_node = if let Some(reused) = reused_root {
+        reused
+    } else {
+        MctsNode::new_root(board, move_gen)
+    };
+
+    if root_node.borrow().is_game_terminal() {
+        return MctsTrainingResult { best_move: None, root_policy: vec![], root_value_prediction: 0.0, stats, root_node };
+    }
+
+    if root_node.borrow().children.is_empty() {
+        evaluate_and_expand_node(root_node.clone(), move_gen, pesto_eval, &mut stats, &config, None);
+    }
+
+    for iteration in 0..config.max_iterations {
+        if start_time.elapsed() > config.time_limit { break; }
+        let leaf = select_leaf_node(root_node.clone(), move_gen, nn_policy, &config, &mut stats, None);
+        let value = evaluate_leaf_node(leaf.clone(), move_gen, pesto_eval, nn_policy, &config, transposition_table, &mut stats, None);
+        if !leaf.borrow().is_game_terminal() && leaf.borrow().visits == 0 {
+            evaluate_and_expand_node(leaf.clone(), move_gen, pesto_eval, &mut stats, &config, None);
+        }
+        MctsNode::backpropagate(leaf, value);
+        stats.iterations = iteration + 1;
+    }
+
+    let (policy, root_val) = {
+        let root = root_node.borrow();
+        let mut policy = Vec::new();
+        for child in &root.children {
+            if let Some(mv) = child.borrow().action {
+                policy.push((mv, child.borrow().visits));
+            }
+        }
+        let root_val = if root.visits > 0 { -(root.total_value / root.visits as f64) } else { 0.0 };
+        (policy, root_val)
+    };
+
+    let best_move = select_best_move_from_root(root_node.clone(), move_gen);
+
+    MctsTrainingResult { best_move, root_policy: policy, root_value_prediction: root_val, stats, root_node }
+}
+
+/// Reuse a subtree from a previous MCTS search by finding the child
+/// corresponding to the played move and detaching it as a new root.
+///
+/// Returns None if the move is not found among the root's children.
+pub fn reuse_subtree(
+    root: Rc<RefCell<MctsNode>>,
+    played_move: Move,
+) -> Option<Rc<RefCell<MctsNode>>> {
+    let root_ref = root.borrow();
+    let child = root_ref.children.iter()
+        .find(|c| c.borrow().action == Some(played_move))?
+        .clone();
+    drop(root_ref);
+
+    // Detach child from parent to make it the new root
+    child.borrow_mut().parent = None;
+
+    Some(child)
 }
 
 pub fn print_search_stats(stats: &TacticalMctsStats, best_move: Option<Move>) {

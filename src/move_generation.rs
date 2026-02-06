@@ -798,6 +798,22 @@ impl MoveGen {
         self.r_move_bitboard[from_sq_ind][key]
     }
 
+    /// Generate bishop attack bitboard given raw occupancy.
+    pub fn gen_bishop_attacks_occ(&self, from_sq_ind: usize, occupancy: u64) -> u64 {
+        let blockers = occupancy & B_MASKS[from_sq_ind];
+        let key = ((blockers.wrapping_mul(self.b_magics[from_sq_ind]))
+            >> (64 - B_BITS[from_sq_ind])) as usize;
+        self.b_move_bitboard[from_sq_ind][key]
+    }
+
+    /// Generate rook attack bitboard given raw occupancy.
+    pub fn gen_rook_attacks_occ(&self, from_sq_ind: usize, occupancy: u64) -> u64 {
+        let blockers = occupancy & R_MASKS[from_sq_ind];
+        let key = ((blockers.wrapping_mul(self.r_magics[from_sq_ind]))
+            >> (64 - R_BITS[from_sq_ind])) as usize;
+        self.r_move_bitboard[from_sq_ind][key]
+    }
+
     /// Generates moves for a bishop on a specific square.
     ///
     /// This function generates moves for a bishop on the given square, including

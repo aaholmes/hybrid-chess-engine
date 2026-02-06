@@ -21,6 +21,10 @@ mod eval_tests;
 mod boardstack_tests;
 mod simulation_tests;
 mod make_move_tests;
+mod selection_optimization_tests;
+mod tree_reuse_tests;
+mod gives_check_tests;
+mod self_play_loop_tests;
 
 // Re-export common utilities
 mod common {

@@ -262,26 +262,20 @@ impl MctsNode {
         q_value + exploration_term
     }
 
-    pub fn select_best_explored_child(&self, move_gen: &MoveGen, exploration_constant: f64) -> Rc<RefCell<MctsNode>> {
+    pub fn select_best_explored_child(&self, _move_gen: &MoveGen, exploration_constant: f64) -> Rc<RefCell<MctsNode>> {
         let parent_visits = self.visits;
         let parent_num_legal = self.num_legal_moves.unwrap_or(1);
 
-        let mut children_sorted = self.children.clone();
-        children_sorted.sort_by(|a, b| {
-            let puct_b = b.borrow().puct_value(parent_visits, parent_num_legal, exploration_constant);
-            let puct_a = a.borrow().puct_value(parent_visits, parent_num_legal, exploration_constant);
-            puct_b.partial_cmp(&puct_a).unwrap_or(std::cmp::Ordering::Equal)
-        });
-
-        for child in children_sorted {
-            let action = child.borrow().action.expect("Child node must have an action");
-            let next_state = self.state.apply_move_to_board(action);
-            if next_state.is_legal(move_gen) {
-                return child;
-            }
-        }
-
-        panic!("select_best_explored_child: no legal child found!")
+        // Children are already legality-checked during expansion, so we just
+        // pick the highest-PUCT child directly without re-validating.
+        self.children.iter()
+            .max_by(|a, b| {
+                let puct_a = a.borrow().puct_value(parent_visits, parent_num_legal, exploration_constant);
+                let puct_b = b.borrow().puct_value(parent_visits, parent_num_legal, exploration_constant);
+                puct_a.partial_cmp(&puct_b).unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .cloned()
+            .expect("select_best_explored_child: no children found!")
     }
 
     pub fn categorize_and_store_moves(
@@ -302,7 +296,7 @@ impl MctsNode {
              if self.state.get_piece(mv.from).is_none() {
                  continue;
              }
-             let opponent_color = !self.state.w_to_move as usize;
+             let opponent_color = if self.state.w_to_move { 1 } else { 0 };
              let is_capture = (self.state.pieces_occ[opponent_color] & (1u64 << mv.to)) != 0 || mv.is_en_passant();
              if is_capture || mv.is_promotion() {
                  capture_scores.insert(*mv, move_gen.mvv_lva(&self.state, mv.from, mv.to));
@@ -336,12 +330,12 @@ impl MctsNode {
         if self.state.get_piece(mv.from).is_none() {
             return MoveCategory::Quiet;
         }
-        let next_state = self.state.apply_move_to_board(*mv);
-        if next_state.is_check(move_gen) {
+        // Use gives_check to avoid cloning the board
+        if self.state.gives_check(*mv, move_gen) {
              return MoveCategory::Check;
         }
 
-        let opponent_color = !self.state.w_to_move as usize;
+        let opponent_color = if self.state.w_to_move { 1 } else { 0 };
         let is_capture = (self.state.pieces_occ[opponent_color] & (1u64 << mv.to)) != 0 || mv.is_en_passant();
         if is_capture || mv.is_promotion() {
              return MoveCategory::Capture;

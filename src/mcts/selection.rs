@@ -36,39 +36,24 @@ pub fn select_child_with_tactical_priority(
     }
     
     // Phase 1: Check for unexplored tactical moves
+    // Children are already legality-checked during expansion (ensure_node_expanded),
+    // so no need to re-validate with gen_pseudo_legal_moves here.
     if let Some(tactical_child) = select_unexplored_tactical_move(node.clone(), move_gen, stats, logger) {
-        let is_valid = {
+        if let Some(log) = logger {
             let child_ref = tactical_child.borrow();
             if let Some(mv) = child_ref.action {
-                let (captures, quiet) = move_gen.gen_pseudo_legal_moves(&node.borrow().state);
-                captures.contains(&mv) || quiet.contains(&mv)
-            } else {
-                false
+                let score = node.borrow().tactical_values.get(&mv).copied().unwrap_or(0.0);
+                log.log_selection(
+                    mv,
+                    &SelectionReason::TacticalPriority {
+                        move_type: "tactical".to_string(),
+                        score
+                    },
+                    depth
+                );
             }
-        };
-
-        if is_valid {
-            if let Some(log) = logger {
-                let child_ref = tactical_child.borrow();
-                if let Some(mv) = child_ref.action {
-                    // Determine score (extrapolated value from graft)
-                    let score = node.borrow().tactical_values.get(&mv).copied().unwrap_or(0.0);
-                    log.log_selection(
-                        mv, 
-                        &SelectionReason::TacticalPriority { 
-                            move_type: "tactical".to_string(), 
-                            score 
-                        }, 
-                        depth
-                    );
-                }
-            }
-            return Some(tactical_child);
-        } else {
-            // Remove invalid child if it somehow got in
-            let mv = tactical_child.borrow().action.unwrap();
-            node.borrow_mut().children.retain(|c| c.borrow().action != Some(mv));
         }
+        return Some(tactical_child);
     }
     
     // Phase 2: All tactical moves explored, use UCB with policy values
@@ -150,7 +135,7 @@ fn select_unexplored_tactical_move(
 fn select_ucb_with_policy(
     node: Rc<RefCell<MctsNode>>,
     config: &TacticalMctsConfig,
-    move_gen: &MoveGen,
+    _move_gen: &MoveGen,
     nn_policy: &mut Option<NeuralNetPolicy>,
     logger: Option<&Arc<SearchLogger>>,
     depth: usize,
@@ -222,22 +207,8 @@ fn select_ucb_with_policy(
         }
     }
     
-    // Final safety check
-    if let Some(ref child) = best_child {
-        let mv = child.borrow().action.unwrap();
-        if node.borrow().state.get_piece(mv.from).is_none() {
-             // Remove invalid child
-             node.borrow_mut().children.retain(|c| c.borrow().action != Some(mv));
-             return None;
-        }
-        let (captures, quiet) = move_gen.gen_pseudo_legal_moves(&node.borrow().state);
-        if !captures.contains(&mv) && !quiet.contains(&mv) {
-            // Remove invalid child
-            node.borrow_mut().children.retain(|c| c.borrow().action != Some(mv));
-            return None; // Retry selection in caller or return None
-        }
-    }
-
+    // Children are already legality-checked during expansion, so no
+    // redundant gen_pseudo_legal_moves validation needed here.
     best_child
 }
 

@@ -2,7 +2,7 @@
 
 use crate::board_utils::{algebraic_to_sq_ind, bit_to_sq_ind, coords_to_sq_ind, sq_ind_to_bit};
 use crate::move_generation::MoveGen;
-use crate::move_types::CastlingRights;
+use crate::move_types::{CastlingRights, Move};
 use crate::piece_types::{BISHOP, BLACK, KING, KNIGHT, PAWN, QUEEN, ROOK, WHITE};
 use crate::bits::popcnt;
 
@@ -188,6 +188,7 @@ impl Board {
                 board.pieces_occ[color] |= board.pieces[color][piece];
             }
         }
+        board.zobrist_hash = board.compute_zobrist_hash();
         board
     }
 
@@ -302,6 +303,11 @@ impl Board {
     /// Gets the en passant target square.
     pub fn en_passant(&self) -> Option<u8> {
         self.en_passant
+    }
+
+    /// Gets the halfmove clock (number of half-moves since last pawn push or capture).
+    pub fn halfmove_clock(&self) -> u8 {
+        self.halfmove_clock
     }
 
     /// Gets the occupancy bitboard for a color.
@@ -512,6 +518,113 @@ impl Board {
         fen.push_str(&format!(" {} {}", self.halfmove_clock, self.fullmove_number));
         
         Some(fen)
+    }
+
+    /// Determines if a move gives check to the opponent's king, without cloning the board.
+    ///
+    /// Checks for:
+    /// 1. Direct check: the piece on its destination square attacks the king
+    /// 2. Discovered check: removing the piece from its origin reveals a sliding attack
+    /// 3. Special moves: promotions, en passant, castling
+    ///
+    /// For special moves (en passant, castling, promotion), falls back to apply_move + is_check.
+    pub fn gives_check(&self, mv: Move, move_gen: &MoveGen) -> bool {
+        use crate::board_utils::bit_to_sq_ind;
+
+        // Handle special moves with fallback (these are rare)
+        if mv.promotion.is_some() || mv.is_castle() {
+            let new_board = self.apply_move_to_board(mv);
+            return new_board.is_check(move_gen);
+        }
+
+        // En passant: also fallback (pawn disappears from a different square)
+        if self.en_passant.is_some() && mv.to == self.en_passant.unwrap() as usize {
+            if let Some((_, PAWN)) = self.get_piece(mv.from) {
+                let new_board = self.apply_move_to_board(mv);
+                return new_board.is_check(move_gen);
+            }
+        }
+
+        let stm_color = if self.w_to_move { WHITE } else { BLACK };
+        let opp_color = 1 - stm_color;
+
+        // Find opponent's king square
+        let opp_king_bb = self.pieces[opp_color][KING];
+        if opp_king_bb == 0 {
+            return false;
+        }
+        let king_sq = bit_to_sq_ind(opp_king_bb);
+
+        let from_bit = 1u64 << mv.from;
+        let to_bit = 1u64 << mv.to;
+
+        // Build occupancy with the piece moved (remove from `from`, add to `to`,
+        // and remove any captured piece at `to`)
+        let all_occ = (self.pieces_occ[0] | self.pieces_occ[1]) & !from_bit | to_bit;
+
+        // 1. Direct check: does the moved piece attack the king from its destination?
+        let piece_type = match self.get_piece(mv.from) {
+            Some((_, pt)) => pt,
+            None => return false,
+        };
+
+        let direct_check = match piece_type {
+            PAWN => {
+                if stm_color == WHITE {
+                    // White pawn attacks diagonally upward
+                    move_gen.wp_capture_bitboard[mv.to] & opp_king_bb != 0
+                } else {
+                    // Black pawn attacks diagonally downward
+                    move_gen.bp_capture_bitboard[mv.to] & opp_king_bb != 0
+                }
+            }
+            KNIGHT => {
+                move_gen.n_move_bitboard[mv.to] & opp_king_bb != 0
+            }
+            BISHOP => {
+                let bishop_attacks = move_gen.gen_bishop_attacks_occ(mv.to, all_occ);
+                bishop_attacks & opp_king_bb != 0
+            }
+            ROOK => {
+                let rook_attacks = move_gen.gen_rook_attacks_occ(mv.to, all_occ);
+                rook_attacks & opp_king_bb != 0
+            }
+            QUEEN => {
+                let bishop_attacks = move_gen.gen_bishop_attacks_occ(mv.to, all_occ);
+                let rook_attacks = move_gen.gen_rook_attacks_occ(mv.to, all_occ);
+                (bishop_attacks | rook_attacks) & opp_king_bb != 0
+            }
+            KING => {
+                // King moves can't directly give check (king can't attack another king in check sense)
+                false
+            }
+            _ => false,
+        };
+
+        if direct_check {
+            return true;
+        }
+
+        // 2. Discovered check: does removing the piece from `from` reveal a sliding attack?
+        // Check if there's a rook/queen on the same rank/file as from and king
+        let rook_queen = self.pieces[stm_color][ROOK] | self.pieces[stm_color][QUEEN];
+        if rook_queen != 0 {
+            let rook_attacks_to_king = move_gen.gen_rook_attacks_occ(king_sq, all_occ);
+            if rook_attacks_to_king & rook_queen & !from_bit != 0 {
+                return true;
+            }
+        }
+
+        // Check if there's a bishop/queen on the same diagonal as from and king
+        let bishop_queen = self.pieces[stm_color][BISHOP] | self.pieces[stm_color][QUEEN];
+        if bishop_queen != 0 {
+            let bishop_attacks_to_king = move_gen.gen_bishop_attacks_occ(king_sq, all_occ);
+            if bishop_attacks_to_king & bishop_queen & !from_bit != 0 {
+                return true;
+            }
+        }
+
+        false
     }
 
     /// Checks if a square is attacked by a given side.
