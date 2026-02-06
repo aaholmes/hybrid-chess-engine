@@ -98,6 +98,25 @@ Caissawary is designed for high learning efficiency, making it feasible to train
 - **Supervised Pre-training**: Begin with supervised learning on a large corpus of high-quality human games to bootstrap strategic and positional knowledge.
 - **Efficient Reinforcement Learning**: The built-in tactical search (Tiers 1 and 2) acts as a powerful inductive bias during self-play, preventing simple tactical blunders and providing a cleaner training signal for the neural networks.
 
+### Optimizer Selection
+The training script supports three optimizers via `--optimizer`:
+
+| Optimizer | Flag | Default LR | Notes |
+|-----------|------|-----------|-------|
+| **Adam** | `--optimizer adam` | 0.001 | Standard baseline |
+| **AdamW** | `--optimizer adamw` | 0.001 | Decoupled weight decay |
+| **Muon** | `--optimizer muon` | 0.02 | Momentum + Newton-Schulz orthogonalization |
+
+[Muon](https://github.com/KellerJordan/modded-nanogpt) applies Newton-Schulz orthogonalization to gradient updates for 2D+ weight tensors (linear, conv layers), falling back to AdamW for 1D parameters (biases, norms). It typically converges faster than Adam on ResNet-style architectures like LogosNet.
+
+```bash
+# Train with Muon optimizer
+python python/train.py data/training python/models/latest.pt --optimizer muon --epochs 20
+
+# Compare all three optimizers (generates CSV + plots)
+python python/compare_optimizers.py data/training --epochs 20 --runs 3
+```
+
 ## Configuration
 The search behavior is controlled by `TacticalMctsConfig`, which supports ablation flags for research experiments and training-specific parameters:
 
@@ -123,7 +142,7 @@ pub struct TacticalMctsConfig {
 
 ## Technical Stack
 - **Core Logic**: Rust (~10k LOC), for performance, memory safety, and concurrency.
-- **Board Representation**: Bitboards with magic bitboard move generation.
+- **Board Representation**: Bitboards with magic bitboard move generation. FxHashMap for fast Zobrist key lookups.
 - **Evaluation**: Pesto-style tapered evaluation with Texel-tuned weights.
 - **Search**: Alpha-beta with iterative deepening, transposition tables, history heuristic, null move pruning, and quiescence search.
 - **MCTS**: Tactical-first MCTS with lazy policy evaluation, UCB/PUCT selection, tree reuse, and clone-free check detection.
@@ -176,6 +195,9 @@ The self-play pipeline follows AlphaZero-style training practices:
 ```bash
 # Generate 100 games with 800 simulations per move, saving to 'data/'
 cargo run --release --bin self_play -- 100 800 data
+
+# With a model and KOTH variant enabled
+cargo run --release --features neural --bin self_play -- 100 800 data models/latest.pt true
 ```
 
 ## Testing
