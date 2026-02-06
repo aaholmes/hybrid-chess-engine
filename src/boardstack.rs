@@ -10,12 +10,13 @@
 
 use crate::board::Board;
 use crate::move_types::Move;
-use std::collections::{HashMap, VecDeque};
+use rustc_hash::FxHashMap;
+use std::collections::VecDeque;
 
 /// Represents a stack of boards for undoing moves.
 #[derive(Clone)]
 pub struct BoardStack {
-    pub position_history: HashMap<u64, u8>,
+    pub position_history: FxHashMap<u64, u8>,
     pub(crate) state_stack: VecDeque<Board>,
     move_stack: VecDeque<Move>,
 }
@@ -25,7 +26,7 @@ impl BoardStack {
     pub fn new() -> Self {
         let initial_state = Board::new();
         let mut board = BoardStack {
-            position_history: HashMap::new(),
+            position_history: FxHashMap::default(),
             state_stack: VecDeque::new(),
             move_stack: VecDeque::new(),
         };
@@ -41,7 +42,7 @@ impl BoardStack {
         let fen_position = Board::new_from_fen(fen);
 
         // Remove the starting position from the state stack and position history
-        board.position_history = HashMap::new();
+        board.position_history = FxHashMap::default();
         board.state_stack.pop_front();
 
         // Add the starting position to the state stack and position history
@@ -54,7 +55,7 @@ impl BoardStack {
     /// Generate a new boardstack whose starting board is the given board
     pub fn with_board(initial_board: Board) -> Self {
         let mut board = BoardStack {
-            position_history: HashMap::new(),
+            position_history: FxHashMap::default(),
             state_stack: VecDeque::new(),
             move_stack: VecDeque::new(),
         };

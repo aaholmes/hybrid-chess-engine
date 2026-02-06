@@ -585,6 +585,7 @@ dependencies = [
  "rand 0.8.5",
  "rand_distr",
  "rayon",
+ "rustc-hash",
  "serde",
  "serde_json",
  "shakmaty 0.25.0",

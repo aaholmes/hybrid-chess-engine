@@ -69,90 +69,116 @@ class ChessDataset(Dataset):
         
         return board_tensor, material_scalar, value_target, policy_target
 
+def parse_args():
+    import argparse
+    parser = argparse.ArgumentParser(description="Train LogosNet chess model")
+    parser.add_argument('data_dir', type=str, nargs='?', default='data/training',
+                        help='Directory containing .bin training data')
+    parser.add_argument('output_path', type=str, nargs='?', default='python/models/latest.pt',
+                        help='Output model path')
+    parser.add_argument('resume_path', type=str, nargs='?', default=None,
+                        help='Path to checkpoint to resume from')
+    parser.add_argument('--optimizer', type=str, default='adam',
+                        choices=['adam', 'adamw', 'muon'],
+                        help='Optimizer to use (default: adam)')
+    parser.add_argument('--lr', type=float, default=None,
+                        help='Learning rate (default: 0.001 for adam/adamw, 0.02 for muon)')
+    parser.add_argument('--epochs', type=int, default=2,
+                        help='Number of training epochs (default: 2)')
+    parser.add_argument('--batch-size', type=int, default=64,
+                        help='Batch size (default: 64)')
+    return parser.parse_args()
+
+
 def train():
-    # Hyperparameters
-    BATCH_SIZE = 64
-    LEARNING_RATE = 0.001
-    EPOCHS = 2
+    args = parse_args()
+
     DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-    
-    # Command line args
-    if len(sys.argv) < 3:
-        print("Usage: python train.py <data_dir> <output_model_path> [resume_path]")
-        DATA_DIR = "data/training"
-        OUTPUT_PATH = "python/models/latest.pt"
+
+    # Set default LR based on optimizer
+    if args.lr is None:
+        lr = 0.02 if args.optimizer == 'muon' else 0.001
     else:
-        DATA_DIR = sys.argv[1]
-        OUTPUT_PATH = sys.argv[2]
+        lr = args.lr
 
     print(f"Using device: {DEVICE}")
-    print(f"Data Dir: {DATA_DIR}")
-    print(f"Output Model: {OUTPUT_PATH}")
+    print(f"Data Dir: {args.data_dir}")
+    print(f"Output Model: {args.output_path}")
+    print(f"Optimizer: {args.optimizer} (lr={lr})")
+    print(f"Epochs: {args.epochs}")
 
     # Data
-    dataset = ChessDataset(DATA_DIR)
+    dataset = ChessDataset(args.data_dir)
     if len(dataset) == 0:
         print("No training data found.")
         return
-        
-    dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True)
+
+    dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
 
     # Model
     model = LogosNet().to(DEVICE)
-    
-    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=1e-4)
-    
-    if len(sys.argv) >= 4:
-        resume_path = sys.argv[3]
-        if os.path.exists(resume_path):
-            print(f"Resuming from {resume_path}")
-            try:
-                model.load_state_dict(torch.load(resume_path, map_location=DEVICE))
-            except Exception as e:
-                print(f"Warning: Failed to load resume checkpoint: {e}")
+
+    # Optimizer selection
+    if args.optimizer == 'muon':
+        from muon import Muon
+        optimizer = Muon(model.parameters(), lr=lr, backend_lr=lr * 0.1)
+    elif args.optimizer == 'adamw':
+        optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
+    else:
+        optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
+
+    if args.resume_path and os.path.exists(args.resume_path):
+        print(f"Resuming from {args.resume_path}")
+        try:
+            model.load_state_dict(torch.load(args.resume_path, map_location=DEVICE))
+        except Exception as e:
+            print(f"Warning: Failed to load resume checkpoint: {e}")
 
     # Training Loop
     model.train()
-    for epoch in range(EPOCHS):
+    for epoch in range(args.epochs):
         total_policy_loss = 0
         total_value_loss = 0
         total_k = 0
-        
+
         for batch_idx, (boards, materials, values, policies) in enumerate(dataloader):
             boards = boards.to(DEVICE)
             materials = materials.to(DEVICE)
             values = values.to(DEVICE)
             policies = policies.to(DEVICE)
-            
+
             # Forward: returns (policy, value, k)
             pred_policy, pred_value, k = model(boards, materials)
-            
+
             # Loss
             policy_loss = F.kl_div(pred_policy, policies, reduction='batchmean')
             value_loss = F.mse_loss(pred_value, values)
-            
+
             loss = policy_loss + value_loss
-            
+
             # Backward
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            
+
             total_policy_loss += policy_loss.item()
             total_value_loss += value_loss.item()
             current_k = k.mean().item()
             total_k += current_k
-            
-            if batch_idx % 10 == 0:
-                print(f"Epoch {epoch+1} Batch {batch_idx}: P_Loss={policy_loss.item():.4f} V_Loss={value_loss.item():.4f} K={current_k:.4f}")
 
-        avg_k = total_k / len(dataloader)
-        print(f"Epoch {epoch+1} Average: Policy={total_policy_loss/len(dataloader):.4f} Value={total_value_loss/len(dataloader):.4f} K={avg_k:.4f}")
-        
+            if batch_idx % 10 == 0:
+                print(f"Epoch {epoch+1} Batch {batch_idx}: Loss={loss.item():.4f} P_Loss={policy_loss.item():.4f} V_Loss={value_loss.item():.4f} K={current_k:.4f}")
+
+        n_batches = len(dataloader)
+        avg_policy = total_policy_loss / n_batches
+        avg_value = total_value_loss / n_batches
+        avg_k = total_k / n_batches
+        print(f"Epoch {epoch+1} Average: Policy={avg_policy:.4f} Value={avg_value:.4f} K={avg_k:.4f}")
+
         # Save checkpoint
-        os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
-        torch.save(model.state_dict(), OUTPUT_PATH)
-        print(f"Saved {OUTPUT_PATH}")
+        os.makedirs(os.path.dirname(args.output_path) or '.', exist_ok=True)
+        torch.save(model.state_dict(), args.output_path)
+        print(f"Saved {args.output_path}")
 
 if __name__ == "__main__":
     train()
