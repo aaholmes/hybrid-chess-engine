@@ -1,30 +1,21 @@
-//! Parallel portfolio mate search algorithm.
+//! Checks-only mate search algorithm.
 //!
-//! This module implements a sophisticated mate-finding algorithm that runs multiple
-//! search strategies in parallel, sharing a common node budget and stopping as soon
-//! as any strategy finds a forced mate.
+//! Searches for forced mates where every move by the attacker gives check.
+//! At depth 5 (the default), this finds mate-in-3: 3 checking moves by the
+//! attacker interleaved with 2 escape attempts by the defender.
 //!
-//! # Algorithm Overview
-//!
-//! The mate search uses a "portfolio" approach with three complementary strategies:
-//!
-//! 1. **Spearhead (Checks Only)**: Searches deeply but only considers checking moves.
-//!    Effective for finding long forcing sequences where every move is a check.
-//!
-//! 2. **Flanker (One Quiet Move)**: Allows one non-checking "quiet" move in the sequence.
-//!    Catches mates that require a single setup move (e.g., blocking escape squares).
-//!
-//! 3. **Guardsman (Exhaustive)**: Full-width search at shallow depth.
-//!    Guarantees finding any mate within the depth limit, regardless of move types.
+//! The search uses iterative deepening with alpha-beta pruning. On the
+//! attacker's plies only checking moves are generated, keeping the branching
+//! factor very small. On the defender's plies all legal moves are tried.
 //!
 //! # Integration with MCTS
 //!
-//! This module provides the **Tier 1 Safety Gate** in the three-tier MCTS architecture.
-//! Before expanding any MCTS node, the engine checks for forced mates:
+//! This module provides the **Tier 1 Safety Gate** in the three-tier MCTS
+//! architecture. Before expanding any MCTS node, the engine checks for forced
+//! mates:
 //!
 //! - If a forced win is found, the move is played immediately (no MCTS needed)
 //! - Results are cached in the transposition table to avoid redundant searches
-//! - The parallel design minimizes latency while maximizing mate detection
 //!
 //! # Score Convention
 //!
@@ -54,7 +45,7 @@ use crate::boardstack::BoardStack;
 use crate::move_generation::MoveGen;
 use crate::move_types::Move;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 /// Result of a mate search
 #[derive(Clone, Debug)]
@@ -113,62 +104,30 @@ impl SearchContext {
     }
 }
 
-/// Public API: Parallel Mate Search
+/// Public API: Checks-only mate search (Spearhead strategy).
+///
+/// Searches for forced mates where every move by the side to move gives check.
+/// At depth 5 this finds mate-in-3 (3 checking moves, 2 opponent replies).
+/// Single-threaded to avoid rayon/mutex overhead on every MCTS leaf node.
 pub fn mate_search(
     board: &mut BoardStack,
     move_gen: &MoveGen,
     max_depth: i32,
-    _verbose: bool, // Verbose flag ignored for parallel search simplicity
+    _verbose: bool,
 ) -> (i32, Move, i32) {
-    // Total node budget shared across all threads
-    let total_budget = 1_000_000; 
-    let context = Arc::new(SearchContext::new(total_budget));
+    let total_budget = 100_000;
+    let context = SearchContext::new(total_budget);
 
-    // Clone board for each thread
-    let mut board_a = board.clone();
-    let mut board_b = board.clone();
-    let mut board_c = board.clone();
+    iterative_deepening_wrapper(
+        &context,
+        board,
+        move_gen,
+        max_depth,
+    );
 
-    // Run the portfolio in parallel
-    rayon::scope(|s| {
-        // Strategy A: "Spearhead" (Checks Only) - Deep, narrow
-        s.spawn(|_| {
-            iterative_deepening_wrapper(
-                &context, 
-                &mut board_a, 
-                move_gen, 
-                max_depth * 2, // Go deeper because it's narrower
-                MateStrategy::ChecksOnly
-            );
-        });
-
-        // Strategy B: "Flanker" (One Quiet Move) - Medium depth
-        s.spawn(|_| {
-            iterative_deepening_wrapper(
-                &context, 
-                &mut board_b, 
-                move_gen, 
-                (max_depth + 2).min(6), 
-                MateStrategy::OneQuiet
-            );
-        });
-
-        // Strategy C: "Guardsman" (Exhaustive) - Shallow, complete
-        s.spawn(|_| {
-            iterative_deepening_wrapper(
-                &context, 
-                &mut board_c, 
-                move_gen, 
-                max_depth.min(4), 
-                MateStrategy::Exhaustive
-            );
-        });
-    });
-
-    // Retrieve and validate result
     let final_res = context.best_result.lock().unwrap().clone();
     let nodes_searched = total_budget - context.nodes_remaining.load(Ordering::Relaxed);
-    
+
     if let Some(res) = final_res {
         // Double check legality in the ACTUAL root position
         let (captures, quiet) = move_gen.gen_pseudo_legal_moves(&board.current_state());
@@ -183,57 +142,33 @@ pub fn mate_search(
         }
     }
 
-    // Fallback: Return first legal move if no mate found
-    let (captures, quiet) = move_gen.gen_pseudo_legal_moves(&board.current_state());
-    for m in captures.into_iter().chain(quiet.into_iter()) {
-        if board.current_state().get_piece(m.from).is_none() {
-            continue;
-        }
-        board.make_move(m);
-        if board.current_state().is_legal(move_gen) {
-            board.undo_move();
-            return (0, m, nodes_searched as i32);
-        }
-        board.undo_move();
-    }
-
     (0, Move::null(), nodes_searched as i32)
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
-enum MateStrategy {
-    ChecksOnly,
-    OneQuiet,
-    Exhaustive,
-}
-
 fn iterative_deepening_wrapper(
-    ctx: &Arc<SearchContext>,
+    ctx: &SearchContext,
     board: &mut BoardStack,
     move_gen: &MoveGen,
     max_depth: i32,
-    strategy: MateStrategy,
 ) {
     for d in 1..=max_depth {
         if ctx.should_stop() { break; }
-        
+
         let depth = 2 * d - 1; // Only check odd depths (mate for us)
-        
-        // Call the specific recursive search function
-        let (score, best_move) = mate_search_recursive(ctx, board, move_gen, depth, -1_000_001, 1_000_001, true, strategy, 0);
-        
+
+        let (score, best_move) = mate_search_recursive(ctx, board, move_gen, depth, -1_000_001, 1_000_001, true);
+
         // If we found a forced mate at the root, report it
         if score >= 1_000_000 && best_move != Move::null() {
-            // Validate legality one last time at this level
             board.make_move(best_move);
             let is_legal = board.current_state().is_legal(move_gen);
             board.undo_move();
-            
+
             if is_legal {
                 ctx.report_mate(MateResult {
                     score,
                     best_move,
-                    depth: d * 2 - 1, // Store actual ply depth
+                    depth: d * 2 - 1,
                 });
                 break;
             }
@@ -241,6 +176,11 @@ fn iterative_deepening_wrapper(
     }
 }
 
+/// Checks-only recursive mate search with alpha-beta pruning.
+///
+/// At root plies (side_to_move_is_root's color), only checking moves are
+/// considered. At opponent plies, all legal moves are searched (the opponent
+/// tries to escape). This finds forced mates where every attacker move is check.
 fn mate_search_recursive(
     ctx: &SearchContext,
     board: &mut BoardStack,
@@ -248,9 +188,7 @@ fn mate_search_recursive(
     depth: i32,
     mut alpha: i32,
     beta: i32,
-    side_to_move_is_root: bool,
-    strategy: MateStrategy,
-    quiet_moves_used: i32,
+    is_attackers_turn: bool,
 ) -> (i32, Move) {
     ctx.decrement_nodes();
     if ctx.should_stop() { return (0, Move::null()); }
@@ -269,7 +207,9 @@ fn mate_search_recursive(
         return (0, Move::null());
     }
 
-    // --- Move Generation & Strategy Filtering ---
+    // --- Move Generation ---
+    // On attacker's turn: only keep moves that give check.
+    // On defender's turn: try all legal moves (opponent tries to escape).
     let (captures, moves) = move_gen.gen_pseudo_legal_moves(&board.current_state());
     let mut legal_moves = Vec::new();
 
@@ -280,15 +220,13 @@ fn mate_search_recursive(
             }
             board.make_move(m);
             if board.current_state().is_legal(move_gen) {
-                let is_check = board.current_state().is_check(move_gen);
-                
-                let keep = match strategy {
-                    MateStrategy::ChecksOnly => is_check,
-                    MateStrategy::OneQuiet => is_check || quiet_moves_used < 1,
-                    MateStrategy::Exhaustive => true,
-                };
-
-                if keep {
+                if is_attackers_turn {
+                    // Only keep checking moves
+                    if board.current_state().is_check(move_gen) {
+                        legal_moves.push(m);
+                    }
+                } else {
+                    // Defender: all legal moves
                     legal_moves.push(m);
                 }
             }
@@ -308,33 +246,23 @@ fn mate_search_recursive(
 
     for m in legal_moves {
         board.make_move(m);
-        
-        let gives_check = board.current_state().is_check(move_gen);
-        let new_quiet_count = if !gives_check { quiet_moves_used + 1 } else { quiet_moves_used };
-        
+
         let (mut score, _) = mate_search_recursive(
-            ctx, board, move_gen, depth - 1, -beta, -alpha, false, strategy, new_quiet_count
+            ctx, board, move_gen, depth - 1, -beta, -alpha, !is_attackers_turn
         );
-        
+
         score = -score;
         board.undo_move();
-        
+
         if ctx.should_stop() { return (0, Move::null()); }
 
         if score > best_score {
             best_score = score;
             best_move = m;
         }
-        
+
         if score > alpha {
             alpha = score;
-            if side_to_move_is_root && score >= 1_000_000 && m != Move::null() {
-                 ctx.report_mate(MateResult {
-                    score,
-                    best_move: m,
-                    depth: 0, // Not used here
-                });
-            }
         }
         if alpha >= beta { break; }
     }
