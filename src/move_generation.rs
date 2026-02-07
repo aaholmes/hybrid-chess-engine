@@ -732,8 +732,12 @@ impl MoveGen {
                     }
                 }
                 for to_sq_ind in &self.r_moves[from_sq_ind][key].1 {
-                    // Have to make sure we're not capturing our own piece, since pieces on the edge are not included in blockers
-                    if board.pieces_occ[WHITE] & (1u64 << to_sq_ind) == 0 {
+                    let sq_bit = 1u64 << to_sq_ind;
+                    if board.pieces_occ[WHITE] & sq_bit != 0 {
+                        // Own piece on edge square — skip
+                    } else if board.pieces_occ[BLACK] & sq_bit != 0 {
+                        captures.push(Move::new(from_sq_ind, *to_sq_ind, None));
+                    } else {
                         moves.push(Move::new(from_sq_ind, *to_sq_ind, None));
                     }
                 }
@@ -756,8 +760,12 @@ impl MoveGen {
                     }
                 }
                 for to_sq_ind in &self.r_moves[from_sq_ind][key].1 {
-                    // Have to make sure we're not capturing our own piece, since pieces on the edge are not included in blockers
-                    if board.pieces_occ[BLACK] & (1u64 << to_sq_ind) == 0 {
+                    let sq_bit = 1u64 << to_sq_ind;
+                    if board.pieces_occ[BLACK] & sq_bit != 0 {
+                        // Own piece on edge square — skip
+                    } else if board.pieces_occ[WHITE] & sq_bit != 0 {
+                        captures.push(Move::new(from_sq_ind, *to_sq_ind, None));
+                    } else {
                         moves.push(Move::new(from_sq_ind, *to_sq_ind, None));
                     }
                 }
@@ -852,8 +860,12 @@ impl MoveGen {
                     }
                 }
                 for to_sq_ind in &self.b_moves[from_sq_ind][key].1 {
-                    // Have to make sure we're not capturing our own piece, since pieces on the edge are not included in blockers
-                    if board.pieces_occ[WHITE] & (1u64 << to_sq_ind) == 0 {
+                    let sq_bit = 1u64 << to_sq_ind;
+                    if board.pieces_occ[WHITE] & sq_bit != 0 {
+                        // Own piece on edge square — skip
+                    } else if board.pieces_occ[BLACK] & sq_bit != 0 {
+                        captures.push(Move::new(from_sq_ind, *to_sq_ind, None));
+                    } else {
                         moves.push(Move::new(from_sq_ind, *to_sq_ind, None));
                     }
                 }
@@ -876,8 +888,12 @@ impl MoveGen {
                     }
                 }
                 for to_sq_ind in &self.b_moves[from_sq_ind][key].1 {
-                    // Have to make sure we're not capturing our own piece, since pieces on the edge are not included in blockers
-                    if board.pieces_occ[BLACK] & (1u64 << to_sq_ind) == 0 {
+                    let sq_bit = 1u64 << to_sq_ind;
+                    if board.pieces_occ[BLACK] & sq_bit != 0 {
+                        // Own piece on edge square — skip
+                    } else if board.pieces_occ[WHITE] & sq_bit != 0 {
+                        captures.push(Move::new(from_sq_ind, *to_sq_ind, None));
+                    } else {
                         moves.push(Move::new(from_sq_ind, *to_sq_ind, None));
                     }
                 }
@@ -924,8 +940,12 @@ impl MoveGen {
                     }
                 }
                 for to_sq_ind in &self.r_moves[from_sq_ind][key].1 {
-                    // Have to make sure we're not capturing our own piece, since pieces on the edge are not included in blockers
-                    if board.pieces_occ[WHITE] & (1u64 << to_sq_ind) == 0 {
+                    let sq_bit = 1u64 << to_sq_ind;
+                    if board.pieces_occ[WHITE] & sq_bit != 0 {
+                        // Own piece on edge square — skip
+                    } else if board.pieces_occ[BLACK] & sq_bit != 0 {
+                        captures.push(Move::new(from_sq_ind, *to_sq_ind, None));
+                    } else {
                         moves.push(Move::new(from_sq_ind, *to_sq_ind, None));
                     }
                 }
@@ -944,8 +964,12 @@ impl MoveGen {
                     }
                 }
                 for to_sq_ind in &self.b_moves[from_sq_ind][key].1 {
-                    // Have to make sure we're not capturing our own piece, since pieces on the edge are not included in blockers
-                    if board.pieces_occ[WHITE] & (1u64 << to_sq_ind) == 0 {
+                    let sq_bit = 1u64 << to_sq_ind;
+                    if board.pieces_occ[WHITE] & sq_bit != 0 {
+                        // Own piece on edge square — skip
+                    } else if board.pieces_occ[BLACK] & sq_bit != 0 {
+                        captures.push(Move::new(from_sq_ind, *to_sq_ind, None));
+                    } else {
                         moves.push(Move::new(from_sq_ind, *to_sq_ind, None));
                     }
                 }
@@ -968,8 +992,12 @@ impl MoveGen {
                     }
                 }
                 for to_sq_ind in &self.r_moves[from_sq_ind][key].1 {
-                    // Have to make sure we're not capturing our own piece, since pieces on the edge are not included in blockers
-                    if board.pieces_occ[BLACK] & (1u64 << to_sq_ind) == 0 {
+                    let sq_bit = 1u64 << to_sq_ind;
+                    if board.pieces_occ[BLACK] & sq_bit != 0 {
+                        // Own piece on edge square — skip
+                    } else if board.pieces_occ[WHITE] & sq_bit != 0 {
+                        captures.push(Move::new(from_sq_ind, *to_sq_ind, None));
+                    } else {
                         moves.push(Move::new(from_sq_ind, *to_sq_ind, None));
                     }
                 }
@@ -988,8 +1016,12 @@ impl MoveGen {
                     }
                 }
                 for to_sq_ind in &self.b_moves[from_sq_ind][key].1 {
-                    // Have to make sure we're not capturing our own piece, since pieces on the edge are not included in blockers
-                    if board.pieces_occ[BLACK] & (1u64 << to_sq_ind) == 0 {
+                    let sq_bit = 1u64 << to_sq_ind;
+                    if board.pieces_occ[BLACK] & sq_bit != 0 {
+                        // Own piece on edge square — skip
+                    } else if board.pieces_occ[WHITE] & sq_bit != 0 {
+                        captures.push(Move::new(from_sq_ind, *to_sq_ind, None));
+                    } else {
                         moves.push(Move::new(from_sq_ind, *to_sq_ind, None));
                     }
                 }
