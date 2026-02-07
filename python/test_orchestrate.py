@@ -195,5 +195,305 @@ class TestOrchestrator:
         assert orch.state.current_best_pth == os.path.join(cfg.weights_dir, "gen_4.pth")
 
 
+class TestTrainingConfigExtended:
+    def test_config_from_args_with_koth(self):
+        test_args = ["orchestrate.py", "--enable-koth"]
+        with patch("sys.argv", test_args):
+            cfg = TrainingConfig.from_args()
+        assert cfg.enable_koth is True
+
+    def test_config_from_args_no_resume(self):
+        test_args = ["orchestrate.py", "--no-resume"]
+        with patch("sys.argv", test_args):
+            cfg = TrainingConfig.from_args()
+        assert cfg.resume is False
+
+    def test_config_from_args_lr_schedule(self):
+        test_args = ["orchestrate.py", "--lr-schedule", "500:0.01,1000:0.001"]
+        with patch("sys.argv", test_args):
+            cfg = TrainingConfig.from_args()
+        assert cfg.lr_schedule == "500:0.01,1000:0.001"
+
+    def test_config_from_args_all_defaults(self):
+        test_args = ["orchestrate.py"]
+        with patch("sys.argv", test_args):
+            cfg = TrainingConfig.from_args()
+        assert cfg.games_per_generation == 100
+        assert cfg.simulations_per_move == 800
+        assert cfg.optimizer == "muon"
+        assert cfg.resume is True
+
+
+class TestOrchestratorStateExtended:
+    def test_state_default_values(self):
+        state = OrchestratorState()
+        assert state.generation == 0
+        assert state.current_best_pth == ""
+        assert state.current_best_pt == ""
+        assert state.global_minibatches == 0
+
+    def test_state_save_creates_file(self, tmp_workspace):
+        state = OrchestratorState(generation=3)
+        path = os.path.join(tmp_workspace, "state.json")
+        state.save(path)
+        assert os.path.exists(path)
+
+    def test_state_load_preserves_all_fields(self, tmp_workspace):
+        state = OrchestratorState(
+            generation=10,
+            current_best_pth="a.pth",
+            current_best_pt="a.pt",
+            global_minibatches=99999,
+        )
+        path = os.path.join(tmp_workspace, "state.json")
+        state.save(path)
+
+        loaded = OrchestratorState.load(path)
+        assert loaded.generation == 10
+        assert loaded.current_best_pth == "a.pth"
+        assert loaded.current_best_pt == "a.pt"
+        assert loaded.global_minibatches == 99999
+
+
+class TestOrchestratorExtended:
+    def _make_orch(self, tmp_workspace, **overrides):
+        cfg = TrainingConfig(
+            weights_dir=os.path.join(tmp_workspace, "weights"),
+            data_dir=os.path.join(tmp_workspace, "data"),
+            buffer_dir=os.path.join(tmp_workspace, "buffer"),
+            log_file=os.path.join(tmp_workspace, "log.jsonl"),
+            **overrides,
+        )
+        return Orchestrator(cfg)
+
+    def test_init_creates_directories(self, tmp_workspace):
+        orch = self._make_orch(tmp_workspace)
+        assert os.path.isdir(orch.config.weights_dir)
+        assert os.path.isdir(orch.config.data_dir)
+        assert os.path.isdir(orch.config.buffer_dir)
+
+    def test_initialize_gen0_idempotent(self, tmp_workspace):
+        """Calling initialize_gen0 twice doesn't overwrite existing model."""
+        orch = self._make_orch(tmp_workspace)
+        orch.initialize_gen0()
+        gen0_pt = os.path.join(orch.config.weights_dir, "gen_0.pt")
+        mtime1 = os.path.getmtime(gen0_pt)
+
+        import time
+        time.sleep(0.01)
+        orch.initialize_gen0()
+        mtime2 = os.path.getmtime(gen0_pt)
+        assert mtime1 == mtime2  # File not overwritten
+
+    def test_initialize_gen0_sets_state(self, tmp_workspace):
+        orch = self._make_orch(tmp_workspace)
+        orch.initialize_gen0()
+        assert orch.state.current_best_pt.endswith("gen_0.pt")
+        assert orch.state.current_best_pth.endswith("gen_0.pth")
+
+    def test_log_entry_appends_multiple(self, tmp_workspace):
+        orch = self._make_orch(tmp_workspace)
+        orch.log_entry({"gen": 1, "accepted": True})
+        orch.log_entry({"gen": 2, "accepted": False})
+
+        with open(orch.config.log_file) as f:
+            lines = f.readlines()
+        assert len(lines) == 2
+        assert json.loads(lines[0])["gen"] == 1
+        assert json.loads(lines[1])["gen"] == 2
+
+    def test_handle_eval_result_accepted_creates_gen_file(self, tmp_workspace):
+        orch = self._make_orch(tmp_workspace)
+        os.makedirs(orch.config.weights_dir, exist_ok=True)
+
+        candidate_pt = os.path.join(orch.config.weights_dir, "candidate.pt")
+        candidate_pth = os.path.join(orch.config.weights_dir, "candidate.pth")
+        with open(candidate_pt, "w") as f:
+            f.write("model")
+        with open(candidate_pth, "w") as f:
+            f.write("model")
+
+        orch.handle_eval_result(
+            accepted=True,
+            generation=7,
+            candidate_pt=candidate_pt,
+            candidate_pth=candidate_pth,
+            eval_results={"wins": 60, "losses": 30, "draws": 10},
+        )
+
+        gen_pt = os.path.join(orch.config.weights_dir, "gen_7.pt")
+        gen_pth = os.path.join(orch.config.weights_dir, "gen_7.pth")
+        assert os.path.exists(gen_pt)
+        assert os.path.exists(gen_pth)
+
+    def test_handle_eval_result_accepted_updates_symlink(self, tmp_workspace):
+        orch = self._make_orch(tmp_workspace)
+        os.makedirs(orch.config.weights_dir, exist_ok=True)
+
+        candidate_pt = os.path.join(orch.config.weights_dir, "candidate.pt")
+        candidate_pth = os.path.join(orch.config.weights_dir, "candidate.pth")
+        with open(candidate_pt, "w") as f:
+            f.write("model")
+        with open(candidate_pth, "w") as f:
+            f.write("model")
+
+        orch.handle_eval_result(
+            accepted=True, generation=1,
+            candidate_pt=candidate_pt, candidate_pth=candidate_pth,
+            eval_results={"wins": 60, "losses": 30, "draws": 10},
+        )
+
+        latest = os.path.join(orch.config.weights_dir, "latest.pt")
+        assert os.path.islink(latest)
+
+    def test_handle_eval_result_accepted_replaces_existing_symlink(self, tmp_workspace):
+        orch = self._make_orch(tmp_workspace)
+        os.makedirs(orch.config.weights_dir, exist_ok=True)
+        latest = os.path.join(orch.config.weights_dir, "latest.pt")
+
+        # Create initial symlink
+        dummy = os.path.join(orch.config.weights_dir, "dummy.pt")
+        with open(dummy, "w") as f:
+            f.write("old")
+        os.symlink(os.path.abspath(dummy), latest)
+
+        candidate_pt = os.path.join(orch.config.weights_dir, "candidate.pt")
+        candidate_pth = os.path.join(orch.config.weights_dir, "candidate.pth")
+        with open(candidate_pt, "w") as f:
+            f.write("new")
+        with open(candidate_pth, "w") as f:
+            f.write("new")
+
+        orch.handle_eval_result(
+            accepted=True, generation=2,
+            candidate_pt=candidate_pt, candidate_pth=candidate_pth,
+            eval_results={"wins": 60, "losses": 30, "draws": 10},
+        )
+        assert os.path.islink(latest)
+        # Symlink should point to gen_2.pt
+        target = os.readlink(latest)
+        assert "gen_2.pt" in target
+
+    def test_handle_eval_result_rejected_no_files_created(self, tmp_workspace):
+        orch = self._make_orch(tmp_workspace)
+        orch.state.current_best_pt = "old.pt"
+        orch.state.current_best_pth = "old.pth"
+
+        orch.handle_eval_result(
+            accepted=False, generation=5,
+            candidate_pt="candidate.pt", candidate_pth="candidate.pth",
+            eval_results={"wins": 40, "losses": 50, "draws": 10},
+        )
+        gen_pt = os.path.join(orch.config.weights_dir, "gen_5.pt")
+        assert not os.path.exists(gen_pt)
+        assert orch.state.current_best_pt == "old.pt"
+
+    def test_save_and_load_state_roundtrip(self, tmp_workspace):
+        orch = self._make_orch(tmp_workspace)
+        orch.state.generation = 42
+        orch.state.current_best_pt = "weights/gen_41.pt"
+        orch.state.current_best_pth = "weights/gen_41.pth"
+        orch.state.global_minibatches = 12345
+        orch.save_state()
+
+        orch2 = self._make_orch(tmp_workspace)
+        loaded = orch2.load_state()
+        assert loaded is True
+        assert orch2.state.generation == 42
+        assert orch2.state.current_best_pt == "weights/gen_41.pt"
+        assert orch2.state.global_minibatches == 12345
+
+    def test_load_state_returns_false_when_no_state(self, tmp_workspace):
+        orch = self._make_orch(tmp_workspace)
+        loaded = orch.load_state()
+        assert loaded is False
+
+    def test_update_buffer_adds_and_evicts(self, tmp_workspace):
+        orch = self._make_orch(tmp_workspace, buffer_capacity=30)
+
+        # Create fake game data
+        game_dir = os.path.join(tmp_workspace, "games")
+        os.makedirs(game_dir)
+        make_fake_bin(os.path.join(game_dir, "game.bin"), 50)
+
+        total = orch.update_buffer(game_dir)
+        assert total <= 30  # Capacity is 30
+
+    def test_export_model_for_rust(self, tmp_workspace):
+        from orchestrate import export_model_for_rust
+        from model import LogosNet
+        import torch
+
+        model = LogosNet(num_blocks=1, hidden_dim=16)
+        output_path = os.path.join(tmp_workspace, "test.pt")
+        export_model_for_rust(model, output_path)
+        assert os.path.exists(output_path)
+
+        # Verify it's loadable as a TorchScript module
+        loaded = torch.jit.load(output_path)
+        board = torch.randn(1, 17, 8, 8)
+        material = torch.randn(1, 1)
+        policy, value, k = loaded(board, material)
+        assert policy.shape == (1, 4672)
+
+    def test_get_libtorch_env(self, tmp_workspace):
+        from orchestrate import get_libtorch_env
+        env = get_libtorch_env()
+        assert "LD_LIBRARY_PATH" in env
+        assert "LIBTORCH_USE_PYTORCH" in env
+        assert env["LIBTORCH_BYPASS_VERSION_CHECK"] == "1"
+
+    def test_run_evaluation_parses_stdout(self, tmp_workspace):
+        """Test evaluation output parsing with mocked subprocess."""
+        orch = self._make_orch(tmp_workspace)
+        orch.state.current_best_pt = "current.pt"
+
+        mock_result = MagicMock()
+        mock_result.stdout = "WINS=60 LOSSES=30 DRAWS=10 WINRATE=0.6500 ACCEPTED=true\n"
+        mock_result.returncode = 0
+
+        with patch("subprocess.run", return_value=mock_result):
+            accepted, results = orch.run_evaluation("candidate.pt")
+
+        assert accepted is True
+        assert results["wins"] == 60
+        assert results["losses"] == 30
+        assert results["draws"] == 10
+        assert results["winrate"] == pytest.approx(0.65)
+
+    def test_run_evaluation_rejected_output(self, tmp_workspace):
+        """Test evaluation output parsing when model is rejected."""
+        orch = self._make_orch(tmp_workspace)
+        orch.state.current_best_pt = "current.pt"
+
+        mock_result = MagicMock()
+        mock_result.stdout = "WINS=40 LOSSES=50 DRAWS=10 WINRATE=0.4500 ACCEPTED=false\n"
+        mock_result.returncode = 1
+
+        with patch("subprocess.run", return_value=mock_result):
+            accepted, results = orch.run_evaluation("candidate.pt")
+
+        assert accepted is False
+        assert results["wins"] == 40
+        assert results["losses"] == 50
+
+    def test_run_evaluation_empty_output(self, tmp_workspace):
+        """Test evaluation parsing with empty output uses defaults."""
+        orch = self._make_orch(tmp_workspace)
+        orch.state.current_best_pt = "current.pt"
+
+        mock_result = MagicMock()
+        mock_result.stdout = ""
+        mock_result.returncode = 1
+
+        with patch("subprocess.run", return_value=mock_result):
+            accepted, results = orch.run_evaluation("candidate.pt")
+
+        assert accepted is False
+        assert results["wins"] == 0
+        assert results["losses"] == 0
+        assert results["draws"] == 0
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

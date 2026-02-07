@@ -255,7 +255,7 @@ cargo run --release --features neural --bin self_play -- 100 800 data models/lat
 
 ## Testing
 
-The project has a comprehensive test suite with **380+ tests** organized across Rust and Python. For detailed documentation, see [TESTING.md](TESTING.md).
+The project has a comprehensive test suite with **530+ tests** organized across Rust and Python. For detailed documentation, see [TESTING.md](TESTING.md).
 
 ```bash
 # Run the full Rust test suite
@@ -272,7 +272,7 @@ cargo test --test regression_tests
 # Run perft tests (move generation correctness)
 cargo test --test perft_tests
 
-# Run Python training pipeline tests (22 tests)
+# Run Python training pipeline tests (86 tests)
 cd python && python -m pytest test_replay_buffer.py test_train.py test_orchestrate.py -v
 ```
 
@@ -303,6 +303,9 @@ The unit test suite covers all core modules:
 | KOTH variant | koth_tests | Center square detection, king proximity |
 | Training diversity | training_diversity_tests | Dirichlet noise, KOTH gating, game diversity |
 | Model evaluation | evaluate_models_tests | Game termination, color alternation, win rate, acceptance |
+| Replay buffer | test_replay_buffer.py | FIFO eviction, manifest persistence, sampling, edge cases |
+| Training pipeline | test_train.py | Minibatch mode, LR scheduling, checkpoints, buffer loading |
+| Orchestrator | test_orchestrate.py | Config, state persistence, resumability, subprocess mocking |
 
 ## Visualization & Debugging
 Caissawary includes a powerful **MCTS Inspector** tool to visualize the search tree and debug its state-dependent logic. This tool generates Graphviz DOT files that color-code nodes based on their origin (Tier 1, 2, or 3).
