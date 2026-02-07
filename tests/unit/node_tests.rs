@@ -4,6 +4,7 @@ use kingfisher::mcts::node::{MctsNode, MoveCategory, NodeOrigin};
 use kingfisher::board::Board;
 use kingfisher::move_generation::MoveGen;
 use kingfisher::move_types::Move;
+use std::cell::RefCell;
 use std::rc::Rc;
 use crate::common::{board_from_fen, assert_in_tanh_domain, positions};
 
@@ -272,4 +273,103 @@ fn test_categorize_moves_basic() {
     // Should have at least one category populated
     assert!(!node_ref.unexplored_moves_by_cat.is_empty(),
         "Should have categorized moves");
+}
+
+// --- Backpropagation Tests ---
+
+#[test]
+fn test_backpropagate_updates_visits() {
+    let move_gen = MoveGen::new();
+    let board = board_from_fen(positions::STARTING);
+    let root = MctsNode::new_root(board.clone(), &move_gen);
+
+    // Create a child
+    let e2e4 = Move::from_uci("e2e4").unwrap();
+    let child_state = board.apply_move_to_board(e2e4);
+    let child = MctsNode::new_child(Rc::downgrade(&root), e2e4, child_state, &move_gen);
+    root.borrow_mut().children.push(Rc::clone(&child));
+
+    // Both start at 0 visits
+    assert_eq!(child.borrow().visits, 0);
+    assert_eq!(root.borrow().visits, 0);
+
+    MctsNode::backpropagate(Rc::clone(&child), 0.7);
+
+    // Both should now have 1 visit
+    assert_eq!(child.borrow().visits, 1, "Child visits should be 1 after backprop");
+    assert_eq!(root.borrow().visits, 1, "Root visits should be 1 after backprop");
+}
+
+#[test]
+fn test_backpropagate_negates_value() {
+    let move_gen = MoveGen::new();
+    let board = board_from_fen(positions::STARTING);
+    let root = MctsNode::new_root(board.clone(), &move_gen);
+
+    let e2e4 = Move::from_uci("e2e4").unwrap();
+    let child_state = board.apply_move_to_board(e2e4);
+    let child = MctsNode::new_child(Rc::downgrade(&root), e2e4, child_state, &move_gen);
+    root.borrow_mut().children.push(Rc::clone(&child));
+
+    // Backprop value=0.7 from child
+    // At child: reward = -value = -0.7, then value flips to -0.7
+    // At root:  reward = -(-0.7) = 0.7, then value flips to 0.7
+    MctsNode::backpropagate(Rc::clone(&child), 0.7);
+
+    let child_total = child.borrow().total_value;
+    let root_total = root.borrow().total_value;
+
+    assert!(
+        (child_total - (-0.7)).abs() < 1e-10,
+        "Child should get reward=-0.7 (negated input), got {child_total}"
+    );
+    assert!(
+        (root_total - 0.7).abs() < 1e-10,
+        "Root should get reward=+0.7 (double negation), got {root_total}"
+    );
+}
+
+#[test]
+fn test_backpropagate_multiple_levels() {
+    let move_gen = MoveGen::new();
+    let board = board_from_fen(positions::STARTING);
+    let root = MctsNode::new_root(board.clone(), &move_gen);
+
+    // Root -> child (e2e4) -> grandchild (e7e5)
+    let e2e4 = Move::from_uci("e2e4").unwrap();
+    let child_state = board.apply_move_to_board(e2e4);
+    let child = MctsNode::new_child(Rc::downgrade(&root), e2e4, child_state.clone(), &move_gen);
+    root.borrow_mut().children.push(Rc::clone(&child));
+
+    let e7e5 = Move::from_uci("e7e5").unwrap();
+    let grandchild_state = child_state.apply_move_to_board(e7e5);
+    let grandchild = MctsNode::new_child(Rc::downgrade(&child), e7e5, grandchild_state, &move_gen);
+    child.borrow_mut().children.push(Rc::clone(&grandchild));
+
+    // Backprop value=0.5 from grandchild
+    // Grandchild: reward = -0.5, value flips to -0.5
+    // Child:      reward = -(-0.5) = 0.5, value flips to 0.5
+    // Root:       reward = -0.5, value flips to -0.5
+    MctsNode::backpropagate(Rc::clone(&grandchild), 0.5);
+
+    assert_eq!(grandchild.borrow().visits, 1);
+    assert_eq!(child.borrow().visits, 1);
+    assert_eq!(root.borrow().visits, 1);
+
+    let gc_total = grandchild.borrow().total_value;
+    let child_total = child.borrow().total_value;
+    let root_total = root.borrow().total_value;
+
+    assert!(
+        (gc_total - (-0.5)).abs() < 1e-10,
+        "Grandchild total_value should be -0.5, got {gc_total}"
+    );
+    assert!(
+        (child_total - 0.5).abs() < 1e-10,
+        "Child total_value should be +0.5, got {child_total}"
+    );
+    assert!(
+        (root_total - (-0.5)).abs() < 1e-10,
+        "Root total_value should be -0.5, got {root_total}"
+    );
 }

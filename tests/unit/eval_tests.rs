@@ -147,3 +147,64 @@ fn test_symmetric_eval() {
         "Symmetric positions should have roughly opposite evals: w={score_w}, b={score_b}"
     );
 }
+
+#[test]
+fn test_extrapolate_value_zero_k_is_identity() {
+    // k=0 means no material shift, so output ≈ input
+    for &v in &[-0.9, -0.5, 0.0, 0.5, 0.9] {
+        let result = extrapolate_value(v, 300, 0.0);
+        assert!(
+            (result - v).abs() < 1e-6,
+            "k=0 should be identity: input={v}, output={result}"
+        );
+    }
+}
+
+#[test]
+fn test_extrapolate_value_symmetry() {
+    // extrapolate(v, +delta, k) and extrapolate(-v, -delta, k) should be negatives
+    let k = 1.5;
+    for &(v, delta) in &[(0.3, 200), (0.7, -100), (0.0, 400)] {
+        let pos = extrapolate_value(v, delta, k);
+        let neg = extrapolate_value(-v, -delta, k);
+        assert!(
+            (pos + neg).abs() < 1e-6,
+            "Symmetry violated: extrapolate({v}, {delta}, {k})={pos}, extrapolate({}, {}, {k})={neg}",
+            -v, -delta
+        );
+    }
+}
+
+#[test]
+fn test_extrapolate_value_extreme_parent() {
+    // v0 near ±1.0 should still produce valid output in [-1, 1]
+    for &v in &[0.99, -0.99, 0.999, -0.999] {
+        let result = extrapolate_value(v, 100, 1.0);
+        assert!(
+            result >= -1.0 && result <= 1.0,
+            "Extreme parent {v} produced out-of-range output {result}"
+        );
+    }
+    // Also test exactly ±1.0 (gets clamped internally)
+    let result = extrapolate_value(1.0, 100, 1.0);
+    assert!(result >= -1.0 && result <= 1.0, "v=1.0 should be clamped, got {result}");
+    let result = extrapolate_value(-1.0, -100, 1.0);
+    assert!(result >= -1.0 && result <= 1.0, "v=-1.0 should be clamped, got {result}");
+}
+
+#[test]
+fn test_extrapolate_value_large_k_saturates() {
+    // Very large k with positive delta should push toward +1.0
+    let result = extrapolate_value(0.0, 1000, 100.0);
+    assert!(
+        result > 0.99,
+        "Large k with positive delta should saturate near +1.0, got {result}"
+    );
+
+    // Very large k with negative delta should push toward -1.0
+    let result_neg = extrapolate_value(0.0, -1000, 100.0);
+    assert!(
+        result_neg < -0.99,
+        "Large k with negative delta should saturate near -1.0, got {result_neg}"
+    );
+}

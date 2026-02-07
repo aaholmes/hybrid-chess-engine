@@ -109,19 +109,7 @@ mod mcts_tests {
         assert_eq!(root_node.terminal_or_mate_value, Some(-1.0));
     }
 
-    // UCT/PUCT test needs rework as priors are not stored on child node directly
-    // #[test]
-    // fn test_node_uct_value() { ... }
-
-    // Expand test needs rework as expand is now different (expand_with_policy)
-    // #[test]
-    // fn test_node_expand() { ... }
-
-    // Backpropagate test needs rework based on new structure
-    // #[test]
-    // fn test_node_backpropagate() { ... }
-
-    // --- Simulation Tests --- (Keep existing Simulation tests)
+    // --- Simulation Tests ---
 
     #[test]
     fn test_simulation_immediate_white_win() {
