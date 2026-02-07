@@ -267,21 +267,24 @@ pub fn tactical_mcts_search_with_tt(
         let leaf_node = select_leaf_node(root_node.clone(), move_gen, nn_policy, &config, &mut stats, logger);
         let value = evaluate_leaf_node(leaf_node.clone(), move_gen, nn_policy, &config, transposition_table, &mut stats, logger);
 
-        if !leaf_node.borrow().is_game_terminal() && leaf_node.borrow().visits == 0 {
+        if !leaf_node.borrow().is_game_terminal()
+            && leaf_node.borrow().visits == 0
+            && leaf_node.borrow().terminal_or_mate_value.is_none()
+        {
             evaluate_and_expand_node(leaf_node.clone(), move_gen, &mut stats, &config, logger);
         }
-        
+
         MctsNode::backpropagate(leaf_node, value);
         stats.iterations = iteration + 1;
-        
+
         if let Some(log) = logger {
             let best = select_best_move_from_root(root_node.clone(), move_gen);
             log.log_iteration_summary(iteration + 1, best, root_node.borrow().visits);
         }
-        
+
         if iteration % 100 == 0 && start_time.elapsed() > config.time_limit { break; }
     }
-    
+
     stats.search_time = start_time.elapsed();
     let best_move = select_best_move_from_root(root_node.clone(), move_gen);
     
@@ -311,9 +314,10 @@ fn select_leaf_node(
             log.log_enter_node(&current.borrow(), depth);
         }
         
-        let is_terminal = current.borrow().is_game_terminal();
+        let is_terminal = current.borrow().is_game_terminal()
+            || current.borrow().terminal_or_mate_value.is_some();
         let has_children = !current.borrow().children.is_empty();
-        
+
         if is_terminal || !has_children {
             return current;
         }
@@ -629,7 +633,10 @@ pub fn tactical_mcts_search_for_training(
 
         let leaf = select_leaf_node(root_node.clone(), move_gen, nn_policy, &config, &mut stats, logger);
         let value = evaluate_leaf_node(leaf.clone(), move_gen, nn_policy, &config, &mut transposition_table, &mut stats, logger);
-        if !leaf.borrow().is_game_terminal() && leaf.borrow().visits == 0 {
+        if !leaf.borrow().is_game_terminal()
+            && leaf.borrow().visits == 0
+            && leaf.borrow().terminal_or_mate_value.is_none()
+        {
             evaluate_and_expand_node(leaf.clone(), move_gen, &mut stats, &config, logger);
         }
         MctsNode::backpropagate(leaf, value);
@@ -714,7 +721,10 @@ pub fn tactical_mcts_search_for_training_with_reuse(
 
         let leaf = select_leaf_node(root_node.clone(), move_gen, nn_policy, &config, &mut stats, logger);
         let value = evaluate_leaf_node(leaf.clone(), move_gen, nn_policy, &config, transposition_table, &mut stats, logger);
-        if !leaf.borrow().is_game_terminal() && leaf.borrow().visits == 0 {
+        if !leaf.borrow().is_game_terminal()
+            && leaf.borrow().visits == 0
+            && leaf.borrow().terminal_or_mate_value.is_none()
+        {
             evaluate_and_expand_node(leaf.clone(), move_gen, &mut stats, &config, logger);
         }
         MctsNode::backpropagate(leaf, value);

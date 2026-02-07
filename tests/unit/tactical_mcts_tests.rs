@@ -255,3 +255,91 @@ fn test_q_value_sign_convention() {
     }
     assert!(found_e7e5, "e7e5 should have been visited with 50 iterations");
 }
+
+#[test]
+#[cfg(feature = "slow-tests")]
+fn test_koth_gate_value_not_diluted_by_expansion() {
+    // Position from game log: White to move, White king on e3, Black king on e7.
+    // KOTH center squares (d4,e4,d5,e5): d4 blocked by Qf6, e4 blocked by pawn f5.
+    // After a non-useful White move (e.g. a2a4), Black can force KOTH center in 2 moves.
+    // The child node for such moves should have Q ≈ -1.0 (lost for White),
+    // and the KOTH gate value should NOT be diluted by further tree expansion.
+    let move_gen = MoveGen::new();
+    let board = Board::new_from_fen("r1b4r/ppp1k2p/n3pq1n/5pp1/8/1PP1K3/P3PPPP/RNQ2BNR w - - 0 11");
+
+    let config = TacticalMctsConfig {
+        max_iterations: 1000,
+        time_limit: Duration::from_secs(60),
+        enable_koth: true,
+        ..Default::default()
+    };
+
+    let (_best_move, _stats, root) = tactical_mcts_search(
+        board,
+        &move_gen,
+        &mut None,
+        config,
+    );
+
+    // Check ALL children that have terminal_or_mate_value set:
+    // their Q-value must remain consistent with the cached value
+    // (not diluted by child evaluations).
+    let root_ref = root.borrow();
+    for child in &root_ref.children {
+        let c = child.borrow();
+        if let (Some(cached_val), Some(mv)) = (c.terminal_or_mate_value, c.action) {
+            if c.visits > 0 {
+                let q = c.total_value / c.visits as f64;
+                // Q should be consistent with the gate value.
+                // terminal_or_mate_value is from STM perspective at this node.
+                // total_value is from parent's perspective (negated).
+                let expected_q = -cached_val;
+                assert!((q - expected_q).abs() < 0.01,
+                    "{}: Q={:.4} but terminal_or_mate_value={:.1}, expected Q={:.1} (visits={})",
+                    mv.to_uci(), q, cached_val, expected_q, c.visits);
+            }
+        }
+    }
+
+    // Additionally verify gate-resolved nodes have no children (weren't expanded)
+    for child in &root_ref.children {
+        let c = child.borrow();
+        if c.terminal_or_mate_value.is_some() {
+            assert!(c.children.is_empty(),
+                "Node with terminal_or_mate_value should not be expanded (has {} children)",
+                c.children.len());
+        }
+    }
+}
+
+#[test]
+fn test_gate_resolved_nodes_not_expanded() {
+    // Simple KOTH position: White king on e3 can reach d4 in 1 move, but
+    // Black queen on f6 covers d4 and Black king on e7 is 2 away from center.
+    // After any non-king White move, KOTH gate should fire for Black.
+    // Gate-resolved nodes must not be expanded (no children).
+    let move_gen = MoveGen::new();
+    let board = Board::new_from_fen("r1b4r/ppp1k2p/n3pq1n/5pp1/8/1PP1K3/P3PPPP/RNQ2BNR w - - 0 11");
+
+    let config = TacticalMctsConfig {
+        max_iterations: 100,
+        time_limit: Duration::from_secs(30),
+        enable_koth: true,
+        ..Default::default()
+    };
+
+    let (_, _, root) = tactical_mcts_search(board, &move_gen, &mut None, config);
+
+    let root_ref = root.borrow();
+    let mut gate_resolved_count = 0;
+    for child in &root_ref.children {
+        let c = child.borrow();
+        if c.terminal_or_mate_value.is_some() {
+            gate_resolved_count += 1;
+            assert!(c.children.is_empty(),
+                "Gate-resolved node {} should have no children, has {}",
+                c.action.map(|m| m.to_uci()).unwrap_or_default(), c.children.len());
+        }
+    }
+    assert!(gate_resolved_count > 0, "Some children should have gate-resolved values in this KOTH position");
+}
