@@ -4,7 +4,7 @@
 //! KOTH enabled, 20 iterations/move. The Debug-level search logger prints
 //! every rollout's evaluation cascade.
 //!
-//! Usage: verbose_game [--iterations <n>] [--max-moves <n>] [--no-emoji]
+//! Usage: verbose_game [--iterations <n>] [--max-moves <n>] [--seed <n>] [--no-emoji]
 
 use std::env;
 use std::sync::Arc;
@@ -18,19 +18,25 @@ use kingfisher::mcts::search_logger::{SearchLogger, Verbosity};
 use kingfisher::move_generation::MoveGen;
 use kingfisher::move_types::Move;
 use rand::Rng;
+use rand::rngs::StdRng;
+use rand::SeedableRng;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
     let iterations = parse_arg(&args, "--iterations").unwrap_or(20);
     let max_moves = parse_arg(&args, "--max-moves").unwrap_or(200);
+    let seed = parse_arg_u64(&args, "--seed").unwrap_or(42);
     let no_emoji = args.iter().any(|a| a == "--no-emoji");
 
     println!("=== Caissawary Verbose Game ===");
     println!("Iterations/move: {}", iterations);
     println!("Max moves: {}", max_moves);
+    println!("Seed: {}", seed);
     println!("KOTH: enabled");
     println!("NN: disabled (classical fallback)");
     println!();
+
+    let mut rng = StdRng::seed_from_u64(seed);
 
     let move_gen = MoveGen::new();
     let mut board_stack = BoardStack::new();
@@ -44,6 +50,7 @@ fn main() {
         println!("════════════════════════════════════════════════════════════");
         println!("Move {}: {} to move", move_count / 2 + 1, side);
         println!("FEN: {}", fen);
+        board.print();
         println!("════════════════════════════════════════════════════════════");
 
         // Create a fresh logger for each move search
@@ -80,6 +87,7 @@ fn main() {
             for child in &root.children {
                 let c = child.borrow();
                 if let Some(mv) = c.action {
+                    // Q from root player's perspective: positive = good for side to move
                     let q = if c.visits > 0 {
                         -(c.total_value / c.visits as f64)
                     } else {
@@ -100,7 +108,7 @@ fn main() {
         }
 
         // Sample proportionally from visit counts
-        let selected = sample_proportional(&result.root_policy)
+        let selected = sample_proportional(&result.root_policy, &mut rng)
             .unwrap_or_else(|| result.best_move.unwrap());
         println!("\nSelected: {} (proportional sampling)", selected.to_uci());
         println!();
@@ -156,12 +164,12 @@ fn main() {
 }
 
 /// Sample a move proportionally from visit counts (temperature = 1).
-fn sample_proportional(policy: &[(Move, u32)]) -> Option<Move> {
+fn sample_proportional(policy: &[(Move, u32)], rng: &mut impl Rng) -> Option<Move> {
     let total: u32 = policy.iter().map(|(_, v)| *v).sum();
     if total == 0 {
         return None;
     }
-    let threshold = rand::thread_rng().gen_range(0..total);
+    let threshold = rng.gen_range(0..total);
     let mut cumulative = 0u32;
     for (mv, visits) in policy {
         cumulative += visits;
@@ -173,6 +181,13 @@ fn sample_proportional(policy: &[(Move, u32)]) -> Option<Move> {
 }
 
 fn parse_arg(args: &[String], flag: &str) -> Option<u32> {
+    args.iter()
+        .position(|a| a == flag)
+        .and_then(|i| args.get(i + 1))
+        .and_then(|v| v.parse().ok())
+}
+
+fn parse_arg_u64(args: &[String], flag: &str) -> Option<u64> {
     args.iter()
         .position(|a| a == flag)
         .and_then(|i| args.get(i + 1))
