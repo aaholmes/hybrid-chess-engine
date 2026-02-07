@@ -56,6 +56,16 @@ pub fn select_child_with_tactical_priority(
         return Some(tactical_child);
     }
     
+    // Phase 1.5: Force root exploration — ensure every root child gets at least 1 visit
+    if depth == 0 {
+        let node_ref = node.borrow();
+        for child in &node_ref.children {
+            if child.borrow().visits == 0 {
+                return Some(child.clone());
+            }
+        }
+    }
+
     // Phase 2: All tactical moves explored, use UCB with policy values
     select_ucb_with_policy(node, config, move_gen, nn_policy, logger, depth)
 }

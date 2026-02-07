@@ -212,14 +212,14 @@ fn play_game(_game_num: usize, simulations: u32, model_path: Option<String>, ena
 
 /// Sample a move proportionally from visit counts (temperature = 1).
 fn sample_proportional(policy: &[(Move, u32)]) -> Option<Move> {
-    let total: u32 = policy.iter().map(|(_, v)| *v).sum();
+    let total: u32 = policy.iter().map(|(_, v)| v.saturating_sub(1)).sum();
     if total == 0 {
         return None;
     }
     let threshold = rand::thread_rng().gen_range(0..total);
     let mut cumulative = 0u32;
     for (mv, visits) in policy {
-        cumulative += visits;
+        cumulative += visits.saturating_sub(1);
         if cumulative > threshold {
             return Some(*mv);
         }
