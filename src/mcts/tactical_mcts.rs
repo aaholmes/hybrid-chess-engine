@@ -19,6 +19,7 @@ use crate::neural_net::NeuralNetPolicy;
 use crate::search::mate_search;
 use crate::search::koth_center_in_3;
 use crate::search::quiescence_search_tactical;
+use crate::search::forced_material_balance;
 use crate::transposition::TranspositionTable;
 use rand_distr::{Gamma, Distribution};
 use std::cell::RefCell;
@@ -416,44 +417,49 @@ fn evaluate_leaf_node(
     }
     
     if node_ref.nn_value.is_none() {
-        let mut k_val = 0.5;
-        let mut raw_val = -999.0;
+        let mut k_val: f32 = 0.5;
+        let mut v_logit: f64 = f64::NEG_INFINITY; // sentinel: no NN result yet
 
-        // 1. Batched Inference
+        // 1. Batched Inference — NN now returns raw v_logit (unbounded)
         if config.enable_tier3_neural {
             if let Some(server) = &config.inference_server {
                 if config.use_neural_policy {
                     let receiver = server.predict_async(node_ref.state.clone());
-                    if let Ok(Some((_policy, value, k))) = receiver.recv() {
-                        raw_val = value as f64;
+                    if let Ok(Some((_policy, nn_v_logit, k))) = receiver.recv() {
+                        v_logit = nn_v_logit as f64;
                         k_val = k;
                     }
                 }
             }
-        } 
-        
-        // Direct Inference or Batched Response Handling
-        if raw_val > -2.0 {
-            // Assert NN values are in range [-1, 1] to catch issues with model heads immediately.
-            if raw_val < -1.01 || raw_val > 1.01 {
-                panic!("Neural Network produced value out of range [-1, 1]: {}. issues must be caught immediately.", raw_val);
-            }
+        }
+
+        // 2. Compute delta_M via material-only Q-search
+        let mut board_stack = BoardStack::with_board(node_ref.state.clone());
+        let delta_m = forced_material_balance(&mut board_stack, move_gen);
+
+        if v_logit.is_finite() {
+            // NN path: combine v_logit + k * delta_M
+            let final_value = (v_logit + k_val as f64 * delta_m as f64).tanh();
             if let Some(log) = logger {
-                log.log_tier3_neural(raw_val, k_val);
+                log.log_tier3_neural(final_value, k_val);
             }
-            node_ref.nn_value = Some(raw_val);
+            node_ref.v_logit = Some(v_logit);
+            node_ref.nn_value = Some(final_value);
             if node_ref.origin == NodeOrigin::Unknown {
                 node_ref.origin = NodeOrigin::Neural;
             }
             stats.nn_evaluations += 1;
         } else {
-            // Classical path: Use Pesto evaluation mapped to tanh domain for search consistency.
-            let eval_score = pesto_eval.eval(&node_ref.state, move_gen);
-            let tanh_val = (eval_score as f64 / 400.0).tanh();
+            // Classical fallback: v_logit = 0.0, k = 1.0, rely on material only
+            let classical_v_logit = 0.0;
+            let classical_k: f32 = 1.0;
+            let final_value = (classical_v_logit + classical_k as f64 * delta_m as f64).tanh();
             if let Some(log) = logger {
-                log.log_classical_eval(eval_score, tanh_val);
+                log.log_classical_eval(delta_m, final_value);
             }
-            node_ref.nn_value = Some(tanh_val);
+            node_ref.v_logit = Some(classical_v_logit);
+            node_ref.nn_value = Some(final_value);
+            k_val = classical_k;
         }
         node_ref.k_val = k_val;
     } else {
@@ -461,7 +467,7 @@ fn evaluate_leaf_node(
             stats.nn_saved_by_tier2 += 1;
         }
     }
-    
+
     node_ref.nn_value.unwrap()
 }
 

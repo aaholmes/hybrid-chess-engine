@@ -66,6 +66,54 @@ use crate::move_generation::MoveGen;
 use crate::move_types::Move;
 use std::time::{Duration, Instant};
 
+/// Material-only quiescence search for MCTS value function.
+///
+/// Uses `board.material_imbalance()` (pawn units, STM perspective) as eval —
+/// no Pesto, no positional terms. Searches captures + promotions to find the
+/// best material balance achievable through forced tactical exchanges.
+///
+/// Returns the best material balance (in pawn units) from STM perspective.
+pub fn material_qsearch(
+    board: &mut BoardStack,
+    move_gen: &MoveGen,
+    mut alpha: i32,
+    beta: i32,
+    max_depth: u8,
+) -> i32 {
+    let stand_pat = board.current_state().material_imbalance();
+    if stand_pat >= beta {
+        return beta;
+    }
+    alpha = alpha.max(stand_pat);
+    if max_depth == 0 {
+        return alpha;
+    }
+
+    let captures = move_gen.gen_pseudo_legal_captures(board.current_state());
+    for capture in captures {
+        board.make_move(capture);
+        if !board.current_state().is_legal(move_gen) {
+            board.undo_move();
+            continue;
+        }
+        let score = -material_qsearch(board, move_gen, -beta, -alpha, max_depth - 1);
+        board.undo_move();
+        if score >= beta {
+            return beta;
+        }
+        if score > alpha {
+            alpha = score;
+        }
+    }
+    alpha
+}
+
+/// Convenience wrapper: returns the material balance (pawn units, STM perspective)
+/// after optimal forced captures/promotions from this position.
+pub fn forced_material_balance(board: &mut BoardStack, move_gen: &MoveGen) -> i32 {
+    material_qsearch(board, move_gen, -1000, 1000, 8)
+}
+
 /// Tactical result from Quiescence Search for MCTS grafting
 #[derive(Clone, Debug)]
 pub struct TacticalTree {

@@ -10,22 +10,23 @@ fn test_mock_server_returns_result() {
     let receiver = server.predict_async(board);
     let result = receiver.recv().expect("Should receive a response");
     assert!(result.is_some(), "Mock server should return Some");
-    let (policy, value, k) = result.unwrap();
+    let (policy, v_logit, k) = result.unwrap();
     assert_eq!(policy.len(), 4672, "Policy should have 4672 elements");
-    assert!(value >= -1.0 && value <= 1.0, "Value {value} should be in [-1, 1]");
+    // v_logit is unbounded (raw logit from NN), but mock returns in [-2, 2]
+    assert!(v_logit >= -2.0 && v_logit <= 2.0, "v_logit {v_logit} should be in [-2, 2] for mock");
     assert!(k >= 0.0 && k <= 1.0, "k={k} should be in [0, 1]");
 }
 
 #[test]
-fn test_mock_biased_returns_correct_value() {
+fn test_mock_biased_returns_correct_v_logit() {
     let server = InferenceServer::new_mock_biased(0.5);
     let board = Board::new();
     let receiver = server.predict_async(board);
     let result = receiver.recv().expect("Should receive a response");
-    let (_, value, k) = result.unwrap();
+    let (_, v_logit, k) = result.unwrap();
     assert!(
-        (value - 0.5).abs() < 1e-6,
-        "Biased mock should return value=0.5, got {value}"
+        (v_logit - 0.5).abs() < 1e-6,
+        "Biased mock should return v_logit=0.5, got {v_logit}"
     );
     assert!(
         (k - 0.5).abs() < 1e-6,

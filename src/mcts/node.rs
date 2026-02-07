@@ -76,8 +76,10 @@ pub struct MctsNode {
     pub terminal_or_mate_value: Option<f64>,
     /// If mate search found a mate, stores the mating move
     pub mate_move: Option<Move>,
-    /// Stores the value from the evaluation (Pesto or NN) ([-1, 1] for White) when node is first evaluated.
-    pub nn_value: Option<f64>, 
+    /// Stores the final combined value ([-1, 1]) = tanh(v_logit + k * delta_M).
+    pub nn_value: Option<f64>,
+    /// Raw positional logit from NN (unbounded, before material adjustment + tanh).
+    pub v_logit: Option<f64>,
     /// The material confidence scalar (k) predicted by the neural network for this node.
     /// Used for extrapolating values of child tactical nodes.
     pub k_val: f32,
@@ -141,6 +143,7 @@ impl MctsNode {
             terminal_or_mate_value: initial_terminal_value,
             mate_move: None,
             nn_value: None,
+            v_logit: None,
             k_val: 0.5, // Default confidence
             prior_probability: 0.0,
             unexplored_moves_by_cat: HashMap::new(),
@@ -187,6 +190,7 @@ impl MctsNode {
             terminal_or_mate_value: initial_terminal_value,
             mate_move: None,
             nn_value: None,
+            v_logit: None,
             k_val: 0.5, // Default confidence
             prior_probability: 0.0,
             unexplored_moves_by_cat: HashMap::new(),

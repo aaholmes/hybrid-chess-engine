@@ -57,38 +57,46 @@ If the node is not a terminal state, the engine performs a "Tactical Graft":
   $$V_{final} = \tanh\left(\text{arctanh}(V_{parent}) + k \cdot \Delta M\right)$$
   Where $k$ is a **position-specific confidence scalar** predicted by the neural network. This allows the engine to determine if a material advantage is decisive or irrelevant in the current strategic context.
 
-#### 3. Strategic Evaluation (Tier 3):
-If no tactical resolution is sufficient, the engine engages the **LogosNet** (if enabled):
-- **Dual Value Heads:** The network predicts both a deep strategic logit ($V_{net}$) and a material confidence logit ($K_{net}$).
-- **Lazy Evaluation:** The network is queried only when necessary, and its predictions guide the selection of "Quiet" moves via PUCT.
+#### 3. Material-Aware Strategic Evaluation (Tier 3):
+Every leaf node's value is computed as:
+
+$$V_{final} = \tanh(V_{logit} + k \cdot \Delta M)$$
+
+Where:
+- **$V_{logit}$** = the neural network's raw positional logit (unbounded, learns only positional factors)
+- **$k$** = the network's material confidence scalar
+- **$\Delta M$** = material balance after forced captures/promotions, computed by `forced_material_balance()` — a material-only quiescence search using piece values (P=1, N=3, B=3, R=5, Q=9) with no Pesto positional terms
+
+The NN outputs raw $V_{logit}$ at inference time (not `tanh`), while the Rust engine computes $\Delta M$ via material Q-search and applies the final `tanh`. This separation allows the engine to use an enhanced material evaluation (resolving tactical exchanges) that the NN never sees during training. Without a neural network, the engine falls back to a purely material-based evaluation: $V_{logit} = 0$, $k = 1$, $V_{final} = \tanh(\Delta M)$.
 
 ## Tier 2: Tactical Grafting
 Instead of treating all new nodes as equal, Caissawary injects tactical knowledge directly into the tree structure. This "Neurosymbolic" approach separates **Logical Truth** from **Contextual Interpretation**.
 
-- **The CPU (Logical Truth):** Runs minimax on captures using raw integers. It is blazing fast and ignores strategic "noise."
-- **The Neural Net (Contextual Interpretation):** Predicts $k$, the "price" of material.
-- **Symbolic Recombination:** By combining these, the engine "grafts" tactical sequences into the MCTS tree with highly accurate initial values, solving the "cold start" problem for sharp positions.
+- **The CPU (Logical Truth):** Runs minimax on captures using raw integers (`material_qsearch`). It is blazing fast and ignores strategic "noise."
+- **The Neural Net (Contextual Interpretation):** Predicts $V_{logit}$ (positional assessment) and $k$ (the "price" of material).
+- **Symbolic Recombination:** The Rust engine computes $\Delta M$ via material-only Q-search and combines it with the NN's $V_{logit}$: $\tanh(V_{logit} + k \cdot \Delta M)$. For grafted children, the engine extrapolates values using the parent's evaluation and the material delta.
 
 ## Tier 3: LogosNet Architecture (Optional)
 The engine supports a **Neurosymbolic** mode using the LogosNet architecture.
 
-- **Architecture:** A 10-block ResNet backbone with a standard Policy head and a **Symbolic Residual Value Head**.
+- **Architecture:** A 6-block SE-ResNet backbone with a standard Policy head and a **Symbolic Residual Value Head**.
 - **Dynamic K:** The network learns how much to trust material imbalance. At initialization ($K_{net} = 0$), $k$ is exactly $0.5$. During training, the network adjusts $k$ to prioritize material or strategic compensation.
-- **Inference:** Uses **tch-rs** (LibTorch) for high-performance inference. The forward pass accepts both the board features and the raw material scalar.
+- **Inference:** Uses **tch-rs** (LibTorch) for high-performance inference. At inference time, the model returns raw $V_{logit}$ (unbounded) and $k$, leaving the Rust engine to compute $\Delta M$ via material Q-search and apply the final $\tanh$.
+- **Training:** During training, the model internally computes $\tanh(V_{logit} + k \cdot M)$ against game outcome targets, where $M$ is the simple material imbalance. The Rust side uses the enhanced $\Delta M$ from `forced_material_balance()` which resolves forced captures.
 
 ### Final Layer Details
 The value head splits into two paths to predict the final evaluation:
 
-1.  **Deep Value Logit ($V_{net}$):** Represents the network's intuition about the position's value in logit space.
-2.  **Confidence Logit ($K_{net}$):** Represents the network's confidence in the material imbalance.
+1.  **Deep Value Logit ($V_{logit}$):** The network's positional assessment in logit space (unbounded). Learns only positional factors, never material directly.
+2.  **Confidence Scalar ($k$):** Determines how much material matters in this position.
 
 These are combined using the **Dynamic Symbolic Residual Formula**:
 
 $$k = \frac{\text{Softplus}(K_{net})}{2 \ln 2}$$
 
-$$V_{final} = \tanh(V_{net} + k \cdot \Delta M)$$
+$$V_{final} = \tanh(V_{logit} + k \cdot \Delta M)$$
 
-Where $\Delta M$ is the material imbalance. This architecture allows the network to learn a residual correction to the material advantage, effectively "pricing" the material in the current strategic context.
+Where $\Delta M$ is the material balance after forced captures/promotions (computed by `forced_material_balance()` in Rust). This separation allows the NN to focus on positional learning while the Rust engine handles tactical material resolution exactly.
 
 > **Note:** Neural network support is optional. Compile with `cargo build --features neural` to enable it. You must have a compatible LibTorch installed or let `tch-rs` download one.
 
@@ -255,7 +263,7 @@ cargo run --release --features neural --bin self_play -- 100 800 data models/lat
 
 ## Testing
 
-The project has a comprehensive test suite with **600+ tests** (517 Rust + 88 Python) organized across Rust and Python. For detailed documentation, see [TESTING.md](TESTING.md).
+The project has a comprehensive test suite with **600+ tests** (521 Rust + 86 Python) organized across Rust and Python. For detailed documentation, see [TESTING.md](TESTING.md).
 
 ```bash
 # Run the full Rust test suite
@@ -289,7 +297,7 @@ The unit test suite covers all core modules:
 | Board stack | boardstack_tests | Make/undo, repetition detection, null moves |
 | Evaluation | eval_tests | Material, tapered eval, piece-square, king safety |
 | Search | alpha_beta_tests, iterative_deepening_tests | Checkmate detection, depth, time limits |
-| Quiescence search | quiescence_tests, see_tests | Captures, SEE pruning, tactical resolution |
+| Quiescence search | quiescence_tests, see_tests | Captures, SEE pruning, tactical resolution, material Q-search |
 | MCTS | node_tests, selection_tests, simulation_tests | UCT/PUCT, playout, node lifecycle |
 | MCTS selection | selection_optimization_tests | Redundancy-free selection, UCB correctness |
 | Tree reuse | tree_reuse_tests | Subtree extraction, visit preservation |
@@ -302,6 +310,7 @@ The unit test suite covers all core modules:
 | Visualization | graphviz_tests, search_logger_tests | DOT export, verbosity, node coloring |
 | KOTH variant | koth_tests | Center square detection, king proximity |
 | Training diversity | training_diversity_tests | Dirichlet noise, KOTH gating, game diversity |
+| Inference server | inference_server_tests | Mock servers, v_logit returns, batching |
 | Model evaluation | evaluate_models_tests | Game termination, color alternation, win rate, acceptance |
 | Replay buffer | test_replay_buffer.py | FIFO eviction, manifest persistence, sampling, edge cases |
 | Training pipeline | test_train.py | Minibatch mode, LR scheduling, checkpoints, buffer loading |

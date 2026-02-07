@@ -137,8 +137,14 @@ class LogosNet(nn.Module):
         # V_final = Tanh( V_net + k * DeltaM )
         total_logit = v_logit + (k * material_scalar)
         value = torch.tanh(total_logit)
-        
-        return policy, value, k
+
+        if self.training:
+            # Training: return tanh(v_logit + k * material) for loss computation
+            return policy, value, k
+        else:
+            # Inference: return raw v_logit so Rust can compute
+            # tanh(v_logit + k * delta_M) with enhanced material Q-search
+            return policy, v_logit, k
 
     # Standard He Initialization for the body
     def _init_weights(self, m):

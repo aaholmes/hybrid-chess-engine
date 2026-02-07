@@ -64,7 +64,8 @@ impl InferenceServer {
         InferenceServer { request_sender }
     }
 
-    /// Creates a mock server that returns random values (for testing).
+    /// Creates a mock server that returns random v_logit values (for testing).
+    /// Returns `(policy, v_logit, k)` where v_logit is unbounded (not tanh'd).
     pub fn new_mock() -> Self {
         let (request_sender, request_receiver) = unbounded::<PredictRequest>();
         thread::spawn(move || {
@@ -73,15 +74,15 @@ impl InferenceServer {
                     Ok(req) => {
                         let mut rng = rand::thread_rng();
                         // Random policy
-                        let mut policy = vec![0.0; 4672]; 
+                        let mut policy = vec![0.0; 4672];
                         // Set a few random moves to non-zero
                         for _ in 0..5 {
                             let idx = rng.gen_range(0..4672);
                             policy[idx] = rng.gen_range(0.0..1.0);
                         }
-                        let value: f32 = rng.gen_range(-1.0..1.0);
+                        let v_logit: f32 = rng.gen_range(-2.0..2.0);
                         let k: f32 = rng.gen_range(0.0..1.0);
-                        let _ = req.response_sender.send(Some((policy, value, k)));
+                        let _ = req.response_sender.send(Some((policy, v_logit, k)));
                     }
                     Err(_) => break,
                 }
@@ -90,17 +91,17 @@ impl InferenceServer {
         InferenceServer { request_sender }
     }
 
-    /// Creates a mock server that always returns a biased value (for testing).
-    pub fn new_mock_biased(bias: f32) -> Self {
+    /// Creates a mock server that always returns a fixed v_logit (for testing).
+    /// `v_logit` is the raw positional logit (unbounded, before material + tanh).
+    pub fn new_mock_biased(v_logit: f32) -> Self {
         let (request_sender, request_receiver) = unbounded::<PredictRequest>();
         thread::spawn(move || {
             loop {
                 match request_receiver.recv() {
                     Ok(req) => {
                         let policy = vec![0.0; 4672];
-                        let value: f32 = bias;
                         let k: f32 = 0.5;
-                        let _ = req.response_sender.send(Some((policy, value, k)));
+                        let _ = req.response_sender.send(Some((policy, v_logit, k)));
                     }
                     Err(_) => break,
                 }
@@ -109,7 +110,7 @@ impl InferenceServer {
         InferenceServer { request_sender }
     }
 
-    /// Creates a mock server that returns uniform policy and 0.0 value.
+    /// Creates a mock server that returns uniform policy and 0.0 v_logit.
     pub fn new_mock_uniform() -> Self {
         Self::new_mock_biased(0.0)
     }
