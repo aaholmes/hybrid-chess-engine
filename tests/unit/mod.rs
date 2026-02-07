@@ -35,6 +35,7 @@ mod tensor_extended_tests;
 mod training_tests;
 mod evaluate_models_tests;
 mod inference_server_tests;
+mod tactical_detection_tests;
 
 // Re-export common utilities
 mod common {

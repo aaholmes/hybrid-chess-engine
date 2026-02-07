@@ -448,3 +448,400 @@ fn test_koth_win_in_1_selected_and_search_aborts() {
     assert!(stats.iterations < 100,
         "Search should abort early with win-in-1, used {} iterations", stats.iterations);
 }
+
+// === evaluate_leaf_node: classical fallback and material balance ===
+
+#[test]
+fn test_classical_fallback_material_advantage() {
+    // White is up a queen — classical fallback should give positive value
+    let move_gen = MoveGen::new();
+    let board = Board::new_from_fen("4k3/8/8/3Q4/8/8/8/4K3 w - - 0 1");
+
+    let config = TacticalMctsConfig {
+        max_iterations: 50,
+        time_limit: Duration::from_secs(10),
+        enable_tier3_neural: false, // Force classical fallback
+        ..Default::default()
+    };
+
+    let (_, _, root) = tactical_mcts_search(board, &move_gen, &mut None, config);
+
+    // Root's Q should be positive (White is winning with queen advantage)
+    let root_ref = root.borrow();
+    if root_ref.visits > 0 {
+        let root_q = -(root_ref.total_value / root_ref.visits as f64);
+        assert!(root_q > 0.0,
+            "White up a queen should have positive Q, got {:.4}", root_q);
+    }
+}
+
+#[test]
+fn test_classical_fallback_material_disadvantage() {
+    // White is down a queen — should give negative value
+    let move_gen = MoveGen::new();
+    let board = Board::new_from_fen("3qk3/8/8/8/8/8/8/4K3 w - - 0 1");
+
+    let config = TacticalMctsConfig {
+        max_iterations: 50,
+        time_limit: Duration::from_secs(10),
+        enable_tier3_neural: false,
+        ..Default::default()
+    };
+
+    let (_, _, root) = tactical_mcts_search(board, &move_gen, &mut None, config);
+
+    let root_ref = root.borrow();
+    if root_ref.visits > 0 {
+        let root_q = -(root_ref.total_value / root_ref.visits as f64);
+        assert!(root_q < 0.0,
+            "White down a queen should have negative Q, got {:.4}", root_q);
+    }
+}
+
+#[test]
+fn test_classical_fallback_equal_material() {
+    // Equal material — value should be near 0
+    let move_gen = MoveGen::new();
+    let board = Board::new_from_fen("4k3/pppppppp/8/8/8/8/PPPPPPPP/4K3 w - - 0 1");
+
+    let config = TacticalMctsConfig {
+        max_iterations: 50,
+        time_limit: Duration::from_secs(10),
+        enable_tier3_neural: false,
+        ..Default::default()
+    };
+
+    let (_, _, root) = tactical_mcts_search(board, &move_gen, &mut None, config);
+
+    let root_ref = root.borrow();
+    if root_ref.visits > 0 {
+        let root_q = -(root_ref.total_value / root_ref.visits as f64);
+        assert!(root_q.abs() < 0.5,
+            "Equal material should have Q near 0, got {:.4}", root_q);
+    }
+}
+
+#[test]
+fn test_leaf_values_in_tanh_range() {
+    // All leaf node values should be in [-1, 1]
+    let move_gen = MoveGen::new();
+    let board = Board::new();
+
+    let config = TacticalMctsConfig {
+        max_iterations: 100,
+        time_limit: Duration::from_secs(10),
+        ..Default::default()
+    };
+
+    let (_, _, root) = tactical_mcts_search(board, &move_gen, &mut None, config);
+
+    fn check_tree_values(node: &std::rc::Rc<std::cell::RefCell<kingfisher::mcts::node::MctsNode>>) {
+        let n = node.borrow();
+        if let Some(v) = n.nn_value {
+            assert!(v >= -1.0 && v <= 1.0,
+                "nn_value {} outside tanh domain [-1, 1]", v);
+        }
+        if let Some(v) = n.terminal_or_mate_value {
+            assert!(v >= -1.0 && v <= 1.0,
+                "terminal_or_mate_value {} outside [-1, 1]", v);
+        }
+        for child in &n.children {
+            check_tree_values(child);
+        }
+    }
+    check_tree_values(&root);
+}
+
+// === Tier 2 tactical grafting ===
+
+#[test]
+fn test_tier2_graft_tracks_q_inits() {
+    // Position with captures available — tier2 should produce Q-init values
+    let move_gen = MoveGen::new();
+    // Middlegame position with captures possible
+    let board = Board::new_from_fen("r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4");
+
+    let config = TacticalMctsConfig {
+        max_iterations: 100,
+        time_limit: Duration::from_secs(10),
+        enable_tier2_graft: true,
+        ..Default::default()
+    };
+
+    let (best_move, stats, _) = tactical_mcts_search(board, &move_gen, &mut None, config);
+
+    assert!(best_move.is_some(), "Should find a move");
+    // With tier2 enabled and captures in the position, Q-init should fire
+    assert!(stats.tier2_q_inits > 0,
+        "Tier 2 should have initialized Q values for positions with captures");
+}
+
+#[test]
+fn test_tier2_disabled_still_works() {
+    // With tier2 disabled, search should still find the winning capture
+    let move_gen = MoveGen::new();
+    let board = Board::new_from_fen("8/8/8/3q4/4N3/8/8/K6k w - - 0 1");
+
+    let config = TacticalMctsConfig {
+        max_iterations: 100,
+        time_limit: Duration::from_secs(10),
+        enable_tier2_graft: false,
+        ..Default::default()
+    };
+
+    let (best_move, stats, _) = tactical_mcts_search(board, &move_gen, &mut None, config);
+
+    assert!(best_move.is_some(), "Should still return a move");
+    assert_eq!(stats.tier2_q_inits, 0, "No tier2 inits when disabled");
+}
+
+// === select_best_move_from_root edge cases ===
+
+#[test]
+fn test_select_best_move_prefers_koth_win_over_captures() {
+    // KOTH position where a capture exists but KOTH win is available
+    // White king can step to center OR capture a piece
+    let move_gen = MoveGen::new();
+    let board = Board::new_from_fen("3N4/k6p/p6P/2P1R3/2n3P1/P1rK4/8/5B2 w - - 4 47");
+
+    let config = TacticalMctsConfig {
+        max_iterations: 200,
+        time_limit: Duration::from_secs(10),
+        enable_koth: true,
+        ..Default::default()
+    };
+
+    let (best_move, stats, _root) = tactical_mcts_search(board, &move_gen, &mut None, config);
+
+    assert!(best_move.is_some());
+    let mv = best_move.unwrap();
+    // Must be d3d4 (19->27) or d3e4 (19->28), NOT d3c3 (19->18, captures rook)
+    let is_koth = (mv.from == 19 && mv.to == 27) || (mv.from == 19 && mv.to == 28);
+    assert!(is_koth, "Should prefer KOTH win over rook capture, got {}", mv.to_uci());
+
+    // Pre-search KOTH gate should have fired (tier1_solutions > 0)
+    assert!(stats.tier1_solutions > 0, "Pre-search KOTH gate should fire for win-in-1");
+}
+
+// === Training search ===
+
+#[test]
+fn test_training_search_returns_policy() {
+    use kingfisher::mcts::tactical_mcts::tactical_mcts_search_for_training;
+
+    let move_gen = MoveGen::new();
+    let board = Board::new();
+
+    let config = TacticalMctsConfig {
+        max_iterations: 50,
+        time_limit: Duration::from_secs(10),
+        ..Default::default()
+    };
+
+    let result = tactical_mcts_search_for_training(board, &move_gen, &mut None, config);
+
+    assert!(result.best_move.is_some(), "Should return a best move");
+    assert!(!result.root_policy.is_empty(), "Should return non-empty policy");
+
+    // Policy visit counts should sum to something reasonable
+    let total_visits: u32 = result.root_policy.iter().map(|(_, v)| v).sum();
+    assert!(total_visits > 0, "Total policy visits should be positive");
+
+    // Root value should be in tanh domain
+    assert!(result.root_value_prediction >= -1.0 && result.root_value_prediction <= 1.0,
+        "Root value {} outside [-1, 1]", result.root_value_prediction);
+}
+
+#[test]
+fn test_training_search_koth_early_termination() {
+    use kingfisher::mcts::tactical_mcts::tactical_mcts_search_for_training;
+
+    let move_gen = MoveGen::new();
+    // KOTH win-in-1 position
+    let board = Board::new_from_fen("3N4/k6p/p6P/2P1R3/2n3P1/P1rK4/8/5B2 w - - 4 47");
+
+    let config = TacticalMctsConfig {
+        max_iterations: 1000,
+        time_limit: Duration::from_secs(30),
+        enable_koth: true,
+        ..Default::default()
+    };
+
+    let result = tactical_mcts_search_for_training(board, &move_gen, &mut None, config);
+
+    assert!(result.best_move.is_some());
+    assert!(result.stats.iterations < 100,
+        "Training search should also abort early on KOTH win, used {} iters",
+        result.stats.iterations);
+}
+
+#[test]
+fn test_training_search_with_reuse_basic() {
+    use kingfisher::mcts::tactical_mcts::{tactical_mcts_search_for_training_with_reuse, reuse_subtree};
+    use kingfisher::transposition::TranspositionTable;
+
+    let move_gen = MoveGen::new();
+    let board = Board::new();
+    let mut tt = TranspositionTable::new();
+
+    let config = TacticalMctsConfig {
+        max_iterations: 30,
+        time_limit: Duration::from_secs(10),
+        ..Default::default()
+    };
+
+    // First search
+    let result1 = tactical_mcts_search_for_training_with_reuse(
+        board.clone(), &move_gen, &mut None, config.clone(), None, &mut tt,
+    );
+
+    assert!(result1.best_move.is_some());
+    let best = result1.best_move.unwrap();
+
+    // Reuse subtree for the best move
+    let reused = reuse_subtree(result1.root_node, best);
+    assert!(reused.is_some(), "Should find subtree for the played move");
+
+    // Second search with reused tree
+    let next_board = board.apply_move_to_board(best);
+    let result2 = tactical_mcts_search_for_training_with_reuse(
+        next_board, &move_gen, &mut None, config, reused, &mut tt,
+    );
+
+    assert!(result2.best_move.is_some(), "Second search should return a move");
+}
+
+// === Dirichlet noise ===
+
+#[test]
+fn test_dirichlet_noise_modifies_priors() {
+    use kingfisher::mcts::node::MctsNode;
+    use kingfisher::mcts::tactical_mcts::apply_dirichlet_noise;
+
+    let move_gen = MoveGen::new();
+    let board = Board::new();
+    let root = MctsNode::new_root(board, &move_gen);
+
+    // Expand the root so it has children
+    {
+        let mut root_ref = root.borrow_mut();
+        let board = root_ref.state.clone();
+        let (captures, moves) = move_gen.gen_pseudo_legal_moves(&board);
+        for mv in captures.iter().chain(moves.iter()) {
+            let next = board.apply_move_to_board(*mv);
+            if next.is_legal(&move_gen) {
+                let child = MctsNode::new_child(std::rc::Rc::downgrade(&root), *mv, next, &move_gen);
+                root_ref.children.push(child);
+            }
+        }
+        // Set uniform priors
+        let n = root_ref.children.len() as f64;
+        let child_moves: Vec<Move> = root_ref.children.iter()
+            .filter_map(|c| c.borrow().action)
+            .collect();
+        for mv in child_moves {
+            root_ref.move_priorities.insert(mv, 1.0 / n);
+        }
+        root_ref.policy_evaluated = true;
+    }
+
+    // Record priors before noise
+    let priors_before: Vec<f64> = {
+        let root_ref = root.borrow();
+        root_ref.children.iter()
+            .filter_map(|c| {
+                let mv = c.borrow().action?;
+                root_ref.move_priorities.get(&mv).copied()
+            })
+            .collect()
+    };
+
+    // Apply Dirichlet noise
+    apply_dirichlet_noise(&root, 0.3, 0.25);
+
+    // Record priors after noise
+    let priors_after: Vec<f64> = {
+        let root_ref = root.borrow();
+        root_ref.children.iter()
+            .filter_map(|c| {
+                let mv = c.borrow().action?;
+                root_ref.move_priorities.get(&mv).copied()
+            })
+            .collect()
+    };
+
+    // At least some priors should have changed
+    let changed = priors_before.iter().zip(priors_after.iter())
+        .filter(|(a, b)| (*a - *b).abs() > 1e-6)
+        .count();
+    assert!(changed > 0, "Dirichlet noise should modify at least some priors");
+
+    // All priors should still be positive
+    for p in &priors_after {
+        assert!(*p > 0.0, "All priors should remain positive after noise, got {}", p);
+    }
+}
+
+// === Stats tracking ===
+
+#[test]
+fn test_tier1_stats_with_mate() {
+    let move_gen = MoveGen::new();
+    let board = Board::new_from_fen("6k1/5ppp/8/8/8/8/8/4R1K1 w - - 0 1");
+
+    let config = TacticalMctsConfig {
+        max_iterations: 100,
+        time_limit: Duration::from_secs(10),
+        enable_tier1_gate: true,
+        mate_search_depth: 2,
+        ..Default::default()
+    };
+
+    let (_, stats, _) = tactical_mcts_search(board, &move_gen, &mut None, config);
+
+    // Should have found mate via tier1 (pre-search gate or in-tree)
+    assert!(stats.tier1_solutions > 0 || stats.mates_found > 0,
+        "Should detect mate via tier1");
+    // Pre-search gate finds mate before any tree is built, so nn_saved
+    // may be 0. The key metric is that tier1 found the solution.
+    assert!(stats.tier1_solutions > 0 || stats.nn_saved_by_tier1 > 0,
+        "Should have tier1 solution or saved NN evals");
+}
+
+#[test]
+fn test_all_tiers_disabled() {
+    let move_gen = MoveGen::new();
+    let board = Board::new();
+
+    let config = TacticalMctsConfig {
+        max_iterations: 30,
+        time_limit: Duration::from_secs(10),
+        enable_tier1_gate: false,
+        enable_tier2_graft: false,
+        enable_tier3_neural: false,
+        ..Default::default()
+    };
+
+    let (best_move, stats, _) = tactical_mcts_search(board, &move_gen, &mut None, config);
+
+    assert!(best_move.is_some(), "Should still return a move with all tiers disabled");
+    assert_eq!(stats.tier1_solutions, 0);
+    assert_eq!(stats.tier2_q_inits, 0);
+    assert_eq!(stats.nn_evaluations, 0);
+}
+
+// === Edge cases ===
+
+#[test]
+fn test_single_legal_move() {
+    // Position with only one legal move
+    let move_gen = MoveGen::new();
+    // Black king in corner, only move is Ka8->Ka7 (or similar)
+    let board = Board::new_from_fen("k7/8/1K6/8/8/8/8/8 b - - 0 1");
+
+    let config = test_config(50);
+    let (best_move, _, _) = tactical_mcts_search(board, &move_gen, &mut None, config);
+
+    // Should still return the single legal move
+    assert!(best_move.is_some(), "Should return the only legal move");
+}

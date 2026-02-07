@@ -265,7 +265,7 @@ cargo run --release --features neural --bin self_play -- 100 800 data models/lat
 
 ## Testing
 
-The project has a comprehensive test suite with **600+ tests** (521 Rust + 86 Python) organized across Rust and Python. For detailed documentation, see [TESTING.md](TESTING.md).
+The project has a comprehensive test suite with **620+ tests** (540 Rust + 86 Python) organized across Rust and Python. For detailed documentation, see [TESTING.md](TESTING.md).
 
 ```bash
 # Run the fast Rust test suite (<60s, skips perft/property/slow tests)
@@ -304,7 +304,8 @@ The unit test suite covers all core modules:
 | MCTS | node_tests, selection_tests, simulation_tests | UCT/PUCT, playout, node lifecycle |
 | MCTS selection | selection_optimization_tests | Redundancy-free selection, UCB correctness |
 | Tree reuse | tree_reuse_tests | Subtree extraction, visit preservation |
-| Tactical MCTS | tactical_mcts_tests | Mate-in-1, time/iteration limits, grafting |
+| Tactical MCTS | tactical_mcts_tests | Mate-in-1, time/iteration limits, grafting, KOTH terminal detection, early termination |
+| Tactical detection | tactical_detection_tests | Fork/check/capture detection, MVV-LVA, cache eviction, filtering |
 | Mate search | mate_search_tests | Mate-in-1/2, depth, node budgets |
 | Check detection | gives_check_tests | Direct/discovered check, property testing |
 | Self-play loop | self_play_loop_tests | Repetition, 50-move rule, shared TT |
@@ -410,6 +411,7 @@ The crate produces several binaries for different tasks:
 | `texel_tune` | Texel tuning for evaluation weight optimization |
 | `strength_test` | Engine strength testing against benchmark positions |
 | `generate_training_data` | Training data generation pipeline |
+| `quick_test` | Rapid development testing |
 
 ## References
 The architecture of Caissawary is inspired by decades of research in computer chess and artificial intelligence. Key influences include:
