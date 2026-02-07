@@ -613,17 +613,28 @@ pub fn tactical_mcts_search_for_training(
         return MctsTrainingResult { best_move: None, root_policy: vec![], root_value_prediction: 0.0, stats, root_node };
     }
 
-    evaluate_and_expand_node(root_node.clone(), move_gen, &mut stats, &config, None);
+    let logger = config.logger.as_ref();
+    evaluate_and_expand_node(root_node.clone(), move_gen, &mut stats, &config, logger);
     let mut transposition_table = TranspositionTable::new();
     for iteration in 0..config.max_iterations {
         if start_time.elapsed() > config.time_limit { break; }
-        let leaf = select_leaf_node(root_node.clone(), move_gen, nn_policy, &config, &mut stats, None);
-        let value = evaluate_leaf_node(leaf.clone(), move_gen, nn_policy, &config, &mut transposition_table, &mut stats, None);
+
+        if let Some(log) = logger {
+            log.log_iteration_start(iteration + 1);
+        }
+
+        let leaf = select_leaf_node(root_node.clone(), move_gen, nn_policy, &config, &mut stats, logger);
+        let value = evaluate_leaf_node(leaf.clone(), move_gen, nn_policy, &config, &mut transposition_table, &mut stats, logger);
         if !leaf.borrow().is_game_terminal() && leaf.borrow().visits == 0 {
-            evaluate_and_expand_node(leaf.clone(), move_gen, &mut stats, &config, None);
+            evaluate_and_expand_node(leaf.clone(), move_gen, &mut stats, &config, logger);
         }
         MctsNode::backpropagate(leaf, value);
         stats.iterations = iteration + 1;
+
+        if let Some(log) = logger {
+            let best = select_best_move_from_root(root_node.clone(), move_gen);
+            log.log_iteration_summary(iteration + 1, best, root_node.borrow().visits);
+        }
     }
     
     let (policy, root_val) = {
@@ -666,8 +677,9 @@ pub fn tactical_mcts_search_for_training_with_reuse(
         return MctsTrainingResult { best_move: None, root_policy: vec![], root_value_prediction: 0.0, stats, root_node };
     }
 
+    let logger = config.logger.as_ref();
     if root_node.borrow().children.is_empty() {
-        evaluate_and_expand_node(root_node.clone(), move_gen, &mut stats, &config, None);
+        evaluate_and_expand_node(root_node.clone(), move_gen, &mut stats, &config, logger);
     }
 
     // Apply Dirichlet noise to root priors for training exploration
@@ -691,13 +703,23 @@ pub fn tactical_mcts_search_for_training_with_reuse(
 
     for iteration in 0..config.max_iterations {
         if start_time.elapsed() > config.time_limit { break; }
-        let leaf = select_leaf_node(root_node.clone(), move_gen, nn_policy, &config, &mut stats, None);
-        let value = evaluate_leaf_node(leaf.clone(), move_gen, nn_policy, &config, transposition_table, &mut stats, None);
+
+        if let Some(log) = logger {
+            log.log_iteration_start(iteration + 1);
+        }
+
+        let leaf = select_leaf_node(root_node.clone(), move_gen, nn_policy, &config, &mut stats, logger);
+        let value = evaluate_leaf_node(leaf.clone(), move_gen, nn_policy, &config, transposition_table, &mut stats, logger);
         if !leaf.borrow().is_game_terminal() && leaf.borrow().visits == 0 {
-            evaluate_and_expand_node(leaf.clone(), move_gen, &mut stats, &config, None);
+            evaluate_and_expand_node(leaf.clone(), move_gen, &mut stats, &config, logger);
         }
         MctsNode::backpropagate(leaf, value);
         stats.iterations = iteration + 1;
+
+        if let Some(log) = logger {
+            let best = select_best_move_from_root(root_node.clone(), move_gen);
+            log.log_iteration_summary(iteration + 1, best, root_node.borrow().visits);
+        }
     }
 
     let (policy, root_val) = {

@@ -550,6 +550,14 @@ impl SearchLogger {
             node.visits,
             if node.visits > 0 { node.total_value / node.visits as f64 } else { 0.0 }
         ));
+
+        if let Some(fen) = node.state.to_fen() {
+            self.sink.writeln(&format!(
+                "{}  FEN: {}",
+                self.indent(),
+                fen
+            ));
+        }
     }
     
     // ═══════════════════════════════════════════════════════════════

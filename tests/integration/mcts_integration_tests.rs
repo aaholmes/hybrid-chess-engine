@@ -1,7 +1,8 @@
 //! Integration tests for the full MCTS search pipeline
 
-use kingfisher::mcts::tactical_mcts::{tactical_mcts_search, TacticalMctsConfig};
+use kingfisher::mcts::tactical_mcts::{tactical_mcts_search, tactical_mcts_search_for_training, TacticalMctsConfig};
 use kingfisher::mcts::inference_server::InferenceServer;
+use kingfisher::mcts::search_logger::{SearchLogger, Verbosity};
 use kingfisher::board::Board;
 use kingfisher::move_generation::MoveGen;
 use kingfisher::move_types::Move;
@@ -154,4 +155,56 @@ fn test_backpropagation_sign_consistency() {
                 "Child Q {} outside valid range after backprop", q);
         }
     }
+}
+
+#[test]
+fn test_training_search_logger_passthrough() {
+    let move_gen = MoveGen::new();
+    let logger = Arc::new(SearchLogger::buffered(Verbosity::Debug));
+    let config = TacticalMctsConfig {
+        max_iterations: 10,
+        time_limit: Duration::from_secs(5),
+        mate_search_depth: 3,
+        use_neural_policy: false,
+        logger: Some(logger.clone()),
+        ..Default::default()
+    };
+
+    let board = board_from_fen(positions::STARTING);
+    let result = tactical_mcts_search_for_training(
+        board,
+        &move_gen,
+        &mut None,
+        config,
+    );
+
+    assert!(result.best_move.is_some(), "Should find a move");
+    let buffer = logger.get_buffer();
+    assert!(!buffer.is_empty(), "Logger buffer should contain output");
+    assert!(buffer.contains("Iter"), "Should contain iteration markers");
+}
+
+#[test]
+fn test_log_enter_node_contains_fen() {
+    let move_gen = MoveGen::new();
+    let logger = Arc::new(SearchLogger::buffered(Verbosity::Debug));
+    let config = TacticalMctsConfig {
+        max_iterations: 5,
+        time_limit: Duration::from_secs(5),
+        mate_search_depth: 1,
+        use_neural_policy: false,
+        logger: Some(logger.clone()),
+        ..Default::default()
+    };
+
+    let board = board_from_fen(positions::STARTING);
+    let _ = tactical_mcts_search_for_training(
+        board,
+        &move_gen,
+        &mut None,
+        config,
+    );
+
+    let buffer = logger.get_buffer();
+    assert!(buffer.contains("FEN:"), "Debug log should contain FEN output");
 }

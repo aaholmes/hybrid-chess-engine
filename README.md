@@ -353,6 +353,17 @@ cargo run --release --bin verbose_search -- "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/
 
 For more details on verbosity levels and configuration, see [STREAM_OF_CONSCIOUSNESS_LOGGER.md](STREAM_OF_CONSCIOUSNESS_LOGGER.md).
 
+### Verbose Game
+To watch two classical MCTS agents play a full game with Debug-level output showing every rollout's evaluation cascade:
+
+```bash
+# Play a game with 20 iterations/move (default), KOTH enabled, no NN
+cargo run --release --bin verbose_game
+
+# Customize iterations and move limit
+cargo run --release --bin verbose_game -- --iterations 50 --max-moves 100 --no-emoji
+```
+
 ## Binary Targets
 The crate produces several binaries for different tasks:
 
@@ -362,6 +373,7 @@ The crate produces several binaries for different tasks:
 | `benchmark` | Performance testing and nodes-per-second measurement |
 | `mcts_inspector` | MCTS search tree visualization (Graphviz DOT output) |
 | `verbose_search` | Real-time search narration with configurable verbosity |
+| `verbose_game` | Play a full game between two classical MCTS agents with verbose output |
 | `self_play` | Self-play data generation for neural network training |
 | `evaluate_models` | Head-to-head model evaluation for AlphaZero gatekeeper |
 | `run_experiments` | Ablation studies and experimental framework |

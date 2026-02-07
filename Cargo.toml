@@ -95,5 +95,9 @@ name = "run_experiments"
 path = "src/bin/run_experiments.rs"
 
 [[bin]]
+name = "verbose_game"
+path = "src/bin/verbose_game.rs"
+
+[[bin]]
 name = "evaluate_models"
 path = "src/bin/evaluate_models.rs"
