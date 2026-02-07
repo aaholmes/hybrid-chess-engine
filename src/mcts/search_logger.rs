@@ -86,7 +86,7 @@ pub enum GateReason {
     /// Mate found via mate search
     MateFound { depth: i32, score: i32 },
     /// King of the Hill instant win
-    KothWin,
+    KothWin { distance: u8 },
     /// Terminal position (checkmate/stalemate)
     Terminal { is_checkmate: bool },
     /// Mate found in transposition table
@@ -103,7 +103,7 @@ impl GateReason {
                     format!("Getting mated in {} (losing)", depth.abs())
                 }
             }
-            GateReason::KothWin => "King of the Hill center reachable in ≤3 moves".to_string(),
+            GateReason::KothWin { distance } => format!("King of the Hill center reachable in {} move{}", distance, if *distance == 1 { "" } else { "s" }),
             GateReason::Terminal { is_checkmate } => {
                 if *is_checkmate {
                     "Position is checkmate".to_string()

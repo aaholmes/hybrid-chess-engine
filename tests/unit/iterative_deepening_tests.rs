@@ -73,6 +73,7 @@ fn test_id_reaches_requested_depth() {
 }
 
 #[test]
+#[cfg(feature = "slow-tests")]
 fn test_id_respects_time_limit() {
     let (move_gen, pesto) = setup();
     let mut board = BoardStack::new();

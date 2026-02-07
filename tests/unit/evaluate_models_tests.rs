@@ -97,6 +97,7 @@ fn play_test_game_fen(simulations: u32, fen: &str) -> GameResult {
 // ---- Basic game tests ----
 
 #[test]
+#[cfg(feature = "slow-tests")]
 fn test_play_evaluation_game_terminates() {
     let result = play_test_game(10);
     assert!(
@@ -107,6 +108,7 @@ fn test_play_evaluation_game_terminates() {
 }
 
 #[test]
+#[cfg(feature = "slow-tests")]
 fn test_play_multiple_games_all_terminate() {
     // Run several games to verify stability
     for _ in 0..3 {

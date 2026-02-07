@@ -156,25 +156,27 @@ pub fn tactical_mcts_search_with_tt(
     // Get logger reference (or silent default)
     let logger = config.logger.as_ref();
     
-    if config.enable_koth && config.enable_tier1_gate && koth_center_in_3(&board, move_gen) {
-        let (captures, moves) = move_gen.gen_pseudo_legal_moves(&board);
-        for m in captures.iter().chain(moves.iter()) {
-            let next = board.apply_move_to_board(*m);
-            if !next.is_legal(move_gen) {
-                continue;
-            }
-            let (white_won, black_won) = next.is_koth_win();
-            // Check if the side that just moved won (white moved if w_to_move was true)
-            let stm_won = (board.w_to_move && white_won) || (!board.w_to_move && black_won);
-            if stm_won {
-                if let Some(log) = logger {
-                    log.log_tier1_gate(&GateReason::KothWin, Some(*m));
+    if config.enable_koth && config.enable_tier1_gate {
+        if let Some(dist) = koth_center_in_3(&board, move_gen) {
+            let (captures, moves) = move_gen.gen_pseudo_legal_moves(&board);
+            for m in captures.iter().chain(moves.iter()) {
+                let next = board.apply_move_to_board(*m);
+                if !next.is_legal(move_gen) {
+                    continue;
                 }
-                stats.tier1_solutions += 1;
-                stats.search_time = start_time.elapsed();
-                let root_node = MctsNode::new_root(board, move_gen);
-                root_node.borrow_mut().origin = NodeOrigin::Gate;
-                return (Some(*m), stats, root_node);
+                let (white_won, black_won) = next.is_koth_win();
+                // Check if the side that just moved won (white moved if w_to_move was true)
+                let stm_won = (board.w_to_move && white_won) || (!board.w_to_move && black_won);
+                if stm_won {
+                    if let Some(log) = logger {
+                        log.log_tier1_gate(&GateReason::KothWin { distance: dist }, Some(*m));
+                    }
+                    stats.tier1_solutions += 1;
+                    stats.search_time = start_time.elapsed();
+                    let root_node = MctsNode::new_root(board, move_gen);
+                    root_node.borrow_mut().origin = NodeOrigin::Gate;
+                    return (Some(*m), stats, root_node);
+                }
             }
         }
     }
@@ -355,15 +357,17 @@ fn evaluate_leaf_node(
         }
     }
 
-    if config.enable_koth && config.enable_tier1_gate && koth_center_in_3(board, move_gen) {
-        let win_val = 1.0; // StM wins
-        if let Some(log) = logger {
-            log.log_koth_check(true, Some(0)); 
+    if config.enable_koth && config.enable_tier1_gate {
+        if let Some(dist) = koth_center_in_3(board, move_gen) {
+            let win_val = 1.0; // StM wins
+            if let Some(log) = logger {
+                log.log_koth_check(true, Some(dist as u32));
+            }
+            node_ref.terminal_or_mate_value = Some(win_val);
+            stats.nn_saved_by_tier1 += 1;
+            stats.tier1_solutions += 1;
+            return win_val;
         }
-        node_ref.terminal_or_mate_value = Some(win_val);
-        stats.nn_saved_by_tier1 += 1;
-        stats.tier1_solutions += 1;
-        return win_val;
     }
 
     if config.enable_tier1_gate && config.mate_search_depth > 0 {

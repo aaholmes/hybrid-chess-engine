@@ -22,20 +22,34 @@ use crate::piece_types::{KING, WHITE, BLACK};
 const RING_1: u64 = 0x00003C24243C0000 & !KOTH_CENTER; // Squares 1 distance from center
 const RING_2: u64 = 0x007E424242427E00 & !(RING_1 | KOTH_CENTER); // Squares 2 distance from center
 
-/// Checks if the side to move can reach the KOTH center within 3 of their own moves (ply 5),
+/// Checks if the side to move can reach the KOTH center within 3 of their own moves,
 /// assuming the opponent cannot block them or reach the center themselves first.
+/// Returns `Some(n)` where n is the minimum number of side-to-move moves needed (0–3),
+/// or `None` if unreachable within 3 moves.
 /// This is a "safety gate" to detect rapid KOTH wins.
-pub fn koth_center_in_3(board: &Board, move_gen: &MoveGen) -> bool {
+pub fn koth_center_in_3(board: &Board, move_gen: &MoveGen) -> Option<u8> {
     let side_to_move = if board.w_to_move { WHITE } else { BLACK };
     let king_bit = board.get_piece_bitboard(side_to_move, KING);
-    
-    if king_bit == 0 { return false; }
-    
-    // We use a simplified recursive search (DFS) with pruning
-    solve_koth_in_3(board, move_gen, 0)
+
+    if king_bit == 0 { return None; }
+
+    // Check if already on center (0 moves)
+    let (w_won, b_won) = board.is_koth_win();
+    if (board.w_to_move && w_won) || (!board.w_to_move && b_won) {
+        return Some(0);
+    }
+
+    // Try 1, 2, 3 root-side moves (max_ply = 1, 3, 5)
+    for n in 1..=3u8 {
+        let max_ply = (n as i32) * 2 - 1;
+        if solve_koth(board, move_gen, 0, max_ply) {
+            return Some(n);
+        }
+    }
+    None
 }
 
-fn solve_koth_in_3(board: &Board, move_gen: &MoveGen, ply: i32) -> bool {
+fn solve_koth(board: &Board, move_gen: &MoveGen, ply: i32, max_ply: i32) -> bool {
     let (white_won, black_won) = board.is_koth_win();
 
     // Determine who is the Root Side (the side that moved at ply 0)
@@ -52,7 +66,7 @@ fn solve_koth_in_3(board: &Board, move_gen: &MoveGen, ply: i32) -> bool {
         if white_won { return false; } // Opponent (White) won
     }
 
-    if ply >= 5 { return false; } // Limit to 3 our moves (ply 0, 2, 4)
+    if ply > max_ply { return false; }
 
     let is_root_turn = ply % 2 == 0;
     let (captures, moves) = move_gen.gen_pseudo_legal_moves(board);
@@ -80,12 +94,12 @@ fn solve_koth_in_3(board: &Board, move_gen: &MoveGen, ply: i32) -> bool {
                 continue; // Pruned: King didn't make enough progress or was moved away
             }
 
-            if solve_koth_in_3(&next_board, move_gen, ply + 1) {
+            if solve_koth(&next_board, move_gen, ply + 1, max_ply) {
                 return true;
             }
         } else {
             // Opponent turn: If ANY move prevents Root from winning, this branch fails.
-            if !solve_koth_in_3(&next_board, move_gen, ply + 1) {
+            if !solve_koth(&next_board, move_gen, ply + 1, max_ply) {
                 return false;
             }
         }

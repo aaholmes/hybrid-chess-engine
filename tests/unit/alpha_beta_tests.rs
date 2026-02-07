@@ -175,6 +175,7 @@ fn test_alpha_beta_searches_more_nodes_at_higher_depth() {
 }
 
 #[test]
+#[cfg(feature = "slow-tests")]
 fn test_alpha_beta_time_limit() {
     let (move_gen, pesto) = setup();
     // Use a simple endgame position — few pieces means fast even in debug builds

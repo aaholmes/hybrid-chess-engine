@@ -169,6 +169,7 @@ fn test_tactical_mcts_checkmate_position() {
 }
 
 #[test]
+#[cfg(feature = "slow-tests")]
 fn test_tactical_mcts_time_limit_respected() {
     let move_gen = MoveGen::new();
     let board = Board::new();

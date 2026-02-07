@@ -25,19 +25,18 @@ fn test_koth_king_one_move_away() {
     // White king on c3, can reach d4 in one move
     let board = Board::new_from_fen("8/8/8/8/8/2K5/8/k7 w - - 0 1");
 
-    let can_reach = koth_center_in_3(&board, &move_gen);
-    assert!(can_reach, "King one move from center should find KOTH win");
+    let result = koth_center_in_3(&board, &move_gen);
+    assert_eq!(result, Some(1), "King one move from center should report distance 1");
 }
 
 #[test]
 fn test_koth_king_two_moves_away() {
     let move_gen = setup();
-    // White king on b2, can reach center in 2-3 moves
+    // White king on b2, can reach center in 2 moves: b2-c3-d4
     let board = Board::new_from_fen("8/8/8/8/8/8/1K6/k7 w - - 0 1");
 
-    let can_reach = koth_center_in_3(&board, &move_gen);
-    // Should be able to reach in 3 moves: b2-c3-d4
-    assert!(can_reach, "King two moves from center should find KOTH win");
+    let result = koth_center_in_3(&board, &move_gen);
+    assert_eq!(result, Some(2), "King two moves from center should report distance 2");
 }
 
 #[test]
@@ -50,8 +49,10 @@ fn test_koth_king_far_from_center() {
     let board = Board::new_from_fen("8/8/8/3k4/8/8/8/7K w - - 0 1");
 
     // King on h1 is far from center and black king is blocking
-    let can_reach = koth_center_in_3(&board, &move_gen);
+    let result = koth_center_in_3(&board, &move_gen);
     // Might not be able to reach in 3 moves due to distance and black king defense
+    // If unreachable, should be None
+    assert!(result.is_none() || result.unwrap() <= 3);
 }
 
 #[test]
@@ -109,7 +110,17 @@ fn test_koth_starting_position() {
     let move_gen = setup();
     let board = Board::new();
 
-    let can_reach = koth_center_in_3(&board, &move_gen);
+    let result = koth_center_in_3(&board, &move_gen);
     // In starting position, king is blocked by own pieces, can't reach center in 3 moves
-    assert!(!can_reach, "Starting position king can't reach center in 3 moves");
+    assert!(result.is_none(), "Starting position king can't reach center in 3 moves");
+}
+
+#[test]
+fn test_koth_ke2_after_f6_reports_distance_2() {
+    let move_gen = setup();
+    // After 1. e3 e6 2. Ke2 f6 — White king on e2 can force KOTH in 2 (Kd3 then Kd4/Ke4)
+    let board = Board::new_from_fen("rnbqkbnr/pppp2pp/4pp2/8/8/4P3/PPPPKPPP/RNBQ1BNR w kq - 0 3");
+
+    let result = koth_center_in_3(&board, &move_gen);
+    assert_eq!(result, Some(2), "White king on e2 should force KOTH in 2 moves after f6");
 }

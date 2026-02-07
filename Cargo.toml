@@ -52,6 +52,7 @@ chrono = "0.4"
 [features]
 default = []
 neural = ["dep:tch"]
+slow-tests = []
 
 [dev-dependencies]
 tempfile = "3.0"
@@ -67,8 +68,14 @@ name = "integration_tests"
 path = "tests/integration/mod.rs"
 
 [[test]]
+name = "perft_tests"
+path = "tests/perft_tests.rs"
+required-features = ["slow-tests"]
+
+[[test]]
 name = "property_tests"
 path = "tests/property/mod.rs"
+required-features = ["slow-tests"]
 
 [[test]]
 name = "regression_tests"

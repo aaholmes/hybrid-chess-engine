@@ -45,7 +45,7 @@ fn test_logger_respects_verbosity_levels() {
     assert!(!output.contains("TIER 3"));
     
     // But Minimal should include tier1 gates
-    logger.log_tier1_gate(&GateReason::KothWin, None);
+    logger.log_tier1_gate(&GateReason::KothWin { distance: 1 }, None);
     let output = logger.get_buffer();
     assert!(output.contains("TIER 1 GATE"));
 }
@@ -55,7 +55,7 @@ fn test_gate_reason_descriptions() {
     let mate = GateReason::MateFound { depth: 3, score: 1000000 };
     assert!(mate.description().contains("Mate"));
     
-    let koth = GateReason::KothWin;
+    let koth = GateReason::KothWin { distance: 1 };
     assert!(koth.description().contains("King of the Hill"));
     
     let checkmate = GateReason::Terminal { is_checkmate: true };
@@ -86,13 +86,13 @@ fn test_selection_reason_formatting() {
 fn test_logger_emoji_toggle() {
     let logger_emoji = SearchLogger::buffered(Verbosity::Normal)
         .with_emoji(true);
-    logger_emoji.log_tier1_gate(&GateReason::KothWin, None);
+    logger_emoji.log_tier1_gate(&GateReason::KothWin { distance: 1 }, None);
     let output = logger_emoji.get_buffer();
     assert!(output.contains("🚨") || output.contains("GATE"));
     
     let logger_no_emoji = SearchLogger::buffered(Verbosity::Normal)
         .with_emoji(false);
-    logger_no_emoji.log_tier1_gate(&GateReason::KothWin, None);
+    logger_no_emoji.log_tier1_gate(&GateReason::KothWin { distance: 1 }, None);
     let output = logger_no_emoji.get_buffer();
     assert!(output.contains("[GATE]"));
     assert!(!output.contains("🚨"));

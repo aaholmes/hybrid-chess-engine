@@ -65,7 +65,7 @@ fn main() {
         let board = Board::new_from_fen(fen);
         
         let start = Instant::now();
-        let found = koth_center_in_3(&board, &move_gen);
+        let found = koth_center_in_3(&board, &move_gen).is_some();
         let duration = start.elapsed();
         
         println!("{}: {} (Expected {}) in {:?}", 
