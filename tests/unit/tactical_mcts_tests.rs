@@ -217,3 +217,40 @@ fn test_tactical_mcts_iteration_limit_respected() {
     assert!(stats.iterations <= max_iters,
         "Should not exceed iteration limit: {} > {}", stats.iterations, max_iters);
 }
+
+#[test]
+fn test_q_value_sign_convention() {
+    // After 1.f4, Black's e7e5 loses a pawn to fxe5.
+    // The child node's total_value/visits (Q) should be negative = bad for Black.
+    let move_gen = MoveGen::new();
+    let board = Board::new_from_fen("rnbqkbnr/pppppppp/8/8/5P2/8/PPPPP1PP/RNBQKBNR b KQkq f3 0 1");
+
+    let config = TacticalMctsConfig {
+        max_iterations: 50,
+        time_limit: Duration::from_secs(30),
+        ..Default::default()
+    };
+
+    let (_, _, root) = tactical_mcts_search(
+        board,
+        &move_gen,
+        &mut None,
+        config,
+    );
+
+    // Find the e7e5 child (e7=52, e5=36)
+    let root_ref = root.borrow();
+    let mut found_e7e5 = false;
+    for child in &root_ref.children {
+        let c = child.borrow();
+        if let Some(mv) = c.action {
+            if mv.from == 52 && mv.to == 36 && c.visits > 0 {
+                found_e7e5 = true;
+                let q = c.total_value / c.visits as f64;
+                assert!(q < 0.0,
+                    "e7e5 Q should be negative (bad for Black who loses a pawn), got {:.4}", q);
+            }
+        }
+    }
+    assert!(found_e7e5, "e7e5 should have been visited with 50 iterations");
+}

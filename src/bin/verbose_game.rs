@@ -87,9 +87,9 @@ fn main() {
             for child in &root.children {
                 let c = child.borrow();
                 if let Some(mv) = c.action {
-                    // Q from root player's perspective: positive = good for side to move
+                    // Q from the choosing side's perspective: positive = good for side to move
                     let q = if c.visits > 0 {
-                        -(c.total_value / c.visits as f64)
+                        c.total_value / c.visits as f64
                     } else {
                         0.0
                     };
