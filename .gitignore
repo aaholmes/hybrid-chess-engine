@@ -9,3 +9,5 @@ test_tree.dot
 weights/
 .context-distiller-cache
 .aider*
+perf.data*
+flamegraph.*

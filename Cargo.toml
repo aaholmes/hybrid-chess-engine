@@ -1,5 +1,5 @@
 [package]
-name = "kingfisher"
+name = "caissawary"
 version = "0.1.0"
 edition = "2021"
 
@@ -8,7 +8,7 @@ name = "kingfisher"
 path = "src/lib.rs"
 
 [[bin]]
-name = "kingfisher"
+name = "caissawary"
 path = "src/main.rs"
 
 [[bin]]

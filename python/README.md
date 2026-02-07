@@ -1,6 +1,6 @@
-# Kingfisher Chess AI Training Pipeline
+# Caissawary Chess AI Training Pipeline
 
-This directory contains the complete training pipeline for the Kingfisher chess engine's neural network policy. The system combines Rust-based position analysis with PyTorch-based deep learning.
+This directory contains the complete training pipeline for the Caissawary chess engine's neural network policy. The system combines Rust-based position analysis with PyTorch-based deep learning.
 
 ## Quick Start
 
@@ -273,7 +273,7 @@ Monitor training with:
 - Move prediction rate
 - Value prediction error
 
-## Integration with Kingfisher Engine
+## Integration with Caissawary Engine
 
 ### Testing Neural Network Integration
 ```bash
@@ -298,7 +298,7 @@ A well-trained neural network should provide:
 2. **Hyperparameter Tuning**: Optimize learning rate, batch size, architecture depth
 3. **Model Architecture**: Experiment with attention mechanisms, deeper networks
 4. **Self-Play Training**: Generate training data from engine vs engine games
-5. **Validation**: Continuous testing against Kingfisher engine benchmarks
+5. **Validation**: Continuous testing against Caissawary engine benchmarks
 
 ### Advanced Training Techniques
 - **AlphaZero-style self-play**: Generate training data through self-play

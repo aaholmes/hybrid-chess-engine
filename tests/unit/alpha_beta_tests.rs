@@ -248,7 +248,8 @@ fn test_alpha_beta_detects_stalemate() {
 fn test_alpha_beta_detects_checkmate() {
     let (move_gen, pesto) = setup();
     // Checkmate position: Black king is in checkmate
-    let board = Board::new_from_fen("k7/8/1K6/8/8/8/8/R7 b - - 0 1");
+    // Ka8 checked by Rb8 (protected by Kb7), a7 controlled by Kb7
+    let board = Board::new_from_fen("kR6/1K6/8/8/8/8/8/8 b - - 0 1");
     let mut board_stack = BoardStack::with_board(board);
     let mut tt = TranspositionTable::new();
     let mut killers = [[NULL_MOVE; 2]; MAX_PLY];

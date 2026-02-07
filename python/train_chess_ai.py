@@ -2,7 +2,7 @@
 """
 Complete Chess AI Training Script
 
-This script provides a complete end-to-end training pipeline for the Kingfisher
+This script provides a complete end-to-end training pipeline for the Caissawary
 chess engine's neural network policy. It handles data collection, preprocessing,
 training, and model evaluation.
 """

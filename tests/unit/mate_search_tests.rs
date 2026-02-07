@@ -130,21 +130,29 @@ fn test_mate_search_returns_legal_move() {
 
 #[test]
 fn test_depth_affects_search() {
-    // Position with mate in 2 - shallow search might miss it
-    let (score_d1, _, nodes_d1) = run_mate_search(
-        "7k/R7/5K2/8/8/8/8/8 w - - 0 1", // Rook mate in 2
+    // Use a position with many checks available so the search tree grows with depth.
+    // This position has no checks-only forced mate, so both depths return 0,
+    // but the deeper search should explore more nodes.
+    let (_, _, nodes_d1) = run_mate_search(
+        "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
         1,
     );
 
-    let (score_d3, _, nodes_d3) = run_mate_search(
-        "7k/R7/5K2/8/8/8/8/8 w - - 0 1",
-        4,
+    let (_, _, nodes_d3) = run_mate_search(
+        "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        3,
     );
 
-    // Deeper search should find the mate
+    // Deeper search should examine at least as many nodes
     assert!(nodes_d3 >= nodes_d1, "Deeper search should examine at least as many nodes");
-    // At depth 4, should find the mate in 2
-    assert!(score_d3 >= 1_000_000, "Depth 4 should find mate in 2");
+
+    // Also verify that the checks-only search correctly finds a back-rank mate-in-1
+    // when given sufficient depth
+    let (score, _, _) = run_mate_search(
+        "6k1/5ppp/8/8/8/8/8/4R1K1 w - - 0 1", // Back rank mate in 1: Re8#
+        2,
+    );
+    assert!(score >= 1_000_000, "Should find back-rank mate in 1");
 }
 
 #[test]

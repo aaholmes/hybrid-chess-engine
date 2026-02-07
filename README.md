@@ -233,7 +233,7 @@ The primary binary is a UCI-compliant engine, suitable for use in any standard c
 
 ```bash
 # Run the engine in UCI mode
-./target/release/kingfisher
+./target/release/caissawary
 ```
 (Type `uci` to verify connection)
 
@@ -255,7 +255,7 @@ cargo run --release --features neural --bin self_play -- 100 800 data models/lat
 
 ## Testing
 
-The project has a comprehensive test suite with **530+ tests** organized across Rust and Python. For detailed documentation, see [TESTING.md](TESTING.md).
+The project has a comprehensive test suite with **600+ tests** (517 Rust + 88 Python) organized across Rust and Python. For detailed documentation, see [TESTING.md](TESTING.md).
 
 ```bash
 # Run the full Rust test suite
@@ -349,7 +349,7 @@ The crate produces several binaries for different tasks:
 
 | Binary | Description |
 |--------|-------------|
-| `kingfisher` | Main UCI chess engine |
+| `caissawary` | Main UCI chess engine |
 | `benchmark` | Performance testing and nodes-per-second measurement |
 | `mcts_inspector` | MCTS search tree visualization (Graphviz DOT output) |
 | `verbose_search` | Real-time search narration with configurable verbosity |

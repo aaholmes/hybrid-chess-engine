@@ -157,6 +157,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "caissawary"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "criterion",
+ "crossbeam-channel",
+ "lazy_static",
+ "proptest",
+ "rand 0.8.5",
+ "rand_distr",
+ "rayon",
+ "rustc-hash",
+ "serde",
+ "serde_json",
+ "shakmaty 0.25.0",
+ "shakmaty-syzygy",
+ "tch",
+ "tempfile",
+]
+
+[[package]]
 name = "cast"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -571,27 +592,6 @@ checksum = "464a3709c7f55f1f721e5389aa6ea4e3bc6aba669353300af094b29ffbdde1d8"
 dependencies = [
  "once_cell",
  "wasm-bindgen",
-]
-
-[[package]]
-name = "kingfisher"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "criterion",
- "crossbeam-channel",
- "lazy_static",
- "proptest",
- "rand 0.8.5",
- "rand_distr",
- "rayon",
- "rustc-hash",
- "serde",
- "serde_json",
- "shakmaty 0.25.0",
- "shakmaty-syzygy",
- "tch",
- "tempfile",
 ]
 
 [[package]]
