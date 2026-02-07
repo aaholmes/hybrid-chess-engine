@@ -7,7 +7,6 @@ use kingfisher::board::Board;
 use kingfisher::boardstack::BoardStack;
 use kingfisher::move_generation::MoveGen;
 use kingfisher::move_types::Move;
-use kingfisher::eval::PestoEval;
 use kingfisher::mcts::{
     tactical_mcts_search_for_training_with_reuse,
     TacticalMctsConfig,
@@ -76,7 +75,6 @@ fn test_self_play_detects_50_move_draw() {
 fn test_tt_shared_across_moves() {
     let board = Board::new();
     let move_gen = MoveGen::new();
-    let pesto = PestoEval::new();
     let mut nn = None;
     let mut tt = TranspositionTable::new();
     let config = TacticalMctsConfig {
@@ -87,7 +85,7 @@ fn test_tt_shared_across_moves() {
 
     // First search populates the TT
     let result1 = tactical_mcts_search_for_training_with_reuse(
-        board.clone(), &move_gen, &pesto, &mut nn,
+        board.clone(), &move_gen, &mut nn,
         config.clone(), None, &mut tt,
     );
 
@@ -99,7 +97,7 @@ fn test_tt_shared_across_moves() {
 
     // Second search reuses the same TT — should have mate hits if any were stored
     let result2 = tactical_mcts_search_for_training_with_reuse(
-        board2, &move_gen, &pesto, &mut nn,
+        board2, &move_gen, &mut nn,
         config.clone(), None, &mut tt,
     );
 

@@ -6,7 +6,6 @@
 //! Usage: evaluate_models <candidate.pt> <current.pt> <num_games> <simulations> [--threshold 0.55]
 
 use kingfisher::boardstack::BoardStack;
-use kingfisher::eval::PestoEval;
 use kingfisher::move_generation::MoveGen;
 use kingfisher::mcts::{tactical_mcts_search_with_tt, TacticalMctsConfig};
 use kingfisher::neural_net::NeuralNetPolicy;
@@ -52,7 +51,6 @@ pub fn play_evaluation_game(
     simulations: u32,
 ) -> GameResult {
     let move_gen = MoveGen::new();
-    let pesto_eval = PestoEval::new();
 
     let config = TacticalMctsConfig {
         max_iterations: simulations,
@@ -85,7 +83,6 @@ pub fn play_evaluation_game(
             tactical_mcts_search_with_tt(
                 board.clone(),
                 &move_gen,
-                &pesto_eval,
                 candidate_nn,
                 config.clone(),
                 &mut tt_candidate,
@@ -94,7 +91,6 @@ pub fn play_evaluation_game(
             tactical_mcts_search_with_tt(
                 board.clone(),
                 &move_gen,
-                &pesto_eval,
                 current_nn,
                 config.clone(),
                 &mut tt_current,

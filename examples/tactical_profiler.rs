@@ -4,7 +4,6 @@
 //! to identify bottlenecks and optimization opportunities.
 
 use kingfisher::board::Board;
-use kingfisher::eval::PestoEval;
 use kingfisher::move_generation::MoveGen;
 use kingfisher::mcts::{tactical_mcts_search, TacticalMctsConfig};
 use std::time::{Duration, Instant};
@@ -25,16 +24,14 @@ pub struct ProfileResult {
 fn profile_position(
     board: Board,
     move_gen: &MoveGen,
-    pesto_eval: &PestoEval,
     config: TacticalMctsConfig,
 ) -> ProfileResult {
     let mut nn_policy = None;
-    
+
     let start_time = Instant::now();
     let (_, stats, _) = tactical_mcts_search(
         board,
         move_gen,
-        pesto_eval,
         &mut nn_policy,
         config,
     );
@@ -68,9 +65,8 @@ fn profile_position(
 fn run_profiling_suite() {
     println!("🔍 Tactical-Enhanced MCTS Performance Profiler");
     println!("{}", "=".repeat(60));
-    
+
     let move_gen = MoveGen::new();
-    let pesto_eval = PestoEval::new();
     
     // Test positions
     let test_positions = vec![
@@ -123,7 +119,7 @@ fn run_profiling_suite() {
         for (config_name, config) in &test_configs {
             println!("\n   📊 Configuration: {}", config_name);
             
-            let result = profile_position(board.clone(), &move_gen, &pesto_eval, config.clone());
+            let result = profile_position(board.clone(), &move_gen, config.clone());
             print_profile_result(&result);
         }
     }
@@ -148,7 +144,7 @@ fn run_profiling_suite() {
         };
         
         println!("\n📈 {} iterations:", iterations);
-        let result = profile_position(board.clone(), &move_gen, &pesto_eval, config);
+        let result = profile_position(board.clone(), &move_gen, config);
         print_scaling_result(&result, iterations);
     }
 }

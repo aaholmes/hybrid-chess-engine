@@ -1,13 +1,11 @@
 use kingfisher::board::Board;
 use kingfisher::move_generation::MoveGen;
-use kingfisher::eval::PestoEval;
 use kingfisher::mcts::TacticalMctsConfig;
 use kingfisher::mcts::tactical_mcts::tactical_mcts_search;
 use std::time::Duration;
 
 fn main() {
     let move_gen = MoveGen::new();
-    let pesto = PestoEval::new();
     
     println!("🧪 Verifying Tier 2 Tactical Grafting (Queen Sac Test)...");
 
@@ -26,7 +24,7 @@ fn main() {
     };
 
     let mut nn = None;
-    let (best_move, stats, _) = tactical_mcts_search(board, &move_gen, &pesto, &mut nn, config);
+    let (best_move, stats, _) = tactical_mcts_search(board, &move_gen, &mut nn, config);
 
     println!("\nSearch Results:");
     println!("  Best Move: {}", best_move.map_or("None".to_string(), |m| m.to_uci()));

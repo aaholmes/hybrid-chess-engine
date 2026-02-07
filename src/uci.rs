@@ -105,7 +105,6 @@ impl UCIEngine {
                 }
                 Box::new(HumanlikeAgent::new(
                     &*GLOBAL_MOVE_GEN,
-                    &*GLOBAL_PESTO_EVAL,
                     temp_egtb_prober,
                     self.mate_search_depth,
                     self.mcts_iterations,

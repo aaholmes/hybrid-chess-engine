@@ -229,7 +229,6 @@ fn benchmark_tactical_mcts(
     let (best_move, stats, _root) = tactical_mcts_search(
         board.clone(),
         move_gen,
-        pesto_eval,
         &mut nn_policy,
         tactical_config,
     );
@@ -256,7 +255,6 @@ fn benchmark_classical_mcts(
     let best_move = mcts_pesto_search(
         board.clone(),
         move_gen,
-        pesto_eval,
         config.mate_search_depth,
         Some(config.classical_mcts_iterations),
         Some(config.classical_mcts_time),

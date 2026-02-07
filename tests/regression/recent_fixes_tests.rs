@@ -7,7 +7,6 @@ use kingfisher::mcts::inference_server::InferenceServer;
 use kingfisher::mcts::tactical_mcts::{tactical_mcts_search, TacticalMctsConfig, TacticalMctsStats};
 use kingfisher::mcts::selection::select_child_with_tactical_priority;
 use kingfisher::move_types::Move;
-use kingfisher::eval::PestoEval;
 use kingfisher::neural_net::NeuralNetPolicy;
 use crate::common::{board_from_fen, positions};
 use std::time::Duration;
@@ -23,7 +22,6 @@ mod value_topology {
     fn test_no_probability_domain_values() {
         // Search for any code path that might produce values > 1.0
         let move_gen = MoveGen::new();
-        let pesto = PestoEval::new();
         let server = InferenceServer::new_mock_uniform();
         
         // Run search on various positions
@@ -45,7 +43,7 @@ mod value_topology {
                 ..Default::default()
             };
 
-            let (_, _, root_node) = tactical_mcts_search(board, &move_gen, &pesto, &mut None, config);
+            let (_, _, root_node) = tactical_mcts_search(board, &move_gen, &mut None, config);
             
             // Check all nodes in tree
             fn check_tree(node: &Rc<RefCell<MctsNode>>) {

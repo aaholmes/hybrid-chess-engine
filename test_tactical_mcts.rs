@@ -1,5 +1,4 @@
 use kingfisher::board::Board;
-use kingfisher::eval::PestoEval;
 use kingfisher::move_generation::MoveGen;
 use kingfisher::mcts::{tactical_mcts_search, TacticalMctsConfig, print_search_stats};
 use kingfisher::neural_net::NeuralNetPolicy;
@@ -10,7 +9,6 @@ fn main() {
     
     let board = Board::new(); // Starting position
     let move_gen = MoveGen::new();
-    let pesto_eval = PestoEval::new();
     let mut nn_policy = None; // Use no neural network for now
     
     let config = TacticalMctsConfig {
@@ -22,10 +20,9 @@ fn main() {
     };
     
     println!("🚀 Running tactical-first MCTS search...");
-    let (best_move, stats) = tactical_mcts_search(
+    let (best_move, stats, _) = tactical_mcts_search(
         board,
         &move_gen,
-        &pesto_eval,
         &mut nn_policy,
         config,
     );
@@ -50,10 +47,9 @@ fn main() {
         use_neural_policy: false,
     };
     
-    let (best_move2, stats2) = tactical_mcts_search(
+    let (best_move2, stats2, _) = tactical_mcts_search(
         tactical_board,
         &move_gen,
-        &pesto_eval,
         &mut nn_policy,
         config2,
     );

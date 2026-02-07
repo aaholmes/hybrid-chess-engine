@@ -5,7 +5,6 @@
 //! be reused across different branches of the search tree.
 
 use kingfisher::board::Board;
-use kingfisher::eval::PestoEval;
 use kingfisher::move_generation::MoveGen;
 use kingfisher::mcts::{tactical_mcts_search_with_tt, TacticalMctsConfig};
 use kingfisher::transposition::TranspositionTable;
@@ -14,9 +13,8 @@ use std::time::{Duration, Instant};
 fn main() {
     println!("🧪 Transposition Table Mate Search Demo");
     println!("=======================================");
-    
+
     let move_gen = MoveGen::new();
-    let pesto_eval = PestoEval::new();
     
     // Sample tactical positions
     let positions = vec![
@@ -26,19 +24,18 @@ fn main() {
     ];
     
     // 1. Show speedup from cold vs warm TT
-    show_tt_speedup(&positions, &move_gen, &pesto_eval);
-    
+    show_tt_speedup(&positions, &move_gen);
+
     // 2. Analyze cache efficiency
-    analyze_mate_cache_efficiency(&positions, &move_gen, &pesto_eval);
-    
+    analyze_mate_cache_efficiency(&positions, &move_gen);
+
     // 3. Benchmark repeated searches
-    benchmark_repeated_searches(&positions, &move_gen, &pesto_eval);
+    benchmark_repeated_searches(&positions, &move_gen);
 }
 
 fn show_tt_speedup(
     positions: &[(&str, &str)],
     move_gen: &MoveGen,
-    pesto_eval: &PestoEval,
 ) {
     println!("\n--- Part 1: Cold vs Warm TT Speedup ---");
     
@@ -65,7 +62,7 @@ fn show_tt_speedup(
         let mut tt = TranspositionTable::new(); // New TT each time
         
         let (_, stats, _) = tactical_mcts_search_with_tt(
-            board, move_gen, pesto_eval, &mut nn_policy, config.clone(), &mut tt
+            board, move_gen, &mut nn_policy, config.clone(), &mut tt
         );
         
         cold_total_tt_hits += stats.tt_mate_hits;
@@ -86,7 +83,7 @@ fn show_tt_speedup(
         let mut nn_policy = None;
         
         let (_, stats, _) = tactical_mcts_search_with_tt(
-            board, move_gen, pesto_eval, &mut nn_policy, config.clone(), &mut shared_transposition_table
+            board, move_gen, &mut nn_policy, config.clone(), &mut shared_transposition_table
         );
         
         warm_total_tt_hits += stats.tt_mate_hits;
@@ -108,7 +105,6 @@ fn show_tt_speedup(
 fn analyze_mate_cache_efficiency(
     positions: &[(&str, &str)],
     move_gen: &MoveGen,
-    pesto_eval: &PestoEval,
 ) {
     println!("\n--- Part 2: Cache Efficiency Analysis ---");
     
@@ -131,7 +127,7 @@ fn analyze_mate_cache_efficiency(
         
         let start = Instant::now();
         let (best_move, stats, _) = tactical_mcts_search_with_tt(
-            board, move_gen, pesto_eval, &mut nn_policy, config.clone(), &mut shared_tt
+            board, move_gen, &mut nn_policy, config.clone(), &mut shared_tt
         );
         let elapsed = start.elapsed();
         
@@ -152,7 +148,6 @@ fn analyze_mate_cache_efficiency(
 fn benchmark_repeated_searches(
     positions: &[(&str, &str)],
     move_gen: &MoveGen,
-    pesto_eval: &PestoEval,
 ) {
     println!("\n--- Part 3: Repeated Position Benchmark ---");
     
@@ -178,7 +173,7 @@ fn benchmark_repeated_searches(
         
         let start = Instant::now();
         let (_best_move, stats, _) = tactical_mcts_search_with_tt(
-            board.clone(), move_gen, pesto_eval, &mut nn_policy, config.clone(), &mut shared_tt
+            board.clone(), move_gen, &mut nn_policy, config.clone(), &mut shared_tt
         );
         let elapsed = start.elapsed();
         

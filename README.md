@@ -51,8 +51,8 @@ Before any expansion, the engine runs ultra-fast "Safety Gates" to detect immedi
 
 #### 2. Tactical Integration (Tier 2):
 If the node is not a terminal state, the engine performs a "Tactical Graft":
-- **Quiescence Search (QS):** An integer-based tactical search runs on the CPU to resolve captures and checks using hard-coded piece values (1, 3, 3, 5, 9).
-- **Grafting:** The best tactical move found by QS is "grafted" into the MCTS tree immediately.
+- **Material Q-Search:** For each legal capture, the engine runs `forced_material_balance()` -- a material-only quiescence search using hard-coded piece values (P=1, N=3, B=3, R=5, Q=9) with no positional terms. This resolves forced capture sequences to a quiet position.
+- **Grafting:** The best tactical move (by material score) is "grafted" into the MCTS tree immediately.
 - **Dynamic Value Extrapolation:** The engine uses the **Symbolic Residual Formula** to price the material won by the CPU:
   $$V_{final} = \tanh\left(\text{arctanh}(V_{parent}) + k \cdot \Delta M\right)$$
   Where $k$ is a **position-specific confidence scalar** predicted by the neural network. This allows the engine to determine if a material advantage is decisive or irrelevant in the current strategic context.
@@ -67,7 +67,7 @@ Where:
 - **$k$** = the network's material confidence scalar
 - **$\Delta M$** = material balance after forced captures/promotions, computed by `forced_material_balance()` — a material-only quiescence search using piece values (P=1, N=3, B=3, R=5, Q=9) with no Pesto positional terms
 
-The NN outputs raw $V_{logit}$ at inference time (not `tanh`), while the Rust engine computes $\Delta M$ via material Q-search and applies the final `tanh`. This separation allows the engine to use an enhanced material evaluation (resolving tactical exchanges) that the NN never sees during training. Without a neural network, the engine falls back to a purely material-based evaluation: $V_{logit} = 0$, $k = 1$, $V_{final} = \tanh(\Delta M)$.
+The NN outputs raw $V_{logit}$ at inference time (not `tanh`), while the Rust engine computes $\Delta M$ via material Q-search and applies the final `tanh`. This separation allows the engine to use an enhanced material evaluation (resolving tactical exchanges) that the NN never sees during training. Without a neural network, the engine falls back to a purely material-based evaluation: $V_{logit} = 0$, $k = 0.5$ (matching the NN initialization where $\text{Softplus}(0)/(2\ln 2) \approx 0.5$), $V_{final} = \tanh(0.5 \cdot \Delta M)$.
 
 ## Tier 2: Tactical Grafting
 Instead of treating all new nodes as equal, Caissawary injects tactical knowledge directly into the tree structure. This "Neurosymbolic" approach separates **Logical Truth** from **Contextual Interpretation**.
@@ -204,9 +204,9 @@ pub struct TacticalMctsConfig {
 ## Technical Stack
 - **Core Logic**: Rust (~10k LOC), for performance, memory safety, and concurrency.
 - **Board Representation**: Bitboards with magic bitboard move generation. FxHashMap for fast Zobrist key lookups.
-- **Evaluation**: Pesto-style tapered evaluation with Texel-tuned weights.
+- **Evaluation**: Pesto-style tapered evaluation with Texel-tuned weights (used by alpha-beta search). MCTS uses material-only evaluation via `forced_material_balance()` -- no Pesto dependency.
 - **Search**: Alpha-beta with iterative deepening, transposition tables, history heuristic, null move pruning, and quiescence search.
-- **MCTS**: Tactical-first MCTS with lazy policy evaluation, UCB/PUCT selection, tree reuse, and clone-free check detection.
+- **MCTS**: Tactical-first MCTS with material-aware value function, lazy policy evaluation, UCB/PUCT selection, tree reuse, and clone-free check detection.
 - **Parallelism**: **Rayon** for data parallelism in self-play game generation.
 - **Neural Networks** (optional): **PyTorch** for training; **tch-rs** (LibTorch) for Rust inference.
 - **Endgame Tablebases**: Syzygy support via **shakmaty-syzygy**.
@@ -341,7 +341,7 @@ dot -Tsvg mcts_tree.dot -o tree.svg
 Nodes are color-coded to reveal how the engine solved or evaluated them:
 - **Red (Tier 1 Gate):** Solved immediately by "Safety Gates" (Mate Search or KOTH logic) without expansion.
 - **Gold (Tier 2 Graft):** A tactical move found by Quiescence Search and "grafted" into the tree.
-- **Blue (Tier 3 Neural):** A standard node evaluated by the neural network (or Pesto in classical mode).
+- **Blue (Tier 3 Neural):** A standard node evaluated by the neural network (or material-only fallback in classical mode).
 - **Grey (Shadow Prior):** A tactical move that was considered but refuted/pruned by the engine.
 
 ### Stream of Consciousness Logger

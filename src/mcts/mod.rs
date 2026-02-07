@@ -15,7 +15,6 @@ pub mod inference_server;
 pub mod search_logger;
 
 use crate::board::Board;
-use crate::eval::PestoEval;
 use crate::move_generation::MoveGen;
 use crate::move_types::Move;
 use std::time::Duration;
@@ -38,7 +37,6 @@ pub const EXPLORATION_CONSTANT: f64 = 1.41421356237;
 pub fn mcts_pesto_search(
     root_state: Board,
     move_gen: &MoveGen,
-    pesto_eval: &PestoEval,
     mate_search_depth: i32,
     iterations: Option<u32>,
     time_limit: Option<Duration>,
@@ -58,7 +56,6 @@ pub fn mcts_pesto_search(
     let (best_move, _stats, _root) = tactical_mcts_search(
         root_state,
         move_gen,
-        pesto_eval,
         &mut nn,
         config
     );

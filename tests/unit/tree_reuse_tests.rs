@@ -4,19 +4,17 @@ use kingfisher::board::Board;
 use kingfisher::move_generation::MoveGen;
 use kingfisher::move_types::Move;
 use kingfisher::mcts::tactical_mcts::{TacticalMctsConfig, reuse_subtree};
-use kingfisher::eval::PestoEval;
 
 fn run_search(iterations: u32) -> (Option<Move>, std::rc::Rc<std::cell::RefCell<kingfisher::mcts::node::MctsNode>>) {
     let board = Board::new();
     let move_gen = MoveGen::new();
-    let pesto = PestoEval::new();
     let mut nn = None;
     let config = TacticalMctsConfig {
         max_iterations: iterations,
         ..Default::default()
     };
     let (best, _stats, root) = kingfisher::mcts::tactical_mcts_search(
-        board, &move_gen, &pesto, &mut nn, config,
+        board, &move_gen, &mut nn, config,
     );
     (best, root)
 }

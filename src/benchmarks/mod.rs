@@ -90,7 +90,6 @@ pub fn create_simple_agent() -> SimpleAgent<'static> {
 pub fn create_humanlike_agent() -> HumanlikeAgent<'static> {
     HumanlikeAgent::new(
         &*BENCH_MOVE_GEN,
-        &*BENCH_PESTO_EVAL,
         None, // No EGTB for benchmarking
         3,    // mate_search_depth
         1000, // mcts_iterations

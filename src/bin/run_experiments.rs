@@ -6,7 +6,6 @@
 //!   cargo run --release --bin run_experiments -- --config single --name full_system
 
 use kingfisher::board::Board;
-use kingfisher::eval::PestoEval;
 use kingfisher::experiments::config::{
     ExperimentConfig,
     generate_ablation_configs,
@@ -104,8 +103,7 @@ fn run_experiment(
     test_positions: &[(String, Board, Option<String>, String)],
 ) -> ExperimentResults {
     let move_gen = MoveGen::new();
-    let pesto = PestoEval::new();
-    
+
     let mut search_metrics: Vec<SearchMetrics> = Vec::new();
     let mut position_results: Vec<PositionResult> = Vec::new();
     let mut safety = SafetyMetrics::default();
@@ -135,7 +133,6 @@ fn run_experiment(
         let (best_move, stats, _root) = tactical_mcts_search(
             board.clone(),
             &move_gen,
-            &pesto,
             &mut nn_policy,
             mcts_config,
         );

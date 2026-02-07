@@ -8,7 +8,7 @@
 
 use crate::board::Board;
 use crate::boardstack::BoardStack;
-use crate::eval::{PestoEval, extrapolate_value};
+use crate::eval::extrapolate_value;
 use crate::mcts::node::{MctsNode, NodeOrigin};
 use crate::mcts::selection::select_child_with_tactical_priority;
 use crate::mcts::inference_server::InferenceServer;
@@ -18,7 +18,6 @@ use crate::move_types::Move;
 use crate::neural_net::NeuralNetPolicy;
 use crate::search::mate_search;
 use crate::search::koth_center_in_3;
-use crate::search::quiescence_search_tactical;
 use crate::search::forced_material_balance;
 use crate::transposition::TranspositionTable;
 use rand_distr::{Gamma, Distribution};
@@ -137,18 +136,16 @@ impl TacticalMctsStats {
 pub fn tactical_mcts_search(
     board: Board,
     move_gen: &MoveGen,
-    pesto_eval: &PestoEval,
     nn_policy: &mut Option<NeuralNetPolicy>,
     config: TacticalMctsConfig,
 ) -> (Option<Move>, TacticalMctsStats, Rc<RefCell<MctsNode>>) {
     let mut transposition_table = TranspositionTable::new();
-    tactical_mcts_search_with_tt(board, move_gen, pesto_eval, nn_policy, config, &mut transposition_table)
+    tactical_mcts_search_with_tt(board, move_gen, nn_policy, config, &mut transposition_table)
 }
 
 pub fn tactical_mcts_search_with_tt(
     board: Board,
     move_gen: &MoveGen,
-    pesto_eval: &PestoEval,
     nn_policy: &mut Option<NeuralNetPolicy>,
     config: TacticalMctsConfig,
     transposition_table: &mut TranspositionTable,
@@ -256,20 +253,20 @@ pub fn tactical_mcts_search_with_tt(
         return (None, stats, root_node);
     }
     
-    evaluate_and_expand_node(root_node.clone(), move_gen, pesto_eval, &mut stats, &config, logger);
-    
+    evaluate_and_expand_node(root_node.clone(), move_gen, &mut stats, &config, logger);
+
     for iteration in 0..config.max_iterations {
         if start_time.elapsed() > config.time_limit { break; }
-        
+
         if let Some(log) = logger {
             log.log_iteration_start(iteration + 1);
         }
-        
+
         let leaf_node = select_leaf_node(root_node.clone(), move_gen, nn_policy, &config, &mut stats, logger);
-        let value = evaluate_leaf_node(leaf_node.clone(), move_gen, pesto_eval, nn_policy, &config, transposition_table, &mut stats, logger);
-        
+        let value = evaluate_leaf_node(leaf_node.clone(), move_gen, nn_policy, &config, transposition_table, &mut stats, logger);
+
         if !leaf_node.borrow().is_game_terminal() && leaf_node.borrow().visits == 0 {
-            evaluate_and_expand_node(leaf_node.clone(), move_gen, pesto_eval, &mut stats, &config, logger);
+            evaluate_and_expand_node(leaf_node.clone(), move_gen, &mut stats, &config, logger);
         }
         
         MctsNode::backpropagate(leaf_node, value);
@@ -342,7 +339,6 @@ fn select_leaf_node(
 fn evaluate_leaf_node(
     node: Rc<RefCell<MctsNode>>,
     move_gen: &MoveGen,
-    pesto_eval: &PestoEval,
     _nn_policy: &mut Option<NeuralNetPolicy>, // TODO: Use for Tier 3 neural evaluation
     config: &TacticalMctsConfig,
     transposition_table: &mut TranspositionTable,
@@ -450,9 +446,10 @@ fn evaluate_leaf_node(
             }
             stats.nn_evaluations += 1;
         } else {
-            // Classical fallback: v_logit = 0.0, k = 1.0, rely on material only
+            // Classical fallback: v_logit = 0.0, k = 0.5, rely on material only
+            // k=0.5 matches NN init: softplus(0)/(2*ln2) ≈ 0.5
             let classical_v_logit = 0.0;
-            let classical_k: f32 = 1.0;
+            let classical_k: f32 = 0.5;
             let final_value = (classical_v_logit + classical_k as f64 * delta_m as f64).tanh();
             if let Some(log) = logger {
                 log.log_classical_eval(delta_m, final_value);
@@ -474,7 +471,6 @@ fn evaluate_leaf_node(
 fn evaluate_and_expand_node(
     node: Rc<RefCell<MctsNode>>,
     move_gen: &MoveGen,
-    pesto_eval: &PestoEval,
     stats: &mut TacticalMctsStats,
     config: &TacticalMctsConfig,
     logger: Option<&Arc<SearchLogger>>,
@@ -489,38 +485,57 @@ fn evaluate_and_expand_node(
         if let Some(log) = logger {
             log.log_qs_start(&node_ref.state);
         }
-        let mut board_stack = BoardStack::with_board(node_ref.state.clone());
-        let tactical_tree = quiescence_search_tactical(&mut board_stack, move_gen, pesto_eval);
 
-        if !tactical_tree.siblings.is_empty() {
+        // Material-based Q-init: use forced_material_balance instead of Pesto QS
+        let parent_material = node_ref.state.material_imbalance();
+        let captures = move_gen.gen_pseudo_legal_captures(&node_ref.state);
+        let mut siblings: Vec<(Move, i32)> = Vec::new();
+        let mut best_score = parent_material;
+        let mut best_mv: Option<Move> = None;
+
+        for capture in captures {
+            let next = node_ref.state.apply_move_to_board(capture);
+            if !next.is_legal(move_gen) { continue; }
+            let mut child_stack = BoardStack::with_board(next);
+            let child_material_stm = forced_material_balance(&mut child_stack, move_gen);
+            let child_score = -child_material_stm; // negate: child's STM is opponent
+            siblings.push((capture, child_score));
+            if child_score > best_score {
+                best_score = child_score;
+                best_mv = Some(capture);
+            }
+        }
+
+        if !siblings.is_empty() {
             stats.tier2_q_inits += 1;
             stats.tactical_node_ratio = (stats.tactical_node_ratio * 0.9) + 0.1;
-            
+
             if let Some(log) = logger {
-                 log.log_qs_pv(&tactical_tree.principal_variation, tactical_tree.leaf_score);
+                let pv: Vec<Move> = best_mv.into_iter().collect();
+                log.log_qs_pv(&pv, best_score);
             }
-            let parent_eval = pesto_eval.eval(&node_ref.state, move_gen);
-            let parent_v = node_ref.nn_value.unwrap_or(0.0); // Neutral is 0.0 in [-1, 1]
+            let parent_v = node_ref.nn_value.unwrap_or(0.0);
             let k = node_ref.k_val;
 
-            for (mv, qs_score) in tactical_tree.siblings {
-                let material_delta = qs_score - parent_eval;
-                let extrapolated_v = extrapolate_value(parent_v, material_delta, k);
-                
+            for (mv, child_score) in &siblings {
+                let material_delta_cp = (child_score - parent_material) * 100;
+                let extrapolated_v = extrapolate_value(parent_v, material_delta_cp, k);
+
                 if let Some(log) = logger {
-                    log.log_tier2_graft(mv, extrapolated_v, k);
+                    log.log_tier2_graft(*mv, extrapolated_v, k);
                 }
-                
-                node_ref.tactical_values.insert(mv, extrapolated_v);
-                
-                if tactical_tree.principal_variation.contains(&mv) {
-                    let next_board = node_ref.state.apply_move_to_board(mv);
-                    let child = MctsNode::new_child(Rc::downgrade(&node), mv, next_board, move_gen);
+
+                node_ref.tactical_values.insert(*mv, extrapolated_v);
+
+                // Graft PV child (best capture)
+                if Some(*mv) == best_mv {
+                    let next_board = node_ref.state.apply_move_to_board(*mv);
+                    let child = MctsNode::new_child(Rc::downgrade(&node), *mv, next_board, move_gen);
                     // extrapolated_v is relative to Parent (Side to Move at Parent).
                     // child.nn_value must be relative to Child (Side to Move at Child).
                     // These are opposite sides, so we negate.
                     child.borrow_mut().nn_value = Some(-extrapolated_v);
-                    child.borrow_mut().k_val = k; 
+                    child.borrow_mut().k_val = k;
                     child.borrow_mut().is_tactical_node = true;
                     child.borrow_mut().origin = NodeOrigin::Grafted;
                     node_ref.children.push(child);
@@ -587,26 +602,25 @@ pub struct MctsTrainingResult {
 pub fn tactical_mcts_search_for_training(
     board: Board,
     move_gen: &MoveGen,
-    pesto_eval: &PestoEval,
     nn_policy: &mut Option<NeuralNetPolicy>,
     config: TacticalMctsConfig,
 ) -> MctsTrainingResult {
     let start_time = Instant::now();
     let mut stats = TacticalMctsStats::default();
     let root_node = MctsNode::new_root(board, move_gen);
-    
+
     if root_node.borrow().is_game_terminal() {
         return MctsTrainingResult { best_move: None, root_policy: vec![], root_value_prediction: 0.0, stats, root_node };
     }
-    
-    evaluate_and_expand_node(root_node.clone(), move_gen, pesto_eval, &mut stats, &config, None);
+
+    evaluate_and_expand_node(root_node.clone(), move_gen, &mut stats, &config, None);
     let mut transposition_table = TranspositionTable::new();
     for iteration in 0..config.max_iterations {
         if start_time.elapsed() > config.time_limit { break; }
         let leaf = select_leaf_node(root_node.clone(), move_gen, nn_policy, &config, &mut stats, None);
-        let value = evaluate_leaf_node(leaf.clone(), move_gen, pesto_eval, nn_policy, &config, &mut transposition_table, &mut stats, None);
+        let value = evaluate_leaf_node(leaf.clone(), move_gen, nn_policy, &config, &mut transposition_table, &mut stats, None);
         if !leaf.borrow().is_game_terminal() && leaf.borrow().visits == 0 {
-            evaluate_and_expand_node(leaf.clone(), move_gen, pesto_eval, &mut stats, &config, None);
+            evaluate_and_expand_node(leaf.clone(), move_gen, &mut stats, &config, None);
         }
         MctsNode::backpropagate(leaf, value);
         stats.iterations = iteration + 1;
@@ -633,7 +647,6 @@ pub fn tactical_mcts_search_for_training(
 pub fn tactical_mcts_search_for_training_with_reuse(
     board: Board,
     move_gen: &MoveGen,
-    pesto_eval: &PestoEval,
     nn_policy: &mut Option<NeuralNetPolicy>,
     config: TacticalMctsConfig,
     reused_root: Option<Rc<RefCell<MctsNode>>>,
@@ -654,7 +667,7 @@ pub fn tactical_mcts_search_for_training_with_reuse(
     }
 
     if root_node.borrow().children.is_empty() {
-        evaluate_and_expand_node(root_node.clone(), move_gen, pesto_eval, &mut stats, &config, None);
+        evaluate_and_expand_node(root_node.clone(), move_gen, &mut stats, &config, None);
     }
 
     // Apply Dirichlet noise to root priors for training exploration
@@ -679,9 +692,9 @@ pub fn tactical_mcts_search_for_training_with_reuse(
     for iteration in 0..config.max_iterations {
         if start_time.elapsed() > config.time_limit { break; }
         let leaf = select_leaf_node(root_node.clone(), move_gen, nn_policy, &config, &mut stats, None);
-        let value = evaluate_leaf_node(leaf.clone(), move_gen, pesto_eval, nn_policy, &config, transposition_table, &mut stats, None);
+        let value = evaluate_leaf_node(leaf.clone(), move_gen, nn_policy, &config, transposition_table, &mut stats, None);
         if !leaf.borrow().is_game_terminal() && leaf.borrow().visits == 0 {
-            evaluate_and_expand_node(leaf.clone(), move_gen, pesto_eval, &mut stats, &config, None);
+            evaluate_and_expand_node(leaf.clone(), move_gen, &mut stats, &config, None);
         }
         MctsNode::backpropagate(leaf, value);
         stats.iterations = iteration + 1;

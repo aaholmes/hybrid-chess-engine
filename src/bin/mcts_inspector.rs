@@ -6,12 +6,9 @@ use std::env;
 use std::fs::File;
 use std::io::Write;
 use std::time::Duration;
-use std::sync::Arc;
 
 use kingfisher::board::Board;
-use kingfisher::eval::PestoEval;
 use kingfisher::mcts::tactical_mcts::{tactical_mcts_search, TacticalMctsConfig};
-use kingfisher::mcts::inference_server::InferenceServer;
 use kingfisher::move_generation::MoveGen;
 
 fn main() {
@@ -42,8 +39,7 @@ fn main() {
     // Initialize components
     let board = Board::new_from_fen(fen);
     let move_gen = MoveGen::new();
-    let pesto = PestoEval::new();
-    
+
     let config = TacticalMctsConfig {
         max_iterations: iterations,
         time_limit: Duration::from_secs(60), // Generous limit for inspection
@@ -59,7 +55,6 @@ fn main() {
     let (best_move, stats, root_node) = tactical_mcts_search(
         board,
         &move_gen,
-        &pesto,
         &mut None,
         config,
     );

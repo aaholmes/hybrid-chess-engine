@@ -4,7 +4,6 @@
 //! combining the mate-search-first innovation with modern neural network evaluation.
 
 use crate::board::Board;
-use crate::eval::PestoEval;
 use crate::move_generation::MoveGen;
 use crate::move_types::Move;
 use crate::neural_net::NeuralNetPolicy;
@@ -15,7 +14,6 @@ use std::time::Duration;
 pub fn neural_mcts_search(
     root_state: Board,
     move_gen: &MoveGen,
-    pesto_eval: &PestoEval,
     nn_policy: &mut Option<NeuralNetPolicy>,
     mate_search_depth: i32,
     iterations: Option<u32>,
@@ -35,7 +33,6 @@ pub fn neural_mcts_search(
     let (best_move, _stats, _root) = tactical_mcts_search(
         root_state,
         move_gen,
-        pesto_eval,
         nn_policy,
         config
     );

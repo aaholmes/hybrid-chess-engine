@@ -2,7 +2,6 @@
 
 use kingfisher::board::Board;
 use kingfisher::boardstack::BoardStack;
-use kingfisher::eval::PestoEval;
 use kingfisher::mcts::tactical_mcts::{tactical_mcts_search, TacticalMctsConfig, TacticalMctsStats};
 use kingfisher::move_generation::MoveGen;
 use kingfisher::move_types::Move;
@@ -20,14 +19,12 @@ fn test_config(iterations: u32) -> TacticalMctsConfig {
 #[test]
 fn test_tactical_mcts_returns_legal_move() {
     let move_gen = MoveGen::new();
-    let pesto = PestoEval::new();
     let board = Board::new();
 
     let config = test_config(50);
     let (best_move, stats, _root) = tactical_mcts_search(
         board.clone(),
         &move_gen,
-        &pesto,
         &mut None,
         config,
     );
@@ -46,7 +43,6 @@ fn test_tactical_mcts_returns_legal_move() {
 #[test]
 fn test_tactical_mcts_finds_mate_in_1() {
     let move_gen = MoveGen::new();
-    let pesto = PestoEval::new();
 
     // Position: White to move, Re8 is mate
     let board = Board::new_from_fen("6k1/5ppp/8/8/8/8/8/4R1K1 w - - 0 1");
@@ -62,7 +58,6 @@ fn test_tactical_mcts_finds_mate_in_1() {
     let (best_move, stats, _) = tactical_mcts_search(
         board,
         &move_gen,
-        &pesto,
         &mut None,
         config,
     );
@@ -91,7 +86,6 @@ fn test_tactical_mcts_config_defaults() {
 #[test]
 fn test_tactical_mcts_tier1_disabled() {
     let move_gen = MoveGen::new();
-    let pesto = PestoEval::new();
     let board = Board::new();
 
     let config = TacticalMctsConfig {
@@ -105,7 +99,6 @@ fn test_tactical_mcts_tier1_disabled() {
     let (best_move, stats, _) = tactical_mcts_search(
         board,
         &move_gen,
-        &pesto,
         &mut None,
         config,
     );
@@ -118,14 +111,12 @@ fn test_tactical_mcts_tier1_disabled() {
 #[test]
 fn test_tactical_mcts_stats_populated() {
     let move_gen = MoveGen::new();
-    let pesto = PestoEval::new();
     let board = Board::new();
 
     let config = test_config(100);
     let (_, stats, _) = tactical_mcts_search(
         board,
         &move_gen,
-        &pesto,
         &mut None,
         config,
     );
@@ -138,7 +129,6 @@ fn test_tactical_mcts_stats_populated() {
 #[test]
 fn test_tactical_mcts_terminal_position() {
     let move_gen = MoveGen::new();
-    let pesto = PestoEval::new();
 
     // Stalemate position - black to move but no legal moves
     let board = Board::new_from_fen("k7/1R6/K7/8/8/8/8/8 b - - 0 1");
@@ -147,7 +137,6 @@ fn test_tactical_mcts_terminal_position() {
     let (best_move, _, _) = tactical_mcts_search(
         board,
         &move_gen,
-        &pesto,
         &mut None,
         config,
     );
@@ -160,7 +149,6 @@ fn test_tactical_mcts_terminal_position() {
 #[test]
 fn test_tactical_mcts_checkmate_position() {
     let move_gen = MoveGen::new();
-    let pesto = PestoEval::new();
 
     // Position where white is already checkmated
     let board = Board::new_from_fen("rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3");
@@ -169,7 +157,6 @@ fn test_tactical_mcts_checkmate_position() {
     let (best_move, _, root) = tactical_mcts_search(
         board,
         &move_gen,
-        &pesto,
         &mut None,
         config,
     );
@@ -184,7 +171,6 @@ fn test_tactical_mcts_checkmate_position() {
 #[test]
 fn test_tactical_mcts_time_limit_respected() {
     let move_gen = MoveGen::new();
-    let pesto = PestoEval::new();
     let board = Board::new();
 
     let time_limit = Duration::from_millis(500); // Longer time limit for stability
@@ -198,7 +184,6 @@ fn test_tactical_mcts_time_limit_respected() {
     let (best_move, stats, _) = tactical_mcts_search(
         board,
         &move_gen,
-        &pesto,
         &mut None,
         config,
     );
@@ -213,7 +198,6 @@ fn test_tactical_mcts_time_limit_respected() {
 #[test]
 fn test_tactical_mcts_iteration_limit_respected() {
     let move_gen = MoveGen::new();
-    let pesto = PestoEval::new();
     let board = Board::new();
 
     let max_iters = 50;
@@ -226,7 +210,6 @@ fn test_tactical_mcts_iteration_limit_respected() {
     let (_, stats, _) = tactical_mcts_search(
         board,
         &move_gen,
-        &pesto,
         &mut None,
         config,
     );

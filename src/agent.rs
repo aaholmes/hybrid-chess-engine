@@ -67,7 +67,6 @@ impl SimpleAgent<'_> {
 /// An agent designed to mimic human-like decision making, using EGTB, Mate Search, and MCTS.
 pub struct HumanlikeAgent<'a> {
     pub move_gen: &'a MoveGen,
-    pub pesto: &'a PestoEval,
     pub egtb_prober: Option<EgtbProber>,
     pub mate_search_depth: i32,
     pub mcts_iterations: u32,
@@ -79,7 +78,6 @@ pub struct HumanlikeAgent<'a> {
 impl HumanlikeAgent<'_> {
     pub fn new<'a>(
         move_gen: &'a MoveGen,
-        pesto: &'a PestoEval,
         egtb_prober: Option<EgtbProber>,
         mate_search_depth: i32,
         mcts_iterations: u32,
@@ -87,7 +85,6 @@ impl HumanlikeAgent<'_> {
     ) -> HumanlikeAgent<'a> {
         HumanlikeAgent {
             move_gen,
-            pesto,
             egtb_prober,
             mate_search_depth,
             mcts_iterations,
@@ -118,7 +115,6 @@ impl Agent for HumanlikeAgent<'_> {
         let (mcts_move, _stats, root) = tactical_mcts_search(
             board.current_state().clone(),
             self.move_gen,
-            self.pesto,
             &mut nn,
             config
         );

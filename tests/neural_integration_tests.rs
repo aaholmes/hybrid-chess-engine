@@ -1,5 +1,4 @@
 use kingfisher::board::Board;
-use kingfisher::eval::PestoEval;
 use kingfisher::mcts::neural_mcts_search;
 use kingfisher::move_generation::MoveGen;
 use kingfisher::neural_net::NeuralNetPolicy;
@@ -17,7 +16,6 @@ fn test_neural_network_integration() {
     
     // Initialize components
     let move_gen = MoveGen::new();
-    let pesto_eval = PestoEval::new();
     
     // Test neural network availability
     let mut nn_policy = NeuralNetPolicy::new_demo_enabled(); // Tries to load models/model.pt
@@ -80,7 +78,6 @@ fn test_neural_network_integration() {
     let best_move = neural_mcts_search(
         board,
         &move_gen,
-        &pesto_eval,
         &mut Some(nn_policy), // Pass the NN policy to the search
         2,  // Mate search depth
         Some(50),  // Limited iterations for testing

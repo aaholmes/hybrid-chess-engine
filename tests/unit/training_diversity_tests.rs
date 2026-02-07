@@ -5,7 +5,6 @@
 
 use kingfisher::board::Board;
 
-use kingfisher::eval::PestoEval;
 use kingfisher::mcts::{
     apply_dirichlet_noise,
     tactical_mcts_search_for_training_with_reuse,
@@ -129,7 +128,6 @@ fn test_dirichlet_noise_epsilon_zero_no_change() {
 fn test_koth_gating_disabled_by_default() {
     let board = Board::new();
     let move_gen = MoveGen::new();
-    let pesto = PestoEval::new();
     let mut nn = None;
     let mut tt = TranspositionTable::new();
 
@@ -144,7 +142,6 @@ fn test_koth_gating_disabled_by_default() {
     let result = tactical_mcts_search_for_training_with_reuse(
         board,
         &move_gen,
-        &pesto,
         &mut nn,
         config,
         None,
@@ -160,7 +157,6 @@ fn test_koth_gating_disabled_by_default() {
 fn test_dirichlet_noise_produces_different_searches() {
     let board = Board::new();
     let move_gen = MoveGen::new();
-    let pesto = PestoEval::new();
 
     let config = TacticalMctsConfig {
         max_iterations: 50,
@@ -178,7 +174,6 @@ fn test_dirichlet_noise_produces_different_searches() {
         let result = tactical_mcts_search_for_training_with_reuse(
             board.clone(),
             &move_gen,
-            &pesto,
             &mut nn,
             config.clone(),
             None,

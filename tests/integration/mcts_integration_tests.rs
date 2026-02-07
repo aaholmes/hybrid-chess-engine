@@ -4,7 +4,6 @@ use kingfisher::mcts::tactical_mcts::{tactical_mcts_search, TacticalMctsConfig};
 use kingfisher::mcts::inference_server::InferenceServer;
 use kingfisher::board::Board;
 use kingfisher::move_generation::MoveGen;
-use kingfisher::eval::PestoEval;
 use kingfisher::move_types::Move;
 use crate::common::{board_from_fen, positions};
 use std::time::Duration;
@@ -13,7 +12,6 @@ use std::sync::Arc;
 #[test]
 fn test_mcts_finds_mate_in_1() {
     let move_gen = MoveGen::new();
-    let pesto = PestoEval::new();
     let server = InferenceServer::new_mock(); 
     
     let board = board_from_fen(positions::MATE_IN_1_WHITE);
@@ -28,7 +26,6 @@ fn test_mcts_finds_mate_in_1() {
     let (best_move, stats, _) = tactical_mcts_search(
         board,
         &move_gen,
-        &pesto,
         &mut None,
         config,
     );
@@ -42,7 +39,6 @@ fn test_mcts_finds_mate_in_1() {
 #[test]
 fn test_mcts_finds_mate_for_black() {
     let move_gen = MoveGen::new();
-    let pesto = PestoEval::new();
     let server = InferenceServer::new_mock();
     
     let board = board_from_fen(positions::MATE_IN_1_BLACK);
@@ -57,7 +53,6 @@ fn test_mcts_finds_mate_for_black() {
     let (best_move, _, _) = tactical_mcts_search(
         board,
         &move_gen,
-        &pesto,
         &mut None,
         config,
     );
@@ -69,7 +64,6 @@ fn test_mcts_finds_mate_for_black() {
 #[test]
 fn test_mcts_finds_koth_win() {
     let move_gen = MoveGen::new();
-    let pesto = PestoEval::new();
     let server = InferenceServer::new_mock();
     
     let board = board_from_fen(positions::KOTH_WIN_AVAILABLE);
@@ -85,7 +79,6 @@ fn test_mcts_finds_koth_win() {
     let (best_move, _, _) = tactical_mcts_search(
         board,
         &move_gen,
-        &pesto,
         &mut None,
         config,
     );
@@ -104,7 +97,6 @@ fn test_mcts_finds_koth_win() {
 #[ignore] // MCTS search quality issue - needs investigation
 fn test_mcts_prefers_winning_capture() {
     let move_gen = MoveGen::new();
-    let pesto = PestoEval::new();
     let server = InferenceServer::new_mock();
     
     let board = board_from_fen(positions::WINNING_CAPTURE);
@@ -119,7 +111,6 @@ fn test_mcts_prefers_winning_capture() {
     let (best_move, _, _) = tactical_mcts_search(
         board,
         &move_gen,
-        &pesto,
         &mut None,
         config,
     );
@@ -135,7 +126,6 @@ fn test_backpropagation_sign_consistency() {
     // This test verifies that values are correctly negated during backprop
     
     let move_gen = MoveGen::new();
-    let pesto = PestoEval::new();
     let server = InferenceServer::new_mock_biased(0.5); // Always returns +0.5 for StM
     
     let board = board_from_fen(positions::STARTING);
@@ -150,7 +140,6 @@ fn test_backpropagation_sign_consistency() {
     let (_, _, root) = tactical_mcts_search(
         board,
         &move_gen,
-        &pesto,
         &mut None,
         config,
     );

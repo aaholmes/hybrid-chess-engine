@@ -7,7 +7,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use kingfisher::board::Board;
-use kingfisher::eval::PestoEval;
 use kingfisher::mcts::tactical_mcts::{tactical_mcts_search, TacticalMctsConfig};
 use kingfisher::mcts::inference_server::InferenceServer;
 use kingfisher::mcts::search_logger::{SearchLogger, Verbosity};
@@ -40,7 +39,6 @@ fn main() {
     // Initialize components
     let board = Board::new_from_fen(fen);
     let move_gen = MoveGen::new();
-    let pesto = PestoEval::new();
     let server = InferenceServer::new_mock();
     
     let config = TacticalMctsConfig {
@@ -59,7 +57,6 @@ fn main() {
     let (best_move, stats, _root) = tactical_mcts_search(
         board,
         &move_gen,
-        &pesto,
         &mut None,
         config,
     );

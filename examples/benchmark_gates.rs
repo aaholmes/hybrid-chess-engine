@@ -1,6 +1,5 @@
 use kingfisher::board::Board;
 use kingfisher::move_generation::MoveGen;
-use kingfisher::eval::PestoEval;
 use kingfisher::search::koth_center_in_3;
 use kingfisher::mcts::tactical_mcts::{tactical_mcts_search, TacticalMctsConfig};
 use kingfisher::search::mate_search;
@@ -9,7 +8,6 @@ use std::time::Instant;
 
 fn main() {
     let move_gen = MoveGen::new();
-    let pesto = PestoEval::new();
     
     println!("🚀 Benchmarking Safety Gates & MCTS Inspector...");
 
@@ -23,7 +21,7 @@ fn main() {
         ..Default::default()
     };
 
-    let (_mv, _stats, root) = tactical_mcts_search(board, &move_gen, &pesto, &mut nn, config);
+    let (_mv, _stats, root) = tactical_mcts_search(board, &move_gen, &mut nn, config);
     let dot = root.borrow().export_dot(3, 0);
     
     match std::fs::write("test_tree.dot", dot) {

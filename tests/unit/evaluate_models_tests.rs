@@ -1,6 +1,5 @@
 use kingfisher::board::Board;
 use kingfisher::boardstack::BoardStack;
-use kingfisher::eval::PestoEval;
 use kingfisher::move_generation::MoveGen;
 use kingfisher::mcts::{tactical_mcts_search_with_tt, TacticalMctsConfig};
 use kingfisher::neural_net::NeuralNetPolicy;
@@ -23,7 +22,6 @@ fn play_test_game(simulations: u32) -> GameResult {
 /// Play a game from a custom starting position.
 fn play_test_game_fen(simulations: u32, fen: &str) -> GameResult {
     let move_gen = MoveGen::new();
-    let pesto_eval = PestoEval::new();
 
     let config = TacticalMctsConfig {
         max_iterations: simulations,
@@ -49,7 +47,6 @@ fn play_test_game_fen(simulations: u32, fen: &str) -> GameResult {
         let (best_move, _stats, _root) = tactical_mcts_search_with_tt(
             board.clone(),
             &move_gen,
-            &pesto_eval,
             &mut nn,
             config.clone(),
             &mut tt,
@@ -323,7 +320,6 @@ fn test_eval_results_aggregate() {
 fn test_two_engine_game_with_different_tt() {
     // Verify that two separate transposition tables don't interfere
     let move_gen = MoveGen::new();
-    let pesto_eval = PestoEval::new();
 
     let config = TacticalMctsConfig {
         max_iterations: 10,
@@ -346,13 +342,13 @@ fn test_two_engine_game_with_different_tt() {
 
     // White's move (engine 1)
     let (move1, _, _) = tactical_mcts_search_with_tt(
-        board.clone(), &move_gen, &pesto_eval, &mut nn1, config.clone(), &mut tt1,
+        board.clone(), &move_gen, &mut nn1, config.clone(), &mut tt1,
     );
     assert!(move1.is_some());
 
     // Black's move (engine 2) from same position
     let (move2, _, _) = tactical_mcts_search_with_tt(
-        board.clone(), &move_gen, &pesto_eval, &mut nn2, config.clone(), &mut tt2,
+        board.clone(), &move_gen, &mut nn2, config.clone(), &mut tt2,
     );
     assert!(move2.is_some());
 }

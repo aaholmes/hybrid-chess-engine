@@ -7,7 +7,6 @@
 //! 3. Neural-Enhanced MCTS (With NN)
 
 use kingfisher::board::Board;
-use kingfisher::eval::PestoEval;
 use kingfisher::move_generation::MoveGen;
 use kingfisher::mcts::{tactical_mcts_search, TacticalMctsConfig};
 use kingfisher::mcts::inference_server::InferenceServer;
@@ -24,7 +23,6 @@ fn main() {
     
     // Initialize components
     let move_gen = MoveGen::new();
-    let pesto_eval = PestoEval::new();
     
     // Try to load the model
     let mut nn_policy = NeuralNetPolicy::new();
@@ -70,7 +68,6 @@ fn main() {
             let (best_move, stats, _) = tactical_mcts_search(
                 board.clone(),
                 &move_gen,
-                &pesto_eval,
                 &mut policy_opt,
                 config.clone(),
             );
@@ -103,7 +100,6 @@ fn main() {
             let (best_move, stats, _) = tactical_mcts_search(
                 board.clone(),
                 &move_gen,
-                &pesto_eval,
                 &mut policy_opt,
                 server_config,
             );
@@ -136,7 +132,7 @@ fn main() {
         let start = Instant::now();
         let mut policy = Some(nn_policy.clone());
         let (_, hybrid_stats, _) = tactical_mcts_search(
-            board.clone(), &move_gen, &pesto_eval, &mut policy, hybrid_config
+            board.clone(), &move_gen, &mut policy, hybrid_config
         );
         println!("   Hybrid: {} nodes/sec", 
                  hybrid_stats.nodes_expanded as f64 / start.elapsed().as_secs_f64());
@@ -156,7 +152,7 @@ fn main() {
         let start = Instant::now();
         let mut no_policy = None;
         let (_, classical_stats, _) = tactical_mcts_search(
-            board.clone(), &move_gen, &pesto_eval, &mut no_policy, classical_config
+            board.clone(), &move_gen, &mut no_policy, classical_config
         );
         println!("   Classical: {} nodes/sec", 
                  classical_stats.nodes_expanded as f64 / start.elapsed().as_secs_f64());
@@ -176,7 +172,7 @@ fn main() {
         let start = Instant::now();
         let mut policy = Some(nn_policy.clone());
         let (_, neural_stats, _) = tactical_mcts_search(
-            board.clone(), &move_gen, &pesto_eval, &mut policy, neural_config
+            board.clone(), &move_gen, &mut policy, neural_config
         );
         println!("   Neural: {} nodes/sec", 
                  neural_stats.nodes_expanded as f64 / start.elapsed().as_secs_f64());

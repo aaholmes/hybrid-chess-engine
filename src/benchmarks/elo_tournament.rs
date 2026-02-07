@@ -330,7 +330,6 @@ impl EloTournament {
                 let (best, _, _) = tactical_mcts_search(
                     board_stack.current_state().clone(),
                     &self.move_gen,
-                    &self.pesto_eval,
                     &mut None,
                     config,
                 );
@@ -354,7 +353,6 @@ impl EloTournament {
                 let (best, _, _) = tactical_mcts_search(
                     board_stack.current_state().clone(),
                     &self.move_gen,
-                    &self.pesto_eval,
                     &mut None,
                     config,
                 );
@@ -378,7 +376,6 @@ impl EloTournament {
                 let (best, _, _) = tactical_mcts_search(
                     board_stack.current_state().clone(),
                     &self.move_gen,
-                    &self.pesto_eval,
                     &mut None,
                     config,
                 );
@@ -403,7 +400,6 @@ impl EloTournament {
                 let (best, _, _) = tactical_mcts_search(
                     board_stack.current_state().clone(),
                     &self.move_gen,
-                    &self.pesto_eval,
                     &mut None,
                     config,
                 );

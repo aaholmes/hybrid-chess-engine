@@ -5,7 +5,6 @@
 
 use kingfisher::board::Board;
 use kingfisher::boardstack::BoardStack;
-use kingfisher::eval::PestoEval;
 use kingfisher::move_generation::MoveGen;
 use kingfisher::mcts::{
     tactical_mcts_search_for_training_with_reuse, reuse_subtree,
@@ -75,7 +74,6 @@ fn main() {
 
 fn play_game(_game_num: usize, simulations: u32, model_path: Option<String>, enable_koth: bool) -> Vec<TrainingSample> {
     let move_gen = MoveGen::new();
-    let pesto_eval = PestoEval::new();
 
     // Each thread gets its own NN instance
     let mut nn_policy = if let Some(path) = model_path {
@@ -121,7 +119,6 @@ fn play_game(_game_num: usize, simulations: u32, model_path: Option<String>, ena
         let result = tactical_mcts_search_for_training_with_reuse(
             board.clone(),
             &move_gen,
-            &pesto_eval,
             &mut nn_policy,
             config.clone(),
             reused_root,

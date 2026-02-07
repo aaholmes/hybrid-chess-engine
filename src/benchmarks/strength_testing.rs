@@ -239,7 +239,6 @@ impl StrengthTester {
                 let best_move = neural_mcts_search(
                     board.clone(),
                     &self.move_gen,
-                    &self.pesto_eval,
                     &mut nn_policy,
                     0, // No mate search
                     Some(self.config.mcts_iterations),
@@ -247,13 +246,12 @@ impl StrengthTester {
                 );
                 (best_move, None, None)
             }
-            
+
             EngineVariant::MctsComplete => {
                 let mut nn_policy = self.create_neural_policy();
                 let best_move = neural_mcts_search(
                     board.clone(),
                     &self.move_gen,
-                    &self.pesto_eval,
                     &mut nn_policy,
                     self.config.mate_search_depth,
                     Some(self.config.mcts_iterations),

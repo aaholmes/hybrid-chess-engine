@@ -1,7 +1,6 @@
 //! Tests for MCTS tree visualization
 
 use kingfisher::board::Board;
-use kingfisher::eval::PestoEval;
 use kingfisher::mcts::node::{MctsNode, NodeOrigin};
 use kingfisher::mcts::tactical_mcts::{tactical_mcts_search, TacticalMctsConfig};
 use kingfisher::mcts::inference_server::InferenceServer;
@@ -33,7 +32,6 @@ fn test_export_dot_basic_structure() {
 #[test]
 fn test_export_dot_mate_position_shows_gate_color() {
     let move_gen = MoveGen::new();
-    let pesto = PestoEval::new();
     let server = InferenceServer::new_mock();
     
     // Mate in 1 position
@@ -50,7 +48,6 @@ fn test_export_dot_mate_position_shows_gate_color() {
     let (best_move, _, root) = tactical_mcts_search(
         board,
         &move_gen,
-        &pesto,
         &mut None,
         config,
     );
@@ -67,7 +64,6 @@ fn test_export_dot_mate_position_shows_gate_color() {
 #[test]
 fn test_export_dot_tactical_position_shows_graft_color() {
     let move_gen = MoveGen::new();
-    let pesto = PestoEval::new();
     let server = InferenceServer::new_mock();
     
     // Position with obvious capture
@@ -84,7 +80,6 @@ fn test_export_dot_tactical_position_shows_graft_color() {
     let (_, _, root) = tactical_mcts_search(
         board,
         &move_gen,
-        &pesto,
         &mut None,
         config,
     );
@@ -113,7 +108,6 @@ fn test_node_origin_labels() {
 #[test]
 fn test_export_dot_respects_depth_limit() {
     let move_gen = MoveGen::new();
-    let pesto = PestoEval::new();
     let server = InferenceServer::new_mock();
 
     // Simple endgame position for speed in debug builds
@@ -129,7 +123,6 @@ fn test_export_dot_respects_depth_limit() {
     let (_, _, root) = tactical_mcts_search(
         board,
         &move_gen,
-        &pesto,
         &mut None,
         config,
     );
@@ -148,7 +141,6 @@ fn test_export_dot_respects_depth_limit() {
 #[test]
 fn test_export_dot_min_visits_filter() {
     let move_gen = MoveGen::new();
-    let pesto = PestoEval::new();
     let server = InferenceServer::new_mock();
 
     // Simple endgame position for speed in debug builds
@@ -164,7 +156,6 @@ fn test_export_dot_min_visits_filter() {
     let (_, _, root) = tactical_mcts_search(
         board,
         &move_gen,
-        &pesto,
         &mut None,
         config,
     );
@@ -182,7 +173,6 @@ fn test_export_dot_min_visits_filter() {
 #[test]
 fn test_export_dot_contains_shadow_priors() {
     let move_gen = MoveGen::new();
-    let pesto = PestoEval::new();
     let server = InferenceServer::new_mock();
     
     // Simple position with tactical options — fast in debug builds
@@ -199,7 +189,6 @@ fn test_export_dot_contains_shadow_priors() {
     let (_, _, root) = tactical_mcts_search(
         board,
         &move_gen,
-        &pesto,
         &mut None,
         config,
     );
