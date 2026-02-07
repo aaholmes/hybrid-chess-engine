@@ -49,6 +49,8 @@ Before any expansion, the engine runs ultra-fast "Safety Gates" to detect immedi
 - **Checks-Only Mate Search:** A depth-limited DFS that only considers checking moves. It instantly spots forced mate sequences (like Mate-in-2) that standard MCTS might miss due to low visit counts.
 - **KOTH Geometric Gate:** A geometric pruning algorithm that detects if a King can reach the center (King of the Hill win) within 3 moves faster than the opponent.
 
+**Gate-resolved nodes are terminal.** When a Safety Gate fires, it caches the exact value in the node and the node is never expanded (no children are created). This is critical: if the node were expanded, subsequent MCTS visits would descend into children evaluated by approximate methods (classical eval or NN), diluting the proven value toward zero. By treating gate-resolved nodes identically to checkmate/stalemate, every future visit re-uses the cached value, keeping Q-values exact.
+
 #### 2. Tactical Integration (Tier 2):
 If the node is not a terminal state, the engine performs a "Tactical Graft":
 - **Material Q-Search:** For each legal capture, the engine runs `forced_material_balance()` -- a material-only quiescence search using hard-coded piece values (P=1, N=3, B=3, R=5, Q=9) with no positional terms. This resolves forced capture sequences to a quiet position.
@@ -248,7 +250,7 @@ The primary binary is a UCI-compliant engine, suitable for use in any standard c
 ### Self-Play Data Generation
 The self-play pipeline follows AlphaZero-style training practices:
 - **Dirichlet noise** at the root node ($\alpha=0.3$, $\epsilon=0.25$) for exploration
-- **Proportional move sampling** from visit counts (temperature = 1) for game diversity
+- **Proportional move sampling** from visit counts using `visits - 1` (temperature = 1) for game diversity. The subtraction compensates for root exploration widening, which gives every root child exactly 1 forced visit before UCB selection begins. Without the correction, moves that UCB never chose would still have selection probability proportional to their single forced visit, adding noise to the training signal.
 - **MCTS tree reuse** between moves for search efficiency
 - **Shared transposition table** across moves within a game
 - **Draw detection**: 3-fold repetition, 50-move rule, and move limit
@@ -266,23 +268,24 @@ cargo run --release --features neural --bin self_play -- 100 800 data models/lat
 The project has a comprehensive test suite with **600+ tests** (521 Rust + 86 Python) organized across Rust and Python. For detailed documentation, see [TESTING.md](TESTING.md).
 
 ```bash
-# Run the full Rust test suite
+# Run the fast Rust test suite (<60s, skips perft/property/slow tests)
 cargo test
+
+# Run the full suite including slow tests (perft, property, time-limit tests)
+cargo test --features slow-tests
 
 # Run unit tests only
 cargo test --test unit_tests
 
-# Run integration, property, or regression tests
+# Run integration or regression tests
 cargo test --test integration_tests
-cargo test --test property_tests
 cargo test --test regression_tests
-
-# Run perft tests (move generation correctness)
-cargo test --test perft_tests
 
 # Run Python training pipeline tests (86 tests)
 cd python && python -m pytest test_replay_buffer.py test_train.py test_orchestrate.py -v
 ```
+
+The `slow-tests` feature gates perft tests (~187s), property tests (~22s), and a handful of time-limit/game-playing unit tests that run for 10+ seconds each.
 
 ### Test Coverage
 The unit test suite covers all core modules:
