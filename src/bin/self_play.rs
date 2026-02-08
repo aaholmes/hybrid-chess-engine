@@ -249,6 +249,27 @@ fn play_game(game_num: usize, simulations: u32, model_path: Option<String>, enab
     }
 
     if verbose {
+        // Print per-sample training data for auditability
+        eprintln!("\n=== Training samples for Game {} ({} samples) ===", game_num, samples.len());
+        for (i, s) in samples.iter().enumerate() {
+            let fen = s.board.to_fen().unwrap_or_default();
+            let stm = if s.w_to_move { "W" } else { "B" };
+            // Top 5 policy moves by probability
+            let mut top_policy: Vec<(u16, f32)> = s.policy.iter()
+                .filter(|(_, p)| *p > 0.0)
+                .cloned()
+                .collect();
+            top_policy.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+            top_policy.truncate(5);
+            let policy_str: Vec<String> = top_policy.iter()
+                .map(|(idx, p)| format!("{}:{:.3}", idx, p))
+                .collect();
+            eprintln!("  [{:3}] {} STM={} V={:+.1} M={:+.1} policy=[{}]",
+                i, fen, stm, s.value_target, s.material_scalar,
+                policy_str.join(", "));
+        }
+        eprintln!();
+
         let result_str = if koth_white {
             "White wins (KOTH)"
         } else if koth_black {

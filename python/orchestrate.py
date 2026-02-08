@@ -232,10 +232,13 @@ class Orchestrator:
             capture_output=True, text=True, check=True,
         )
 
-        # Save game logs
+        # Save game logs (stdout = moves/results, stderr = training sample details)
         log_path = os.path.join(data_dir, "self_play_games.txt")
         with open(log_path, "w") as f:
             f.write(result.stdout)
+            if result.stderr:
+                f.write("\n--- Training Sample Details (stderr) ---\n")
+                f.write(result.stderr)
         if result.stdout:
             print(result.stdout[-1000:] if len(result.stdout) > 1000 else result.stdout)
         if result.stderr:
