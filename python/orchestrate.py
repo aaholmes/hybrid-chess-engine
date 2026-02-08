@@ -153,6 +153,7 @@ class Orchestrator:
         self.state = OrchestratorState()
         self.state_path = os.path.join(config.data_dir, "orchestrator_state.json")
         self._last_training_losses = {}
+        self._current_generation = 0
 
         # Ensure directories
         os.makedirs(config.weights_dir, exist_ok=True)
@@ -226,7 +227,21 @@ class Orchestrator:
 
         print(f"Self-play: {self.config.games_per_generation} games, "
               f"{self.config.simulations_per_move} sims...")
-        subprocess.check_call(cmd, env=get_libtorch_env())
+        result = subprocess.run(
+            cmd, env=get_libtorch_env(),
+            capture_output=True, text=True, check=True,
+        )
+
+        # Save game logs
+        log_path = os.path.join(data_dir, "self_play_games.txt")
+        with open(log_path, "w") as f:
+            f.write(result.stdout)
+        if result.stdout:
+            print(result.stdout[-1000:] if len(result.stdout) > 1000 else result.stdout)
+        if result.stderr:
+            print(result.stderr[-500:] if len(result.stderr) > 500 else result.stderr,
+                  file=sys.stderr)
+
         return data_dir
 
     def update_buffer(self, game_data_dir):
@@ -271,6 +286,13 @@ class Orchestrator:
               f"optimizer={self.config.optimizer}")
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
 
+        # Save full training output
+        data_dir = os.path.join(self.config.data_dir, f"gen_{generation}")
+        os.makedirs(data_dir, exist_ok=True)
+        stats_path = os.path.join(data_dir, "training_stats.txt")
+        with open(stats_path, "w") as f:
+            f.write(result.stdout)
+
         # Parse last training loss line from stdout
         self._last_training_losses = {}
         for line in reversed(result.stdout.splitlines()):
@@ -289,7 +311,7 @@ class Orchestrator:
                 if m_k:
                     self._last_training_losses["k_mean"] = float(m_k.group(1))
                 break
-        # Print training output for visibility
+        # Print training summary for visibility
         if result.stdout:
             print(result.stdout[-500:] if len(result.stdout) > 500 else result.stdout)
 
@@ -331,6 +353,16 @@ class Orchestrator:
             capture_output=True, text=True,
         )
 
+        # Save eval game logs
+        data_dir = os.path.join(self.config.data_dir, f"gen_{self._current_generation}")
+        os.makedirs(data_dir, exist_ok=True)
+        eval_log_path = os.path.join(data_dir, "eval_games.txt")
+        with open(eval_log_path, "w") as f:
+            if result.stderr:
+                f.write(result.stderr)
+            f.write("\n--- RESULTS ---\n")
+            f.write(result.stdout)
+
         # Parse stdout: "WINS=X LOSSES=Y DRAWS=Z WINRATE=0.XX ACCEPTED=true/false"
         output = result.stdout.strip()
         parts = {}
@@ -351,6 +383,50 @@ class Orchestrator:
             "draws": draws,
             "winrate": winrate,
         }
+
+    def _write_overview(self, generation, buffer_size, accepted, eval_results):
+        """Write per-generation overview file with config, timing, and results."""
+        data_dir = os.path.join(self.config.data_dir, f"gen_{generation}")
+        os.makedirs(data_dir, exist_ok=True)
+        overview_path = os.path.join(data_dir, "overview.txt")
+
+        lines = [
+            f"Generation {generation}",
+            f"Timestamp: {time.strftime('%Y-%m-%dT%H:%M:%S')}",
+            "",
+            "=== Hyperparameters ===",
+        ]
+        for k, v in asdict(self.config).items():
+            lines.append(f"  {k}: {v}")
+
+        lines.extend([
+            "",
+            "=== Buffer ===",
+            f"  Size after update: {buffer_size}",
+            "",
+            "=== Training ===",
+        ])
+        if self._last_training_losses:
+            for k, v in self._last_training_losses.items():
+                lines.append(f"  {k}: {v}")
+        else:
+            lines.append("  (no losses parsed)")
+
+        lines.extend([
+            "",
+            "=== Evaluation ===",
+            f"  Wins: {eval_results['wins']}",
+            f"  Losses: {eval_results['losses']}",
+            f"  Draws: {eval_results['draws']}",
+            f"  Winrate: {eval_results['winrate']:.4f}",
+            f"  Result: {'ACCEPTED' if accepted else 'REJECTED'}",
+            "",
+            "=== Current Best ===",
+            f"  {self.state.current_best_pt}",
+        ])
+
+        with open(overview_path, "w") as f:
+            f.write("\n".join(lines) + "\n")
 
     def save_state(self):
         """Save orchestrator state for resumability."""
@@ -379,6 +455,8 @@ class Orchestrator:
             print(f"\n{'='*60}")
             print(f"=== Generation {generation} ===")
             print(f"{'='*60}")
+
+            self._current_generation = generation
 
             # 1. Self-play
             game_data_dir = self.run_self_play(generation)
@@ -421,7 +499,10 @@ class Orchestrator:
                 log["training_k_mean"] = self._last_training_losses.get("k_mean")
             self.log_entry(log)
 
-            # 7. Save state
+            # 7. Write overview file
+            self._write_overview(generation, buffer_size, accepted, eval_results)
+
+            # 8. Save state
             self.state.generation = generation
             self.save_state()
 
