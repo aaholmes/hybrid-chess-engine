@@ -12,6 +12,8 @@ use kingfisher::mcts::{tactical_mcts_search_with_tt, MctsNode, TacticalMctsConfi
 use kingfisher::neural_net::NeuralNetPolicy;
 use kingfisher::transposition::TranspositionTable;
 use rand::Rng;
+use rand::SeedableRng;
+use rand::rngs::StdRng;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -48,7 +50,7 @@ impl EvalResults {
 }
 
 /// Select a move for evaluation: deterministic for forced wins, (counts-1) sampling otherwise.
-fn select_eval_move(root: &Rc<RefCell<MctsNode>>) -> Option<Move> {
+fn select_eval_move(root: &Rc<RefCell<MctsNode>>, rng: &mut impl Rng) -> Option<Move> {
     let root_ref = root.borrow();
 
     // 1. If any child is a forced win (terminal_or_mate_value < -0.5 from child's STM = we win),
@@ -84,17 +86,17 @@ fn select_eval_move(root: &Rc<RefCell<MctsNode>>) -> Option<Move> {
         })
         .collect();
 
-    sample_proportional(&visit_pairs)
+    sample_proportional(&visit_pairs, rng)
 }
 
 /// Sample a move proportionally from visit counts (temperature = 1, counts-1).
-fn sample_proportional(policy: &[(Move, u32)]) -> Option<Move> {
+fn sample_proportional(policy: &[(Move, u32)], rng: &mut impl Rng) -> Option<Move> {
     let total: u32 = policy.iter().map(|(_, v)| v.saturating_sub(1)).sum();
     if total == 0 {
         // All moves have 0 or 1 visit — fall back to most-visited
         return policy.iter().max_by_key(|(_, v)| *v).map(|(mv, _)| *mv);
     }
-    let threshold = rand::thread_rng().gen_range(0..total);
+    let threshold = rng.gen_range(0..total);
     let mut cumulative = 0u32;
     for (mv, visits) in policy {
         cumulative += visits.saturating_sub(1);
@@ -113,7 +115,7 @@ pub fn play_evaluation_game(
     candidate_is_white: bool,
     simulations: u32,
 ) -> GameResult {
-    play_evaluation_game_koth(candidate_nn, current_nn, candidate_is_white, simulations, false, true, true)
+    play_evaluation_game_koth(candidate_nn, current_nn, candidate_is_white, simulations, false, true, true, 0)
 }
 
 pub fn play_evaluation_game_koth(
@@ -124,7 +126,9 @@ pub fn play_evaluation_game_koth(
     enable_koth: bool,
     enable_tier1: bool,
     enable_material: bool,
+    game_seed: u64,
 ) -> GameResult {
+    let mut rng = StdRng::seed_from_u64(game_seed);
     let move_gen = MoveGen::new();
 
     // Create InferenceServers from NNs (takes ownership via .take())
@@ -202,7 +206,7 @@ pub fn play_evaluation_game_koth(
         };
 
         // Use (counts-1) sampling for variety, but play forced wins deterministically
-        let selected_move = select_eval_move(&root);
+        let selected_move = select_eval_move(&root, &mut rng);
         match selected_move {
             None => break,
             Some(mv) => {
@@ -328,6 +332,7 @@ pub fn evaluate_models_koth(
             enable_koth,
             enable_tier1,
             enable_material,
+            game_idx as u64,
         );
 
         match result {

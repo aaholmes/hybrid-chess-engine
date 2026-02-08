@@ -15,6 +15,8 @@ use kingfisher::move_types::Move;
 use kingfisher::tensor::{move_to_index, board_to_planes};
 use kingfisher::transposition::TranspositionTable;
 use rand::Rng;
+use rand::SeedableRng;
+use rand::rngs::StdRng;
 use std::fs::File;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
@@ -76,7 +78,8 @@ fn main() {
     });
 }
 
-fn play_game(_game_num: usize, simulations: u32, model_path: Option<String>, enable_koth: bool, enable_tier1: bool, enable_material: bool) -> Vec<TrainingSample> {
+fn play_game(game_num: usize, simulations: u32, model_path: Option<String>, enable_koth: bool, enable_tier1: bool, enable_material: bool) -> Vec<TrainingSample> {
+    let mut rng = StdRng::seed_from_u64(game_num as u64);
     let move_gen = MoveGen::new();
 
     // Each thread gets its own NN instance, wrapped in an InferenceServer
@@ -161,7 +164,7 @@ fn play_game(_game_num: usize, simulations: u32, model_path: Option<String>, ena
         });
 
         // Play Move — sample proportionally from visit counts for exploration
-        let selected_move = sample_proportional(&result.root_policy)
+        let selected_move = sample_proportional(&result.root_policy, &mut rng)
             .unwrap_or_else(|| result.best_move.unwrap());
 
         // Reuse the subtree for the opponent's next move
@@ -236,12 +239,12 @@ fn play_game(_game_num: usize, simulations: u32, model_path: Option<String>, ena
 }
 
 /// Sample a move proportionally from visit counts (temperature = 1).
-fn sample_proportional(policy: &[(Move, u32)]) -> Option<Move> {
+fn sample_proportional(policy: &[(Move, u32)], rng: &mut impl Rng) -> Option<Move> {
     let total: u32 = policy.iter().map(|(_, v)| v.saturating_sub(1)).sum();
     if total == 0 {
         return None;
     }
-    let threshold = rand::thread_rng().gen_range(0..total);
+    let threshold = rng.gen_range(0..total);
     let mut cumulative = 0u32;
     for (mv, visits) in policy {
         cumulative += visits.saturating_sub(1);
