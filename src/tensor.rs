@@ -1,9 +1,72 @@
 //! Tensor mapping logic for AlphaZero policy representation
 //!
 //! Maps chess moves to a flat index (0..4672) representing the 8x8x73 policy tensor.
+//! Also provides board-to-planes encoding for NN input (STM-relative perspective).
 
+use crate::board::Board;
 use crate::move_types::Move;
-use crate::piece_types::{KNIGHT, BISHOP, ROOK, QUEEN};
+use crate::piece_types::{KNIGHT, BISHOP, ROOK, QUEEN, WHITE, BLACK};
+
+/// Encode a board into 17×8×8 planes from STM's perspective.
+/// Returns Vec<f32> of length 1088 (17 * 64).
+///
+/// Plane layout (STM-relative):
+///   0-5:   STM pieces (P, N, B, R, Q, K)
+///   6-11:  Opponent pieces (P, N, B, R, Q, K)
+///   12:    En passant target square
+///   13-16: Castling rights (STM-KS, STM-QS, Opp-KS, Opp-QS)
+///
+/// When Black to move, ranks are flipped (rank 0 → tensor row 7, rank 7 → tensor row 0)
+/// so that STM's pieces always appear at high tensor rows ("bottom").
+pub fn board_to_planes(board: &Board) -> Vec<f32> {
+    let mut planes = vec![0.0f32; 17 * 8 * 8];
+    let stm = if board.w_to_move { WHITE } else { BLACK };
+    let opp = if board.w_to_move { BLACK } else { WHITE };
+
+    // Planes 0-5: STM pieces | Planes 6-11: Opponent pieces
+    for (p_idx, &color) in [stm, opp].iter().enumerate() {
+        for pt in 0..6 {
+            let offset = (p_idx * 6 + pt) * 64;
+            let bb = board.get_piece_bitboard(color, pt);
+            for i in 0..64 {
+                if (bb >> i) & 1 == 1 {
+                    let rank = i / 8;
+                    let file = i % 8;
+                    let tensor_rank = if board.w_to_move { 7 - rank } else { rank };
+                    planes[offset + tensor_rank * 8 + file] = 1.0;
+                }
+            }
+        }
+    }
+
+    // Plane 12: En passant target square
+    if let Some(sq) = board.en_passant() {
+        let rank = (sq / 8) as usize;
+        let file = (sq % 8) as usize;
+        let tensor_rank = if board.w_to_move { 7 - rank } else { rank };
+        planes[12 * 64 + tensor_rank * 8 + file] = 1.0;
+    }
+
+    // Planes 13-16: Castling rights (STM-relative)
+    let rights = if board.w_to_move {
+        [board.castling_rights.white_kingside, board.castling_rights.white_queenside,
+         board.castling_rights.black_kingside, board.castling_rights.black_queenside]
+    } else {
+        [board.castling_rights.black_kingside, board.castling_rights.black_queenside,
+         board.castling_rights.white_kingside, board.castling_rights.white_queenside]
+    };
+
+    for (i, &allowed) in rights.iter().enumerate() {
+        if allowed {
+            let offset = (13 + i) * 64;
+            for j in 0..64 {
+                planes[offset + j] = 1.0;
+            }
+        }
+    }
+
+    planes
+}
 
 /// Converts a move to a flat index in the 8x8x73 policy tensor.
 ///

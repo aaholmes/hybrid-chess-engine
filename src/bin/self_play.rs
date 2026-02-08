@@ -12,8 +12,7 @@ use kingfisher::mcts::{
 };
 use kingfisher::neural_net::NeuralNetPolicy;
 use kingfisher::move_types::Move;
-use kingfisher::piece_types::{WHITE, BLACK};
-use kingfisher::tensor::move_to_index;
+use kingfisher::tensor::{move_to_index, board_to_planes};
 use kingfisher::transposition::TranspositionTable;
 use rand::Rng;
 use std::fs::File;
@@ -253,61 +252,7 @@ fn save_binary_data(filename: &str, samples: &[TrainingSample]) -> std::io::Resu
 
     for sample in samples {
         // 1. Board Features [17, 8, 8] -> 1088 floats
-        let mut board_planes = vec![0.0f32; 17 * 8 * 8];
-
-        let stm = if sample.board.w_to_move { WHITE } else { BLACK };
-        let opp = if sample.board.w_to_move { BLACK } else { WHITE };
-
-        // 0-5: Our Pieces | 6-11: Their Pieces
-        for (p_idx, &color) in [stm, opp].iter().enumerate() {
-            for pt in 0..6 {
-                let offset = (p_idx * 6 + pt) * 64;
-                let bb = sample.board.get_piece_bitboard(color, pt);
-                for i in 0..64 {
-                    if (bb >> i) & 1 == 1 {
-                        let rank = i / 8;
-                        let file = i % 8;
-                        let tensor_rank = if sample.board.w_to_move { 7 - rank } else { rank };
-                        board_planes[offset + tensor_rank * 8 + file] = 1.0;
-                    }
-                }
-            }
-        }
-
-        // 12: En Passant
-        if let Some(sq) = sample.board.en_passant() {
-            let offset = 12 * 64;
-            let rank = (sq / 8) as usize;
-            let file = (sq % 8) as usize;
-            let tensor_rank = if sample.board.w_to_move { 7 - rank } else { rank };
-            board_planes[offset + tensor_rank * 8 + file] = 1.0;
-        }
-
-        // 13-16: Castling
-        let rights = if sample.board.w_to_move {
-            [
-                sample.board.castling_rights.white_kingside,
-                sample.board.castling_rights.white_queenside,
-                sample.board.castling_rights.black_kingside,
-                sample.board.castling_rights.black_queenside,
-            ]
-        } else {
-            [
-                sample.board.castling_rights.black_kingside,
-                sample.board.castling_rights.black_queenside,
-                sample.board.castling_rights.white_kingside,
-                sample.board.castling_rights.white_queenside,
-            ]
-        };
-
-        for (i, &allowed) in rights.iter().enumerate() {
-            if allowed {
-                let offset = (13 + i) * 64;
-                for j in 0..64 {
-                    board_planes[offset + j] = 1.0;
-                }
-            }
-        }
+        let board_planes = board_to_planes(&sample.board);
 
         for val in board_planes {
             buffer.extend_from_slice(&val.to_le_bytes());
