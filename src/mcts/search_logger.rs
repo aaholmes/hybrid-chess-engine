@@ -361,22 +361,9 @@ impl SearchLogger {
         let emoji = if self.use_emoji { "⚔️ " } else { "[TACT] " };
         
         let mut summary = String::new();
-        let mut captures = 0;
-        let mut checks = 0;
-        let mut forks = 0;
-        
-        for tm in moves {
-            match tm {
-                TacticalMove::Capture(_, _) => captures += 1,
-                TacticalMove::Check(_, _) => checks += 1,
-                TacticalMove::Fork(_, _) => forks += 1,
-                TacticalMove::Pin(_, _) => {} // Not counted in summary
-            }
-        }
-        
-        if captures > 0 { write!(summary, "{} captures ", captures).ok(); }
-        if checks > 0 { write!(summary, "{} checks ", checks).ok(); }
-        if forks > 0 { write!(summary, "{} forks", forks).ok(); }
+        let captures = moves.len();
+
+        if captures > 0 { write!(summary, "{} captures", captures).ok(); }
         
         self.sink.writeln(&format!(
             "{}{}Tactical moves: {}",

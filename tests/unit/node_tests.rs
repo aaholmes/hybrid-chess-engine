@@ -61,8 +61,10 @@ fn test_values_in_tanh_domain() {
             let avg_value = node.total_value / node.visits as f64;
             assert_in_tanh_domain(avg_value, "average Q value");
         }
+        // MVV-LVA Q-init values are normalized to [-1, 1]
         for (_, &v) in &node.tactical_values {
-            assert_in_tanh_domain(v, "tactical_values entry");
+            assert!(v >= -1.0 && v <= 1.0,
+                "tactical_values entry {} outside [-1, 1]", v);
         }
     }
 
@@ -224,7 +226,6 @@ fn test_move_category_ordering() {
 fn test_node_origin_colors() {
     // Verify NodeOrigin colors are valid strings
     assert!(!NodeOrigin::Gate.to_color().is_empty());
-    assert!(!NodeOrigin::Grafted.to_color().is_empty());
     assert!(!NodeOrigin::Neural.to_color().is_empty());
     assert!(!NodeOrigin::Unknown.to_color().is_empty());
 }
@@ -232,7 +233,6 @@ fn test_node_origin_colors() {
 #[test]
 fn test_node_origin_labels() {
     assert_eq!(NodeOrigin::Gate.to_label(), "T1:Gate");
-    assert_eq!(NodeOrigin::Grafted.to_label(), "T2:QS");
     assert_eq!(NodeOrigin::Neural.to_label(), "T3:NN");
     assert_eq!(NodeOrigin::Unknown.to_label(), "?");
 }

@@ -78,7 +78,6 @@ fn test_tactical_mcts_config_defaults() {
     let config = TacticalMctsConfig::default();
 
     assert!(config.enable_tier1_gate, "Tier 1 should be enabled by default");
-    assert!(config.enable_tier2_graft, "Tier 2 should be enabled by default");
     assert!(config.mate_search_depth > 0, "Mate search depth should be positive");
     assert!(config.exploration_constant > 0.0, "Exploration constant should be positive");
 }
@@ -92,7 +91,6 @@ fn test_tactical_mcts_tier1_disabled() {
         max_iterations: 20,
         time_limit: Duration::from_secs(10),
         enable_tier1_gate: false,
-        enable_tier2_graft: false,
         ..Default::default()
     };
 
@@ -552,48 +550,6 @@ fn test_leaf_values_in_tanh_range() {
     check_tree_values(&root);
 }
 
-// === Tier 2 tactical grafting ===
-
-#[test]
-fn test_tier2_graft_tracks_q_inits() {
-    // Position with captures available — tier2 should produce Q-init values
-    let move_gen = MoveGen::new();
-    // Middlegame position with captures possible
-    let board = Board::new_from_fen("r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4");
-
-    let config = TacticalMctsConfig {
-        max_iterations: 100,
-        time_limit: Duration::from_secs(10),
-        enable_tier2_graft: true,
-        ..Default::default()
-    };
-
-    let (best_move, stats, _) = tactical_mcts_search(board, &move_gen, &mut None, config);
-
-    assert!(best_move.is_some(), "Should find a move");
-    // With tier2 enabled and captures in the position, Q-init should fire
-    assert!(stats.tier2_q_inits > 0,
-        "Tier 2 should have initialized Q values for positions with captures");
-}
-
-#[test]
-fn test_tier2_disabled_still_works() {
-    // With tier2 disabled, search should still find the winning capture
-    let move_gen = MoveGen::new();
-    let board = Board::new_from_fen("8/8/8/3q4/4N3/8/8/K6k w - - 0 1");
-
-    let config = TacticalMctsConfig {
-        max_iterations: 100,
-        time_limit: Duration::from_secs(10),
-        enable_tier2_graft: false,
-        ..Default::default()
-    };
-
-    let (best_move, stats, _) = tactical_mcts_search(board, &move_gen, &mut None, config);
-
-    assert!(best_move.is_some(), "Should still return a move");
-    assert_eq!(stats.tier2_q_inits, 0, "No tier2 inits when disabled");
-}
 
 // === select_best_move_from_root edge cases ===
 
@@ -817,7 +773,6 @@ fn test_all_tiers_disabled() {
         max_iterations: 30,
         time_limit: Duration::from_secs(10),
         enable_tier1_gate: false,
-        enable_tier2_graft: false,
         enable_tier3_neural: false,
         ..Default::default()
     };
@@ -826,7 +781,6 @@ fn test_all_tiers_disabled() {
 
     assert!(best_move.is_some(), "Should still return a move with all tiers disabled");
     assert_eq!(stats.tier1_solutions, 0);
-    assert_eq!(stats.tier2_q_inits, 0);
     assert_eq!(stats.nn_evaluations, 0);
 }
 

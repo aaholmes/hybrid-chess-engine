@@ -392,24 +392,3 @@ impl PestoEval {
         (mg_score * mg_phase + eg_score * eg_phase) / 24
     }
 }
-
-/// Extrapolates a new value [ -1, 1 ] based on a parent value, material delta, and confidence k.
-/// Uses the formula: v = tanh(arctanh(v0) + k * delta)
-pub fn extrapolate_value(parent_value: f64, material_delta_cp: i32, k: f32) -> f64 {
-    // 1. Clamp parent value to avoid infinity at +/- 1.0
-    let v0 = (parent_value as f32).clamp(-0.999, 0.999);
-    
-    // 2. Solve for x0 (Parent Logit)
-    // x = 2 * atanh(v)
-    let x0 = 2.0 * v0.atanh();
-    
-    // 3. Apply Symbolic Shift
-    // material_delta_cp is in centipawns. 100 cp = 1 pawn.
-    let material_units = material_delta_cp as f32 / 100.0;
-    let shift = k * material_units;
-    let new_logit = x0 + shift;
-    
-    // 4. Return new Value [ -1, 1 ]
-    // v = tanh(x / 2)
-    (new_logit / 2.0).tanh() as f64
-}

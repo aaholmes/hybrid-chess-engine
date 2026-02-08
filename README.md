@@ -23,7 +23,7 @@ Caissawary explores **how provably correct subroutines reduce the sample complex
 | Tier | Mechanism | Property |
 |------|-----------|----------|
 | **Tier 1** | Safety Gates | Provably correct in forced situations |
-| **Tier 2** | Tactical Grafting | Classical expertise without NN overhead |
+| **Tier 2** | MVV-LVA Q-init | Prioritizes good captures via UCB without NN overhead |
 | **Tier 3** | Neural Networks | Handles genuinely uncertain positions |
 
 ### Running Experiments
@@ -51,13 +51,11 @@ Before any expansion, the engine runs ultra-fast "Safety Gates" to detect immedi
 
 **Gate-resolved nodes are terminal.** When a Safety Gate fires, it caches the exact value in the node and the node is never expanded (no children are created). This is critical: if the node were expanded, subsequent MCTS visits would descend into children evaluated by approximate methods (classical eval or NN), diluting the proven value toward zero. By treating gate-resolved nodes identically to checkmate/stalemate, every future visit re-uses the cached value, keeping Q-values exact.
 
-#### 2. Tactical Integration (Tier 2):
-If the node is not a terminal state, the engine performs a "Tactical Graft":
-- **Material Q-Search:** For each legal capture, the engine runs `forced_material_balance()` -- a material-only quiescence search using hard-coded piece values (P=1, N=3, B=3, R=5, Q=9) with no positional terms. This resolves forced capture sequences to a quiet position.
-- **Grafting:** The best tactical move (by material score) is "grafted" into the MCTS tree immediately.
-- **Dynamic Value Extrapolation:** The engine uses the **Symbolic Residual Formula** to price the material won by the CPU:
-  $$V_{final} = \tanh\left(\text{arctanh}(V_{parent}) + k \cdot \Delta M\right)$$
-  Where $k$ is a **position-specific confidence scalar** predicted by the neural network. This allows the engine to determine if a material advantage is decisive or irrelevant in the current strategic context.
+#### 2. MVV-LVA Q-init (Tier 2):
+When a node is expanded, capture/promotion children receive MVV-LVA scores as Q-init values:
+- **MVV-LVA Scoring:** Each capture is scored as `10*victim - attacker` (e.g., PxQ = 39, QxP = 5), normalized to [-1, 1] by dividing by 50.
+- **UCB Prioritization:** These normalized scores serve as initial Q-values for unvisited capture children in UCB selection, so good captures (like PxQ) are explored before bad ones (like QxP).
+- **No Q-Search at Expansion:** Unlike the previous grafting approach, this adds zero cost at expansion time — just a simple integer score per capture.
 
 #### 3. Material-Aware Strategic Evaluation (Tier 3):
 Every leaf node's value is computed as:
@@ -71,12 +69,8 @@ Where:
 
 The NN outputs raw $V_{logit}$ at inference time (not `tanh`), while the Rust engine computes $\Delta M$ via material Q-search and applies the final `tanh`. This separation allows the engine to use an enhanced material evaluation (resolving tactical exchanges) that the NN never sees during training. Without a neural network, the engine falls back to a purely material-based evaluation: $V_{logit} = 0$, $k = 0.5$ (matching the NN initialization where $\text{Softplus}(0)/(2\ln 2) \approx 0.5$), $V_{final} = \tanh(0.5 \cdot \Delta M)$.
 
-## Tier 2: Tactical Grafting
-Instead of treating all new nodes as equal, Caissawary injects tactical knowledge directly into the tree structure. This "Neurosymbolic" approach separates **Logical Truth** from **Contextual Interpretation**.
-
-- **The CPU (Logical Truth):** Runs minimax on captures using raw integers (`material_qsearch`). It is blazing fast and ignores strategic "noise."
-- **The Neural Net (Contextual Interpretation):** Predicts $V_{logit}$ (positional assessment) and $k$ (the "price" of material).
-- **Symbolic Recombination:** The Rust engine computes $\Delta M$ via material-only Q-search and combines it with the NN's $V_{logit}$: $\tanh(V_{logit} + k \cdot \Delta M)$. For grafted children, the engine extrapolates values using the parent's evaluation and the material delta.
+## Tier 2: MVV-LVA Q-init
+Instead of treating all new children as equal, Caissawary injects capture ordering knowledge at expansion time using MVV-LVA (Most Valuable Victim - Least Valuable Attacker) scores. This lightweight approach gives UCB selection immediate information about which captures are likely good, without any expensive Q-search or NN call at expansion time. The material dynamics are fully handled by the leaf value function: $\tanh(V_{logit} + k \cdot \Delta M)$.
 
 ## Tier 3: LogosNet Architecture (Optional)
 The engine supports a **Neurosymbolic** mode using the LogosNet architecture.
@@ -192,7 +186,6 @@ pub struct TacticalMctsConfig {
 
     // Ablation flags for paper experiments
     pub enable_tier1_gate: bool,    // Safety Gates (Mate Search + KOTH)
-    pub enable_tier2_graft: bool,   // Tactical Grafting from QS
     pub enable_tier3_neural: bool,  // Neural Network Policy
     pub enable_q_init: bool,        // Q-init from tactical values
     pub enable_koth: bool,          // KOTH variant (off for standard chess)
@@ -304,7 +297,7 @@ The unit test suite covers all core modules:
 | MCTS | node_tests, selection_tests, simulation_tests | UCT/PUCT, playout, node lifecycle |
 | MCTS selection | selection_optimization_tests | Redundancy-free selection, UCB correctness |
 | Tree reuse | tree_reuse_tests | Subtree extraction, visit preservation |
-| Tactical MCTS | tactical_mcts_tests | Mate-in-1, time/iteration limits, grafting, KOTH terminal detection, early termination |
+| Tactical MCTS | tactical_mcts_tests | Mate-in-1, time/iteration limits, MVV-LVA Q-init, KOTH terminal detection, early termination |
 | Tactical detection | tactical_detection_tests | Fork/check/capture detection, MVV-LVA, cache eviction, filtering |
 | Mate search | mate_search_tests | Mate-in-1/2, depth, node budgets |
 | Check detection | gives_check_tests | Direct/discovered check, property testing |
@@ -344,7 +337,7 @@ dot -Tsvg mcts_tree.dot -o tree.svg
 ### Interpreting the Tree
 Nodes are color-coded to reveal how the engine solved or evaluated them:
 - **Red (Tier 1 Gate):** Solved immediately by "Safety Gates" (Mate Search or KOTH logic) without expansion.
-- **Gold (Tier 2 Graft):** A tactical move found by Quiescence Search and "grafted" into the tree.
+- **Lightblue (Tier 3 Neural):** A node evaluated by the neural network or classical fallback.
 - **Blue (Tier 3 Neural):** A standard node evaluated by the neural network (or material-only fallback in classical mode).
 - **Grey (Shadow Prior):** A tactical move that was considered but refuted/pruned by the engine.
 

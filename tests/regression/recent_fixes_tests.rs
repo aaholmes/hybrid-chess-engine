@@ -124,7 +124,7 @@ mod stm_convention {
     }
 }
 
-/// Test: Tactical Q-initialization works correctly
+/// Test: MVV-LVA Q-initialization works correctly
 mod tactical_q_init {
     use super::*;
 
@@ -133,50 +133,47 @@ mod tactical_q_init {
     fn test_tactical_values_influence_selection() {
         let move_gen = MoveGen::new();
         let board = board_from_fen(positions::WINNING_CAPTURE);
-        
+
         let root = MctsNode::new_root(board, &move_gen);
-        
-        // Manually inject tactical values
+
+        // Manually inject MVV-LVA Q-init values (normalized to [-1, 1])
         let nxd5 = Move::new(28, 35, None); // e4xd5 (28->35)
         let quiet = Move::new(28, 27, None); // e4-d4 (28->27)
-        
+
         {
             let mut root_mut = root.borrow_mut();
-            // Pretend quiescence found Nxd5 is worth +0.8
-            root_mut.tactical_values.insert(nxd5, 0.8);
-            
-            // And some quiet move is worth 0.0
+            // MVV-LVA: NxQ would be (10*4-1)/50 = 0.78
+            root_mut.tactical_values.insert(nxd5, 0.78);
+
+            // Quiet move gets no Q-init
             root_mut.tactical_values.insert(quiet, 0.0);
-            
-            // We must simulate expansion (children creation) because select_child requires children
+
             // Create dummy children
-            let child1 = MctsNode::new_child(Rc::downgrade(&root), nxd5, root_mut.state.clone(), &move_gen); // State invalid but ok for this test
+            let child1 = MctsNode::new_child(Rc::downgrade(&root), nxd5, root_mut.state.clone(), &move_gen);
             let child2 = MctsNode::new_child(Rc::downgrade(&root), quiet, root_mut.state.clone(), &move_gen);
-            
+
             root_mut.children.push(child1);
             root_mut.children.push(child2);
-            
+
             // Set policy evaluated so it doesn't try to call NN
             root_mut.policy_evaluated = true;
-            // Set priorities (uniform)
             root_mut.move_priorities.insert(nxd5, 0.5);
             root_mut.move_priorities.insert(quiet, 0.5);
         }
-        
-        // Selection should prefer Nxd5 initially because of higher Q-init (0.8 vs 0.0)
+
+        // Selection should prefer Nxd5 initially because of higher Q-init (0.78 vs 0.0)
         let mut stats = TacticalMctsStats::default();
-        let mut nn_policy: Option<NeuralNetPolicy> = None;
-    let config = TacticalMctsConfig::default();
-    let best_child = select_child_with_tactical_priority(
-        root.clone(),
-        &config,
-        &move_gen,
-        &mut None,
-        &mut stats,
-        None,
-        0,
-    );
-        
+        let config = TacticalMctsConfig::default();
+        let best_child = select_child_with_tactical_priority(
+            root.clone(),
+            &config,
+            &move_gen,
+            &mut None,
+            &mut stats,
+            None,
+            0,
+        );
+
         assert!(best_child.is_some());
         assert_eq!(best_child.unwrap().borrow().action.unwrap(), nxd5,
             "Selection should prefer move with higher tactical Q-init");

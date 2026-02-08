@@ -119,7 +119,6 @@ fn run_experiment(
             mate_search_depth: config.search_config.mate_search_depth,
             exploration_constant: config.search_config.exploration_constant,
             enable_tier1_gate: config.ablation.enable_tier1_gate,
-            enable_tier2_graft: config.ablation.enable_tier2_graft,
             enable_tier3_neural: config.ablation.enable_tier3_neural,
             enable_q_init: config.ablation.enable_q_init,
             use_neural_policy: config.ablation.enable_tier3_neural,
@@ -147,10 +146,10 @@ fn run_experiment(
             mates_found_by_gate: stats.mates_found,
             koth_wins_detected: 0, // TODO: track separately
             nn_calls_saved_tier1: stats.nn_saved_by_tier1,
-            tier2_grafts: stats.tier2_q_inits,
-            positions_with_tactical_moves: 0, // TODO
-            avg_graft_depth: stats.avg_qs_depth,
-            nn_calls_saved_tier2: stats.nn_saved_by_tier2,
+            tier2_grafts: 0,
+            positions_with_tactical_moves: 0,
+            avg_graft_depth: 0.0,
+            nn_calls_saved_tier2: 0,
             nn_evaluations: stats.nn_evaluations,
             nn_policy_queries: stats.nn_policy_evaluations,
             avg_nn_inference_time_us: 0.0, // TODO
@@ -163,8 +162,6 @@ fn run_experiment(
         // Determine which tier was used
         let tier_used = if stats.tier1_solutions > 0 {
             TierUsed::Tier1Gate
-        } else if stats.tier2_q_inits > 0 {
-            TierUsed::Tier2Graft
         } else if stats.nn_evaluations > 0 {
             TierUsed::Tier3Neural
         } else {

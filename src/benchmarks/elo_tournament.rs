@@ -322,7 +322,6 @@ impl EloTournament {
                     inference_server: None,
                     logger: None,
                     enable_tier1_gate: false,
-                    enable_tier2_graft: false,
                     enable_tier3_neural: false,
                     enable_q_init: false,
                     ..Default::default()
@@ -345,7 +344,6 @@ impl EloTournament {
                     inference_server: None,
                     logger: None,
                     enable_tier1_gate: true,
-                    enable_tier2_graft: false,
                     enable_tier3_neural: false,
                     enable_q_init: false,
                     ..Default::default()
@@ -368,7 +366,6 @@ impl EloTournament {
                     inference_server: None,
                     logger: None,
                     enable_tier1_gate: true,
-                    enable_tier2_graft: true,
                     enable_tier3_neural: false,
                     enable_q_init: true,
                     ..Default::default()
@@ -392,7 +389,6 @@ impl EloTournament {
                     inference_server: Some(Arc::new(server)),
                     logger: None,
                     enable_tier1_gate: true,
-                    enable_tier2_graft: true,
                     enable_tier3_neural: true,
                     enable_q_init: true,
                     ..Default::default()

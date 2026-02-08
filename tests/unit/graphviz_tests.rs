@@ -25,7 +25,6 @@ fn test_export_dot_basic_structure() {
     // Should have legend
     assert!(dot.contains("cluster_legend"));
     assert!(dot.contains("Tier 1: Gate"));
-    assert!(dot.contains("Tier 2: Grafted"));
     assert!(dot.contains("Tier 3: Neural"));
 }
 
@@ -62,38 +61,38 @@ fn test_export_dot_mate_position_shows_gate_color() {
 }
 
 #[test]
-fn test_export_dot_tactical_position_shows_graft_color() {
+fn test_export_dot_tactical_position_has_nodes() {
     let move_gen = MoveGen::new();
     let server = InferenceServer::new_mock();
-    
+
     // Position with obvious capture
     let board = Board::new_from_fen(positions::WINNING_CAPTURE);
 
     let config = TacticalMctsConfig {
         max_iterations: 30,
         time_limit: Duration::from_secs(5),
-        mate_search_depth: 0, // Disable mate search to force QS path
+        mate_search_depth: 0,
         inference_server: Some(Arc::new(server)),
         ..Default::default()
     };
-    
+
     let (_, _, root) = tactical_mcts_search(
         board,
         &move_gen,
         &mut None,
         config,
     );
-    
+
     let dot = root.borrow().export_dot(3, 0);
-    
-    // Should have gold (grafted) colored nodes from QS
-    assert!(dot.contains("gold"), "Grafted nodes should be gold (orange)");
+
+    // Should have nodes in the tree
+    let node_count = dot.matches(" [label=").count();
+    assert!(node_count > 1, "Tree should have multiple nodes");
 }
 
 #[test]
 fn test_node_origin_enum_colors() {
     assert_eq!(NodeOrigin::Gate.to_color(), "firebrick1");
-    assert_eq!(NodeOrigin::Grafted.to_color(), "gold");
     assert_eq!(NodeOrigin::Neural.to_color(), "lightblue");
     assert_eq!(NodeOrigin::Unknown.to_color(), "white");
 }
@@ -101,7 +100,6 @@ fn test_node_origin_enum_colors() {
 #[test]
 fn test_node_origin_labels() {
     assert_eq!(NodeOrigin::Gate.to_label(), "T1:Gate");
-    assert_eq!(NodeOrigin::Grafted.to_label(), "T2:QS");
     assert_eq!(NodeOrigin::Neural.to_label(), "T3:NN");
 }
 
@@ -171,10 +169,10 @@ fn test_export_dot_min_visits_filter() {
 }
 
 #[test]
-fn test_export_dot_contains_shadow_priors() {
+fn test_export_dot_no_ghost_nodes() {
     let move_gen = MoveGen::new();
     let server = InferenceServer::new_mock();
-    
+
     // Simple position with tactical options — fast in debug builds
     let board = Board::new_from_fen("4k3/8/8/3q4/4N3/8/8/4K3 w - - 0 1");
 
@@ -185,20 +183,16 @@ fn test_export_dot_contains_shadow_priors() {
         inference_server: Some(Arc::new(server)),
         ..Default::default()
     };
-    
+
     let (_, _, root) = tactical_mcts_search(
         board,
         &move_gen,
         &mut None,
         config,
     );
-    
+
     let dot = root.borrow().export_dot(3, 0);
-    
-    // Should have dashed edges for shadow priors (if any exist)
-    // This depends on the position having refuted tactical moves
-    if dot.contains("style=dashed") {
-        assert!(dot.contains("Pruned") || dot.contains("lightgrey"),
-            "Shadow priors should be styled as dashed with grey");
-    }
+
+    // Ghost nodes were removed — no dashed/pruned nodes should appear
+    assert!(!dot.contains("Pruned"), "Ghost nodes should no longer appear in DOT output");
 }

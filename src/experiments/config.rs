@@ -32,8 +32,6 @@ pub struct SearchConfig {
 pub struct AblationConfig {
     /// Enable Tier 1: Safety gates (mate search + KOTH)
     pub enable_tier1_gate: bool,
-    /// Enable Tier 2: Tactical grafting from quiescence search
-    pub enable_tier2_graft: bool,
     /// Enable Tier 3: Neural network policy/value
     pub enable_tier3_neural: bool,
     /// Enable Q-value initialization from tactical analysis
@@ -45,7 +43,6 @@ impl AblationConfig {
     pub fn full() -> Self {
         AblationConfig {
             enable_tier1_gate: true,
-            enable_tier2_graft: true,
             enable_tier3_neural: true,
             enable_q_init: true,
         }
@@ -55,7 +52,6 @@ impl AblationConfig {
     pub fn baseline_mcts() -> Self {
         AblationConfig {
             enable_tier1_gate: false,
-            enable_tier2_graft: false,
             enable_tier3_neural: false,
             enable_q_init: false,
         }
@@ -65,7 +61,6 @@ impl AblationConfig {
     pub fn tier1_only() -> Self {
         AblationConfig {
             enable_tier1_gate: true,
-            enable_tier2_graft: false,
             enable_tier3_neural: false,
             enable_q_init: false,
         }
@@ -75,7 +70,6 @@ impl AblationConfig {
     pub fn classical_hybrid() -> Self {
         AblationConfig {
             enable_tier1_gate: true,
-            enable_tier2_graft: true,
             enable_tier3_neural: false,
             enable_q_init: true,
         }
@@ -85,7 +79,6 @@ impl AblationConfig {
     pub fn neural_only() -> Self {
         AblationConfig {
             enable_tier1_gate: false,
-            enable_tier2_graft: false,
             enable_tier3_neural: true,
             enable_q_init: false,
         }

@@ -23,11 +23,11 @@ pub struct SearchMetrics {
     pub koth_wins_detected: u32,
     pub nn_calls_saved_tier1: u32,
     
-    // Tier 2 metrics (Tactical Grafting)
+    // Tier 2 metrics (MVV-LVA Q-init for captures)
     pub tier2_grafts: u32,
     pub positions_with_tactical_moves: u32,
     pub avg_graft_depth: f32,
-    pub nn_calls_saved_tier2: u32,
+    pub nn_calls_saved_tier2: u32, // Legacy field, always 0 (no longer saving NN calls)
     
     // Tier 3 metrics (Neural)
     pub nn_evaluations: u32,

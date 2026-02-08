@@ -24,8 +24,6 @@ pub enum NodeOrigin {
     Unknown,
     /// Tier 1: Solved by mate search or KOTH gate
     Gate,
-    /// Tier 2: Created from quiescence search graft
-    Grafted,
     /// Tier 3: Standard neural network evaluation
     Neural,
 }
@@ -34,16 +32,14 @@ impl NodeOrigin {
     pub fn to_color(&self) -> &'static str {
         match self {
             NodeOrigin::Gate => "firebrick1",
-            NodeOrigin::Grafted => "gold",
             NodeOrigin::Neural => "lightblue",
             NodeOrigin::Unknown => "white",
         }
     }
-    
+
     pub fn to_label(&self) -> &'static str {
         match self {
             NodeOrigin::Gate => "T1:Gate",
-            NodeOrigin::Grafted => "T2:QS",
             NodeOrigin::Neural => "T3:NN",
             NodeOrigin::Unknown => "?",
         }
@@ -110,12 +106,8 @@ pub struct MctsNode {
     pub policy_evaluated: bool,
     /// Move priorities for UCB selection (after tactical phase)
     pub move_priorities: HashMap<Move, f64>,
-    /// Extrapolated values for tactical moves that were not the best PV (logit space or raw values)
+    /// Q-init values for capture/promotion moves (MVV-LVA normalized to [-1, 1])
     pub tactical_values: HashMap<Move, f64>,
-    /// Whether Tier 2 tactical resolution (QS) has been performed for this node
-    pub tactical_resolution_done: bool,
-    /// Whether this node was created as part of a tactical PV graft
-    pub is_tactical_node: bool,
 }
 
 impl MctsNode {
@@ -155,8 +147,6 @@ impl MctsNode {
             policy_evaluated: false,
             move_priorities: HashMap::new(),
             tactical_values: HashMap::new(),
-            tactical_resolution_done: false,
-            is_tactical_node: false,
         }))
     }
 
@@ -202,8 +192,6 @@ impl MctsNode {
             policy_evaluated: false,
             move_priorities: HashMap::new(),
             tactical_values: HashMap::new(),
-            tactical_resolution_done: false,
-            is_tactical_node: false,
         }))
     }
 
@@ -442,9 +430,7 @@ impl MctsNode {
         output.push_str("    label=\"Legend\";\n");
         output.push_str("    style=dashed;\n");
         output.push_str("    leg_gate [label=\"Tier 1: Gate\\n(Mate/KOTH)\", fillcolor=firebrick1];\n");
-        output.push_str("    leg_graft [label=\"Tier 2: Grafted\\n(QS)\", fillcolor=gold];\n");
         output.push_str("    leg_neural [label=\"Tier 3: Neural\", fillcolor=lightblue];\n");
-        output.push_str("    leg_ghost [label=\"Shadow Prior\\n(Refuted)\", style=dashed, fillcolor=lightgrey];\n");
         output.push_str("  }\n\n");
         
         let mut id_counter = 0;
@@ -539,48 +525,17 @@ impl MctsNode {
             child_ref.recursive_dot(out, child_id, id_counter, depth + 1, limit, min_visits);
         }
 
-        // Add ghost nodes for tactical values (shadow priors)
-        if depth < limit {
-            for (mv, score) in &self.tactical_values {
-                // Only show if not already a child
-                let already_child = self.children.iter()
-                    .any(|c| c.borrow().action == Some(*mv));
-                
-                if !already_child {
-                    *id_counter += 1;
-                    let ghost_id = *id_counter;
-                    
-                    let ghost_label = format!(
-                        "{{ {} | QS: {:.2} | (Pruned) }}",
-                        mv.to_uci(),
-                        score
-                    );
-                    
-                    out.push_str(&format!(
-                        "  {} [label=\"{}\", style=dashed, fillcolor=lightgrey];\n",
-                        ghost_id, ghost_label
-                    ));
-                    out.push_str(&format!(
-                        "  {} -> {} [style=dashed, color=grey];\n",
-                        my_id, ghost_id
-                    ));
-                }
-            }
-        }
     }
     
     fn determine_node_color(&self) -> &'static str {
         // Priority: explicit origin > inferred from state
         match self.origin {
             NodeOrigin::Gate => "firebrick1",
-            NodeOrigin::Grafted => "gold", 
             NodeOrigin::Neural => "lightblue",
             NodeOrigin::Unknown => {
                 // Infer from node state
                 if self.terminal_or_mate_value.is_some() && self.visits == 0 {
                     "firebrick1" // Solved by gate before expansion
-                } else if self.is_tactical_node {
-                    "gold" // Tactical graft
                 } else if self.nn_value.is_some() {
                     "lightblue" // Has neural evaluation
                 } else {

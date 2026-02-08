@@ -8,7 +8,6 @@
 
 use crate::board::Board;
 use crate::boardstack::BoardStack;
-use crate::eval::extrapolate_value;
 use crate::mcts::node::{MctsNode, NodeOrigin};
 use crate::mcts::selection::select_child_with_tactical_priority;
 use crate::mcts::inference_server::InferenceServer;
@@ -41,8 +40,6 @@ pub struct TacticalMctsConfig {
     // Ablation flags for paper experiments
     /// Enable Tier 1 (Safety Gates: Mate Search + KOTH)
     pub enable_tier1_gate: bool,
-    /// Enable Tier 2 (Tactical Grafting from QS)
-    pub enable_tier2_graft: bool,
     /// Enable Tier 3 (Neural Network Policy)
     pub enable_tier3_neural: bool,
     /// Enable Q-init from tactical values
@@ -67,7 +64,6 @@ impl Default for TacticalMctsConfig {
             logger: None,
             // All tiers enabled by default
             enable_tier1_gate: true,
-            enable_tier2_graft: true,
             enable_tier3_neural: true,
             enable_q_init: true,
             enable_koth: false,
@@ -94,24 +90,16 @@ pub struct TacticalMctsStats {
     pub nn_evaluations: u32,
     /// NN evaluations saved by Tier 1 gates
     pub nn_saved_by_tier1: u32,
-    /// NN evaluations saved by Tier 2 grafts
-    pub nn_saved_by_tier2: u32,
     /// Positions where Tier 1 found forced win/loss
     pub tier1_solutions: u32,
-    /// Positions where Tier 2 provided Q-init
-    pub tier2_q_inits: u32,
-    /// Average QS depth reached
-    pub avg_qs_depth: f32,
-    /// Percentage of nodes with tactical moves available
-    pub tactical_node_ratio: f32,
 }
 
 impl TacticalMctsStats {
     /// Calculate NN call reduction percentage
     pub fn nn_reduction_percentage(&self) -> f64 {
-        let total_potential = self.nn_evaluations + self.nn_saved_by_tier1 + self.nn_saved_by_tier2;
+        let total_potential = self.nn_evaluations + self.nn_saved_by_tier1;
         if total_potential == 0 { return 0.0; }
-        100.0 * (self.nn_saved_by_tier1 + self.nn_saved_by_tier2) as f64 / total_potential as f64
+        100.0 * self.nn_saved_by_tier1 as f64 / total_potential as f64
     }
     
     /// Generate LaTeX metrics table
@@ -125,7 +113,6 @@ impl TacticalMctsStats {
         s.push_str(&format!(r"Nodes Expanded & {} \\", self.nodes_expanded)); s.push_str("\n");
         s.push_str(&format!(r"NN Evaluations & {} \\", self.nn_evaluations)); s.push_str("\n");
         s.push_str(&format!(r"NN Saved (Tier 1) & {} \\", self.nn_saved_by_tier1)); s.push_str("\n");
-        s.push_str(&format!(r"NN Saved (Tier 2) & {} \\", self.nn_saved_by_tier2)); s.push_str("\n");
         s.push_str(&format!(r"Reduction & {:.1}\% \\", self.nn_reduction_percentage())); s.push_str("\n");
         s.push_str(r"\bottomrule"); s.push_str("\n");
         s.push_str(r"\end{tabular}"); s.push_str("\n");
@@ -501,10 +488,6 @@ fn evaluate_leaf_node(
             k_val = classical_k;
         }
         node_ref.k_val = k_val;
-    } else {
-        if node_ref.origin == NodeOrigin::Grafted {
-            stats.nn_saved_by_tier2 += 1;
-        }
     }
 
     node_ref.nn_value.unwrap()
@@ -514,8 +497,8 @@ fn evaluate_and_expand_node(
     node: Rc<RefCell<MctsNode>>,
     move_gen: &MoveGen,
     stats: &mut TacticalMctsStats,
-    config: &TacticalMctsConfig,
-    logger: Option<&Arc<SearchLogger>>,
+    _config: &TacticalMctsConfig,
+    _logger: Option<&Arc<SearchLogger>>,
 ) {
     let mut node_ref = node.borrow_mut();
     
@@ -523,79 +506,9 @@ fn evaluate_and_expand_node(
         return;
     }
 
-    if config.enable_tier2_graft {
-        if let Some(log) = logger {
-            log.log_qs_start(&node_ref.state);
-        }
-
-        // Material-based Q-init: use forced_material_balance instead of Pesto QS
-        let parent_material = node_ref.state.material_imbalance();
-        let captures = move_gen.gen_pseudo_legal_captures(&node_ref.state);
-        let mut siblings: Vec<(Move, i32)> = Vec::new();
-        let mut best_score = parent_material;
-        let mut best_mv: Option<Move> = None;
-
-        for capture in captures {
-            let next = node_ref.state.apply_move_to_board(capture);
-            if !next.is_legal(move_gen) { continue; }
-            let mut child_stack = BoardStack::with_board(next);
-            let child_material_stm = forced_material_balance(&mut child_stack, move_gen);
-            let child_score = -child_material_stm; // negate: child's STM is opponent
-            siblings.push((capture, child_score));
-            if child_score > best_score {
-                best_score = child_score;
-                best_mv = Some(capture);
-            }
-        }
-
-        if !siblings.is_empty() {
-            stats.tier2_q_inits += 1;
-            stats.tactical_node_ratio = (stats.tactical_node_ratio * 0.9) + 0.1;
-
-            if let Some(log) = logger {
-                let pv: Vec<Move> = best_mv.into_iter().collect();
-                log.log_qs_pv(&pv, best_score);
-            }
-            let parent_v = node_ref.nn_value.unwrap_or(0.0);
-            let k = node_ref.k_val;
-
-            for (mv, child_score) in &siblings {
-                let material_delta_cp = (child_score - parent_material) * 100;
-                let extrapolated_v = extrapolate_value(parent_v, material_delta_cp, k);
-
-                if let Some(log) = logger {
-                    log.log_tier2_graft(*mv, extrapolated_v, k);
-                }
-
-                node_ref.tactical_values.insert(*mv, extrapolated_v);
-
-                // Graft PV child (best capture)
-                if Some(*mv) == best_mv {
-                    let next_board = node_ref.state.apply_move_to_board(*mv);
-                    let child = MctsNode::new_child(Rc::downgrade(&node), *mv, next_board, move_gen);
-                    // extrapolated_v is relative to Parent (Side to Move at Parent).
-                    // child.nn_value must be relative to Child (Side to Move at Child).
-                    // These are opposite sides, so we negate.
-                    child.borrow_mut().nn_value = Some(-extrapolated_v);
-                    child.borrow_mut().k_val = k;
-                    child.borrow_mut().is_tactical_node = true;
-                    child.borrow_mut().origin = NodeOrigin::Grafted;
-                    node_ref.children.push(child);
-                    stats.nodes_expanded += 1;
-                }
-            }
-            node_ref.tactical_resolution_done = true;
-        } else {
-            stats.tactical_node_ratio = stats.tactical_node_ratio * 0.9;
-        }
-    }
-
     let (captures, non_captures) = move_gen.gen_pseudo_legal_moves(&node_ref.state);
-    for mv in captures.iter().chain(non_captures.iter()) {
-        if node_ref.children.iter().any(|c| c.borrow().action == Some(*mv)) {
-            continue;
-        }
 
+    for mv in captures.iter().chain(non_captures.iter()) {
         let new_board = node_ref.state.apply_move_to_board(*mv);
         if new_board.is_legal(move_gen) {
             let child_node = MctsNode::new_child(Rc::downgrade(&node), *mv, new_board, move_gen);
