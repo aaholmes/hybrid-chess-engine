@@ -31,11 +31,14 @@ class Muon(Optimizer):
         params = list(params)
         super().__init__(params, defaults)
 
-        # Separate 1D params for backend AdamW optimizer
+        # Separate 1D params for backend AdamW optimizer.
+        # Includes actual 1D tensors (biases, norms) and 2D tensors where
+        # min(shape) == 1 (e.g. Linear(64,1) has weight [1,64]) since
+        # Newton-Schulz orthogonalization is meaningless for single-row/col matrices.
         backend_params = []
         for group in self.param_groups:
             for p in group['params']:
-                if p.ndim < 2:
+                if p.ndim < 2 or min(p.shape) == 1:
                     backend_params.append(p)
 
         if backend_params:
@@ -83,8 +86,8 @@ class Muon(Optimizer):
                 if p.grad is None:
                     continue
 
-                # Skip 1D params — handled by backend AdamW
-                if p.ndim < 2:
+                # Skip 1D and effectively-1D params — handled by backend AdamW
+                if p.ndim < 2 or min(p.shape) == 1:
                     continue
 
                 grad = p.grad
