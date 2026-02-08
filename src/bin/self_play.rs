@@ -41,6 +41,8 @@ fn main() {
     } else {
         false
     };
+    let enable_tier1 = args.get(6).and_then(|s| s.parse().ok()).unwrap_or(true);
+    let enable_material = args.get(7).and_then(|s| s.parse().ok()).unwrap_or(true);
 
     println!("Self-Play Generator Starting...");
     println!("   Games: {}", num_games);
@@ -48,6 +50,8 @@ fn main() {
     println!("   Output Dir: {}", output_dir);
     println!("   Model Path: {:?}", model_path);
     println!("   KOTH Mode: {}", enable_koth);
+    println!("   Tier1 Gate: {}", enable_tier1);
+    println!("   Material Value: {}", enable_material);
 
     std::fs::create_dir_all(output_dir).unwrap();
 
@@ -55,7 +59,7 @@ fn main() {
 
     // Run games in parallel
     (0..num_games).into_par_iter().for_each(|i| {
-        let samples = play_game(i, simulations, model_path.clone(), enable_koth);
+        let samples = play_game(i, simulations, model_path.clone(), enable_koth, enable_tier1, enable_material);
 
         if !samples.is_empty() {
             // Save binary data
@@ -72,7 +76,7 @@ fn main() {
     });
 }
 
-fn play_game(_game_num: usize, simulations: u32, model_path: Option<String>, enable_koth: bool) -> Vec<TrainingSample> {
+fn play_game(_game_num: usize, simulations: u32, model_path: Option<String>, enable_koth: bool, enable_tier1: bool, enable_material: bool) -> Vec<TrainingSample> {
     let move_gen = MoveGen::new();
 
     // Each thread gets its own NN instance, wrapped in an InferenceServer
@@ -94,7 +98,7 @@ fn play_game(_game_num: usize, simulations: u32, model_path: Option<String>, ena
     let config = TacticalMctsConfig {
         max_iterations: simulations,
         time_limit: Duration::from_secs(60),
-        mate_search_depth: 5,
+        mate_search_depth: if enable_tier1 { 5 } else { 0 },
         exploration_constant: 1.414,
         use_neural_policy: has_nn,
         inference_server,
@@ -102,6 +106,8 @@ fn play_game(_game_num: usize, simulations: u32, model_path: Option<String>, ena
         dirichlet_alpha: 0.3,
         dirichlet_epsilon: 0.25,
         enable_koth,
+        enable_tier1_gate: enable_tier1,
+        enable_material_value: enable_material,
         enable_tier3_neural: has_nn,
         ..Default::default()
     };

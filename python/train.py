@@ -151,6 +151,7 @@ def train_with_config(
     lr_schedule="",
     buffer_dir=None,
     _return_lr_history=False,
+    disable_material=False,
 ):
     """Core training function. Returns number of minibatches trained.
 
@@ -224,6 +225,8 @@ def train_with_config(
             boards, materials, values, policies = batch
             boards = boards.to(DEVICE)
             materials = materials.to(DEVICE)
+            if disable_material:
+                materials = torch.zeros_like(materials)
             values = values.to(DEVICE)
             policies = policies.to(DEVICE)
 
@@ -270,6 +273,8 @@ def train_with_config(
 
                 boards = boards.to(DEVICE)
                 materials = materials.to(DEVICE)
+                if disable_material:
+                    materials = torch.zeros_like(materials)
                 values = values.to(DEVICE)
                 policies = policies.to(DEVICE)
 
@@ -339,6 +344,8 @@ def parse_args():
                         help='LR schedule: "step:lr,step:lr" (e.g., "500000:0.01,1000000:0.001")')
     parser.add_argument('--buffer-dir', type=str, default=None,
                         help='Replay buffer directory (overrides data_dir when set)')
+    parser.add_argument('--disable-material', action='store_true',
+                        help='Zero out material scalars (for pure AlphaZero baseline)')
     return parser.parse_args()
 
 
@@ -375,6 +382,7 @@ def train():
         minibatches=args.minibatches,
         lr_schedule=args.lr_schedule,
         buffer_dir=args.buffer_dir,
+        disable_material=args.disable_material,
     )
 
 

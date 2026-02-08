@@ -46,6 +46,9 @@ pub struct TacticalMctsConfig {
     pub enable_q_init: bool,
     /// Enable KOTH (King of the Hill) win detection — off for standard chess
     pub enable_koth: bool,
+    /// Enable material integration in value: V = tanh(V_logit + k·ΔM)
+    /// When false (pure AlphaZero): V = tanh(V_logit), no Q-search material
+    pub enable_material_value: bool,
     /// Dirichlet noise alpha (0.0 = disabled, 0.3 for chess training)
     pub dirichlet_alpha: f64,
     /// Dirichlet noise epsilon (0.0 = disabled, 0.25 for chess training)
@@ -67,6 +70,7 @@ impl Default for TacticalMctsConfig {
             enable_tier3_neural: true,
             enable_q_init: true,
             enable_koth: false,
+            enable_material_value: true,
             dirichlet_alpha: 0.0,
             dirichlet_epsilon: 0.0,
         }
@@ -458,34 +462,55 @@ fn evaluate_leaf_node(
             }
         }
 
-        // 2. Compute delta_M via material-only Q-search
-        let mut board_stack = BoardStack::with_board(node_ref.state.clone());
-        let delta_m = forced_material_balance(&mut board_stack, move_gen);
+        if config.enable_material_value {
+            // 2. Compute delta_M via material-only Q-search
+            let mut board_stack = BoardStack::with_board(node_ref.state.clone());
+            let delta_m = forced_material_balance(&mut board_stack, move_gen);
 
-        if v_logit.is_finite() {
-            // NN path: combine v_logit + k * delta_M
-            let final_value = (v_logit + k_val as f64 * delta_m as f64).tanh();
-            if let Some(log) = logger {
-                log.log_tier3_neural(final_value, k_val);
+            if v_logit.is_finite() {
+                // NN path: combine v_logit + k * delta_M
+                let final_value = (v_logit + k_val as f64 * delta_m as f64).tanh();
+                if let Some(log) = logger {
+                    log.log_tier3_neural(final_value, k_val);
+                }
+                node_ref.v_logit = Some(v_logit);
+                node_ref.nn_value = Some(final_value);
+                if node_ref.origin == NodeOrigin::Unknown {
+                    node_ref.origin = NodeOrigin::Neural;
+                }
+                stats.nn_evaluations += 1;
+            } else {
+                // Classical fallback: v_logit = 0.0, k = 0.5, rely on material only
+                // k=0.5 matches NN init: softplus(0)/(2*ln2) ≈ 0.5
+                let classical_v_logit = 0.0;
+                let classical_k: f32 = 0.5;
+                let final_value = (classical_v_logit + classical_k as f64 * delta_m as f64).tanh();
+                if let Some(log) = logger {
+                    log.log_classical_eval(delta_m, final_value);
+                }
+                node_ref.v_logit = Some(classical_v_logit);
+                node_ref.nn_value = Some(final_value);
+                k_val = classical_k;
             }
-            node_ref.v_logit = Some(v_logit);
-            node_ref.nn_value = Some(final_value);
-            if node_ref.origin == NodeOrigin::Unknown {
-                node_ref.origin = NodeOrigin::Neural;
-            }
-            stats.nn_evaluations += 1;
         } else {
-            // Classical fallback: v_logit = 0.0, k = 0.5, rely on material only
-            // k=0.5 matches NN init: softplus(0)/(2*ln2) ≈ 0.5
-            let classical_v_logit = 0.0;
-            let classical_k: f32 = 0.5;
-            let final_value = (classical_v_logit + classical_k as f64 * delta_m as f64).tanh();
-            if let Some(log) = logger {
-                log.log_classical_eval(delta_m, final_value);
+            // Pure AlphaZero: no material integration
+            if v_logit.is_finite() {
+                let final_value = v_logit.tanh();
+                if let Some(log) = logger {
+                    log.log_tier3_neural(final_value, k_val);
+                }
+                node_ref.v_logit = Some(v_logit);
+                node_ref.nn_value = Some(final_value);
+                if node_ref.origin == NodeOrigin::Unknown {
+                    node_ref.origin = NodeOrigin::Neural;
+                }
+                stats.nn_evaluations += 1;
+            } else {
+                // Classical fallback = 0.0 (no material, no NN = uniform/random)
+                node_ref.v_logit = Some(0.0);
+                node_ref.nn_value = Some(0.0);
+                k_val = 0.0;
             }
-            node_ref.v_logit = Some(classical_v_logit);
-            node_ref.nn_value = Some(final_value);
-            k_val = classical_k;
         }
         node_ref.k_val = k_val;
     }

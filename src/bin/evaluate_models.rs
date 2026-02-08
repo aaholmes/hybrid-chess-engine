@@ -51,7 +51,7 @@ pub fn play_evaluation_game(
     candidate_is_white: bool,
     simulations: u32,
 ) -> GameResult {
-    play_evaluation_game_koth(candidate_nn, current_nn, candidate_is_white, simulations, false)
+    play_evaluation_game_koth(candidate_nn, current_nn, candidate_is_white, simulations, false, true, true)
 }
 
 pub fn play_evaluation_game_koth(
@@ -60,6 +60,8 @@ pub fn play_evaluation_game_koth(
     candidate_is_white: bool,
     simulations: u32,
     enable_koth: bool,
+    enable_tier1: bool,
+    enable_material: bool,
 ) -> GameResult {
     let move_gen = MoveGen::new();
 
@@ -75,7 +77,7 @@ pub fn play_evaluation_game_koth(
     let config_candidate = TacticalMctsConfig {
         max_iterations: simulations,
         time_limit: Duration::from_secs(120),
-        mate_search_depth: 5,
+        mate_search_depth: if enable_tier1 { 5 } else { 0 },
         exploration_constant: 1.414,
         use_neural_policy: candidate_has_nn,
         inference_server: candidate_server,
@@ -83,6 +85,8 @@ pub fn play_evaluation_game_koth(
         dirichlet_alpha: 0.0,
         dirichlet_epsilon: 0.0,
         enable_koth,
+        enable_tier1_gate: enable_tier1,
+        enable_material_value: enable_material,
         enable_tier3_neural: candidate_has_nn,
         ..Default::default()
     };
@@ -90,7 +94,7 @@ pub fn play_evaluation_game_koth(
     let config_current = TacticalMctsConfig {
         max_iterations: simulations,
         time_limit: Duration::from_secs(120),
-        mate_search_depth: 5,
+        mate_search_depth: if enable_tier1 { 5 } else { 0 },
         exploration_constant: 1.414,
         use_neural_policy: current_has_nn,
         inference_server: current_server,
@@ -98,6 +102,8 @@ pub fn play_evaluation_game_koth(
         dirichlet_alpha: 0.0,
         dirichlet_epsilon: 0.0,
         enable_koth,
+        enable_tier1_gate: enable_tier1,
+        enable_material_value: enable_material,
         enable_tier3_neural: current_has_nn,
         ..Default::default()
     };
@@ -208,7 +214,7 @@ pub fn evaluate_models(
     num_games: u32,
     simulations: u32,
 ) -> EvalResults {
-    evaluate_models_koth(candidate_path, current_path, num_games, simulations, false)
+    evaluate_models_koth(candidate_path, current_path, num_games, simulations, false, true, true)
 }
 
 /// Run a full evaluation match between two models with optional KOTH mode.
@@ -218,6 +224,8 @@ pub fn evaluate_models_koth(
     num_games: u32,
     simulations: u32,
     enable_koth: bool,
+    enable_tier1: bool,
+    enable_material: bool,
 ) -> EvalResults {
     let mut results = EvalResults {
         wins: 0,
@@ -254,6 +262,8 @@ pub fn evaluate_models_koth(
             candidate_is_white,
             simulations,
             enable_koth,
+            enable_tier1,
+            enable_material,
         );
 
         match result {
@@ -299,11 +309,14 @@ fn main() {
         .unwrap_or(0.55);
 
     let enable_koth = args.iter().any(|a| a == "--enable-koth");
+    let enable_tier1 = !args.iter().any(|a| a == "--disable-tier1");
+    let enable_material = !args.iter().any(|a| a == "--disable-material");
 
     eprintln!("Evaluating: {} vs {}", candidate_path, current_path);
-    eprintln!("Games: {}, Sims: {}, Threshold: {}, KOTH: {}", num_games, simulations, threshold, enable_koth);
+    eprintln!("Games: {}, Sims: {}, Threshold: {}, KOTH: {}, Tier1: {}, Material: {}",
+              num_games, simulations, threshold, enable_koth, enable_tier1, enable_material);
 
-    let results = evaluate_models_koth(candidate_path, current_path, num_games, simulations, enable_koth);
+    let results = evaluate_models_koth(candidate_path, current_path, num_games, simulations, enable_koth, enable_tier1, enable_material);
     let win_rate = results.win_rate();
     let accepted = results.accepted(threshold);
 
