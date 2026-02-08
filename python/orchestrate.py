@@ -27,6 +27,7 @@ class TrainingConfig:
     # Ablation flags
     enable_tier1: bool = True
     enable_material_value: bool = True
+    log_games: str = "first"
 
     # Replay buffer
     buffer_capacity: int = 500_000
@@ -78,6 +79,9 @@ class TrainingConfig:
                             help="Disable Tier 1 safety gates (mate search + KOTH)")
         parser.add_argument("--disable-material", action="store_true",
                             help="Disable material value integration (pure AlphaZero)")
+        parser.add_argument("--log-games", type=str, default="first",
+                            choices=["all", "first", "none"],
+                            help="Which self-play games to log (default: first)")
 
         args = parser.parse_args()
         return cls(
@@ -101,6 +105,7 @@ class TrainingConfig:
             log_file=args.log_file,
             resume=not args.no_resume,
             max_generations=args.max_generations,
+            log_games=args.log_games,
         )
 
 
@@ -216,7 +221,7 @@ class Orchestrator:
             "true" if self.config.enable_koth else "false",
             str(self.config.enable_tier1).lower(),
             str(self.config.enable_material_value).lower(),
-            "first",  # log first game per generation
+            self.config.log_games,
         ]
 
         print(f"Self-play: {self.config.games_per_generation} games, "

@@ -12,6 +12,7 @@ use kingfisher::mcts::{
 };
 use kingfisher::neural_net::NeuralNetPolicy;
 use kingfisher::move_types::Move;
+use kingfisher::search::quiescence::forced_material_balance;
 use kingfisher::tensor::{move_to_index, board_to_planes};
 use kingfisher::transposition::TranspositionTable;
 use rand::Rng;
@@ -160,7 +161,8 @@ fn play_game(game_num: usize, simulations: u32, model_path: Option<String>, enab
             }
         }
 
-        let material_scalar = board.material_imbalance() as f32;
+        let mut temp_stack = BoardStack::with_board(board.clone());
+        let material_scalar = forced_material_balance(&mut temp_stack, &move_gen) as f32;
 
         samples.push(TrainingSample {
             board: board.clone(),
