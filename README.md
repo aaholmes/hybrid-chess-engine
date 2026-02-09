@@ -136,9 +136,13 @@ cd python && python -m pytest test_*.py -v        # Python pipeline tests
 
 ## References
 
-- Silver, D. et al. (2017). "Mastering Chess and Shogi by Self-Play with a General Reinforcement Learning Algorithm"
-- Campbell, M. et al. (2002). "Deep Blue"
-- The Stockfish Engine and the NNUE architecture
+- Silver, D. et al. (2017). ["Mastering Chess and Shogi by Self-Play with a General Reinforcement Learning Algorithm"](https://arxiv.org/abs/1712.01815)
+- Tian, Y. et al. (2019). ["ELF OpenGo: An Analysis and Open Reimplementation of AlphaZero"](https://arxiv.org/abs/1902.04522)
+- Nasu, Y. (2018). ["Efficiently Updatable Neural-Network-based Evaluation Functions for Computer Shogi"](https://www.apply.computer-shogi.org/wcsc28/appeal/the_end_of_genesis_T.N.K.evolution_turbo_type_D/nnue.pdf)
+- [Leela Chess Zero](https://lczero.org/) — Open-source neural network chess engine
+- [Stockfish](https://stockfishchess.org/) — State-of-the-art classical + NNUE engine
+- [Berserk](https://github.com/jhonnold/berserk) — Strong open-source engine with NNUE
+- [Chess Programming Wiki](https://www.chessprogramming.org/) — Encyclopedic reference for chess engine techniques
 
 ## License
 

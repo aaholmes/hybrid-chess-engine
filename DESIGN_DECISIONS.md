@@ -1,6 +1,10 @@
 # Design Decisions: A Scientific Journey
 
-This document traces the evolution of Caissawary's architecture — what was tried, what failed, and why the current design emerged. Each section tells the story of a design decision, framed for a neurosymbolic AI audience. The core ideas generalize beyond chess: any MCTS domain with tractable subproblems can benefit from this approach.
+This document traces the evolution of Caissawary's architecture — what was tried, what failed, and why the current design emerged. The core ideas generalize beyond chess: any MCTS domain with tractable subproblems can benefit from this approach.
+
+### Why King of the Hill?
+
+Standard chess is a surprisingly poor testbed for Tier 1 safety gates. Forced checkmates are rare in typical play — most games are decided by slow accumulation of positional and material advantages. In King of the Hill (KOTH), where moving your king to a central square also wins, the threat of forced wins is *always in the air*. Every midgame position has the dual tension of checkmate threats and king-march threats, both of which are tractable subgames solvable by Tier 1 gates. This makes KOTH an ideal stress test: the three-tier system gets far more opportunities to prove its value compared to standard chess, where Tier 1 would rarely fire.
 
 ## 1. Three-Tier MCTS: Why Not Pure AlphaZero?
 
