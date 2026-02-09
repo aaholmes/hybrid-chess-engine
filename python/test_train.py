@@ -201,11 +201,12 @@ class TestChessDataset:
         make_fake_bin(os.path.join(data_dir, "game.bin"), 5)
 
         dataset = train_module.ChessDataset(data_dir)
-        board, material, value, policy = dataset[0]
+        board, material, value, policy, weight = dataset[0]
         assert board.shape == (17, 8, 8)
         assert material.shape == (1,)
         assert value.shape == (1,)
         assert policy.shape == (4672,)
+        assert weight.shape == (1,)
 
     def test_chess_dataset_empty_dir(self, tmp_dirs):
         data_dir, _ = tmp_dirs
@@ -256,11 +257,12 @@ class TestBufferDataset:
             shutil.rmtree(source_dir, ignore_errors=True)
 
             dataset = train_module.BufferDataset(buffer_dir)
-            board, material, value, policy = dataset[0]
+            board, material, value, policy, weight = dataset[0]
             assert board.shape == (17, 8, 8)
             assert material.shape == (1,)
             assert value.shape == (1,)
             assert policy.shape == (4672,)
+            assert weight.shape == (1,)
         finally:
             shutil.rmtree(buffer_dir, ignore_errors=True)
 
@@ -707,7 +709,7 @@ class TestBufferDatasetChunking:
             dataset = train_module.BufferDataset(buffer_dir, chunk_size=5)
             # Access 15 items (3 chunks worth)
             for i in range(15):
-                board, mat, val, pol = dataset[i]
+                board, mat, val, pol, wt = dataset[i]
                 assert board.shape == (17, 8, 8)
                 assert pol.shape == (4672,)
         finally:

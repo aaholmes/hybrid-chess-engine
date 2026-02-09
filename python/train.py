@@ -9,6 +9,7 @@ import struct
 import glob
 import sys
 from model import LogosNet
+from augmentation import augment_sample
 
 # Configuration
 INPUT_CHANNELS = 17
@@ -17,9 +18,11 @@ POLICY_SIZE = 4672
 SAMPLE_SIZE_FLOATS = (INPUT_CHANNELS * BOARD_SIZE) + 1 + 1 + POLICY_SIZE
 
 class ChessDataset(Dataset):
-    def __init__(self, data_dir):
+    def __init__(self, data_dir, augment=False):
         self.files = glob.glob(os.path.join(data_dir, "*.bin"))
         self.samples = []
+        self.augment = augment
+        self._rng = np.random.default_rng()
 
         print(f"Loading data from {len(self.files)} files in {data_dir}...")
         for file_path in self.files:
@@ -53,21 +56,34 @@ class ChessDataset(Dataset):
         # 1. Board [17, 8, 8]
         board_end = INPUT_CHANNELS * BOARD_SIZE
         board_data = flat_data[:board_end]
-        board_tensor = torch.from_numpy(board_data).view(INPUT_CHANNELS, 8, 8)
+        board_np = board_data.reshape(INPUT_CHANNELS, 8, 8)
 
         # 2. Material Scalar [1]
         material_idx = board_end
-        material_scalar = torch.tensor([flat_data[material_idx]])
+        material = flat_data[material_idx]
 
         # 3. Value Target [1]
         value_idx = material_idx + 1
-        value_target = torch.tensor([flat_data[value_idx]])
+        value = flat_data[value_idx]
 
         # 4. Policy Target [4672]
         policy_start = value_idx + 1
-        policy_target = torch.from_numpy(flat_data[policy_start:])
+        policy_np = flat_data[policy_start:]
 
-        return board_tensor, material_scalar, value_target, policy_target
+        # 5. Augmentation
+        weight = 1.0
+        if self.augment:
+            board_np, material, value, policy_np, weight = augment_sample(
+                board_np, material, value, policy_np, self._rng
+            )
+
+        board_tensor = torch.from_numpy(np.ascontiguousarray(board_np))
+        material_scalar = torch.tensor([material])
+        value_target = torch.tensor([value])
+        policy_target = torch.from_numpy(np.ascontiguousarray(policy_np))
+        weight_tensor = torch.tensor([weight])
+
+        return board_tensor, material_scalar, value_target, policy_target, weight_tensor
 
 
 class BufferDataset(Dataset):
@@ -76,7 +92,7 @@ class BufferDataset(Dataset):
     Pre-samples chunks into memory to avoid per-item file opens.
     """
 
-    def __init__(self, buffer_dir, chunk_size=4096):
+    def __init__(self, buffer_dir, chunk_size=4096, augment=False):
         from replay_buffer import ReplayBuffer
         self.buffer = ReplayBuffer(capacity_positions=10**9, buffer_dir=buffer_dir)
         self.buffer.load_manifest()
@@ -84,6 +100,8 @@ class BufferDataset(Dataset):
         self.chunk_size = chunk_size
         self._chunk = None
         self._chunk_idx = 0
+        self.augment = augment
+        self._rng = np.random.default_rng()
         self._refresh_chunk()
         print(f"Buffer dataset: {self._total} positions from {len(self.buffer.entries)} files")
 
@@ -100,10 +118,23 @@ class BufferDataset(Dataset):
             self._refresh_chunk()
         i = self._chunk_idx
         self._chunk_idx += 1
-        return (torch.from_numpy(self._chunk[0][i]),
-                torch.tensor(self._chunk[1][i]),
-                torch.tensor(self._chunk[2][i]),
-                torch.from_numpy(self._chunk[3][i]))
+
+        board_np = self._chunk[0][i]
+        material = self._chunk[1][i]
+        value = self._chunk[2][i]
+        policy_np = self._chunk[3][i]
+
+        weight = 1.0
+        if self.augment:
+            board_np, material, value, policy_np, weight = augment_sample(
+                board_np, material, value, policy_np, self._rng
+            )
+
+        return (torch.from_numpy(np.ascontiguousarray(board_np)),
+                torch.tensor(material),
+                torch.tensor(value),
+                torch.from_numpy(np.ascontiguousarray(policy_np)),
+                torch.tensor([weight]))
 
 
 def parse_lr_schedule(schedule_str):
@@ -152,6 +183,7 @@ def train_with_config(
     buffer_dir=None,
     _return_lr_history=False,
     disable_material=False,
+    augment=True,
 ):
     """Core training function. Returns number of minibatches trained.
 
@@ -161,9 +193,9 @@ def train_with_config(
 
     # Data
     if buffer_dir:
-        dataset = BufferDataset(buffer_dir)
+        dataset = BufferDataset(buffer_dir, augment=augment)
     else:
-        dataset = ChessDataset(data_dir)
+        dataset = ChessDataset(data_dir, augment=augment)
 
     if len(dataset) == 0:
         print("No training data found.")
@@ -225,18 +257,21 @@ def train_with_config(
                 data_iter = iter(dataloader)
                 batch = next(data_iter)
 
-            boards, materials, values, policies = batch
+            boards, materials, values, policies, weights = batch
             boards = boards.to(DEVICE)
             materials = materials.to(DEVICE)
             if disable_material:
                 materials = torch.zeros_like(materials)
             values = values.to(DEVICE)
             policies = policies.to(DEVICE)
+            weights = weights.to(DEVICE)
 
             pred_policy, pred_value, k = model(boards, materials)
-            policy_loss = F.kl_div(pred_policy, policies, reduction='batchmean')
-            value_loss = F.mse_loss(pred_value, values)
-            loss = policy_loss + value_loss
+            policy_loss_per = F.kl_div(pred_policy, policies, reduction='none').sum(dim=1)
+            value_loss_per = F.mse_loss(pred_value, values, reduction='none').squeeze(1)
+            loss = (weights.squeeze(1) * (policy_loss_per + value_loss_per)).mean()
+            policy_loss = policy_loss_per.mean()
+            value_loss = value_loss_per.mean()
 
             optimizer.zero_grad()
             loss.backward()
@@ -265,7 +300,7 @@ def train_with_config(
             total_value_loss = 0
             total_k = 0
 
-            for batch_idx, (boards, materials, values, policies) in enumerate(dataloader):
+            for batch_idx, (boards, materials, values, policies, weights) in enumerate(dataloader):
                 # Apply LR schedule
                 current_lr = get_lr_for_step(schedule, lr, global_minibatch)
                 for pg in optimizer.param_groups:
@@ -280,11 +315,14 @@ def train_with_config(
                     materials = torch.zeros_like(materials)
                 values = values.to(DEVICE)
                 policies = policies.to(DEVICE)
+                weights = weights.to(DEVICE)
 
                 pred_policy, pred_value, k = model(boards, materials)
-                policy_loss = F.kl_div(pred_policy, policies, reduction='batchmean')
-                value_loss = F.mse_loss(pred_value, values)
-                loss = policy_loss + value_loss
+                policy_loss_per = F.kl_div(pred_policy, policies, reduction='none').sum(dim=1)
+                value_loss_per = F.mse_loss(pred_value, values, reduction='none').squeeze(1)
+                loss = (weights.squeeze(1) * (policy_loss_per + value_loss_per)).mean()
+                policy_loss = policy_loss_per.mean()
+                value_loss = value_loss_per.mean()
 
                 optimizer.zero_grad()
                 loss.backward()
@@ -349,6 +387,10 @@ def parse_args():
                         help='Replay buffer directory (overrides data_dir when set)')
     parser.add_argument('--disable-material', action='store_true',
                         help='Zero out material scalars (for pure AlphaZero baseline)')
+    parser.add_argument('--augment', action='store_true', default=True,
+                        help='Enable symmetry augmentation (default: enabled)')
+    parser.add_argument('--no-augment', action='store_false', dest='augment',
+                        help='Disable symmetry augmentation')
     return parser.parse_args()
 
 
@@ -373,6 +415,7 @@ def train():
         print(f"LR Schedule: {args.lr_schedule}")
     if args.buffer_dir:
         print(f"Buffer Dir: {args.buffer_dir}")
+    print(f"Augmentation: {'enabled' if args.augment else 'disabled'}")
 
     train_with_config(
         data_dir=args.data_dir,
@@ -386,6 +429,7 @@ def train():
         lr_schedule=args.lr_schedule,
         buffer_dir=args.buffer_dir,
         disable_material=args.disable_material,
+        augment=args.augment,
     )
 
 
