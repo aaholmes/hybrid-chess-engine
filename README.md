@@ -121,7 +121,7 @@ The orchestrator (`python/orchestrate.py`) runs a config-driven loop:
 3. **Train** -- Sample minibatches from the buffer, update the network
 4. **Export** -- Trace model to TorchScript for Rust inference
 5. **Evaluate** -- Play head-to-head games between candidate and current best (`evaluate_models` binary)
-6. **Gate** -- Accept candidate only if win rate exceeds threshold (default 55%)
+6. **Gate** -- Accept/reject via SPRT (Sequential Probability Ratio Test) with early stopping. Clear winners/losers are decided in ~30 games; marginal cases use up to the max (default 400)
 
 ```bash
 # Run the full AlphaZero loop with default settings
@@ -132,19 +132,25 @@ python python/orchestrate.py \
   --games-per-generation 500 \
   --simulations-per-move 800 \
   --minibatches-per-gen 1000 \
-  --eval-games 100 \
+  --eval-max-games 200 \
   --optimizer muon \
   --buffer-capacity 500000
 
 # Run exactly 5 generations then stop
 python python/orchestrate.py --max-generations 5 --enable-koth
 
+# Custom SPRT parameters (stricter acceptance)
+python python/orchestrate.py \
+  --sprt-elo0 0.0 --sprt-elo1 15.0 \
+  --sprt-alpha 0.01 --sprt-beta 0.01 \
+  --eval-max-games 600
+
 # Smoke test (tiny settings)
 python python/orchestrate.py \
   --games-per-generation 2 \
   --simulations-per-move 50 \
   --minibatches-per-gen 10 \
-  --eval-games 4 \
+  --eval-max-games 4 \
   --buffer-capacity 1000
 ```
 
@@ -180,14 +186,22 @@ Checkpoints save full training state (model weights, optimizer state, global min
 
 ### Model Evaluation
 
-The `evaluate_models` binary plays head-to-head matches between two TorchScript models:
+The `evaluate_models` binary plays head-to-head matches between two TorchScript models, using SPRT (Sequential Probability Ratio Test) for statistically rigorous early stopping:
 
 ```bash
+# SPRT mode (default in orchestrator): stops early when evidence is sufficient
+cargo run --release --features neural --bin evaluate_models -- \
+  weights/candidate.pt weights/current_best.pt 400 800 \
+  --sprt --elo0 0 --elo1 10 --sprt-alpha 0.05 --sprt-beta 0.05
+
+# Legacy fixed-threshold mode
 cargo run --release --features neural --bin evaluate_models -- \
   weights/candidate.pt weights/current_best.pt 100 800 --threshold 0.55
 ```
 
-Output: `WINS=X LOSSES=Y DRAWS=Z WINRATE=0.XX ACCEPTED=true/false`
+Output: `WINS=X LOSSES=Y DRAWS=Z WINRATE=0.XX ACCEPTED=true/false GAMES_PLAYED=N LLR=Y.YY SPRT_RESULT=H1/H0/inconclusive`
+
+SPRT tests the hypothesis "candidate is at least `elo1` Elo stronger" vs "candidate is at most `elo0` Elo stronger" using a trinomial GSPRT (matching fishtest's implementation). Clear improvements terminate in ~30 games; marginal cases use up to the max game count.
 
 ## Configuration
 The search behavior is controlled by `TacticalMctsConfig`, which supports ablation flags for research experiments and training-specific parameters:
@@ -275,7 +289,7 @@ cargo run --release --features neural --bin self_play -- 100 800 data models/lat
 
 ## Testing
 
-The project has a comprehensive test suite with **~780 tests** (680 Rust + 100 Python) organized across Rust and Python. For detailed documentation, see [TESTING.md](TESTING.md).
+The project has a comprehensive test suite with **~800 tests** (650 Rust + 150 Python) organized across Rust and Python. For detailed documentation, see [TESTING.md](TESTING.md).
 
 ```bash
 # Run the fast Rust test suite (<60s, skips perft/property/slow tests)
@@ -291,7 +305,7 @@ cargo test --test unit_tests
 cargo test --test integration_tests
 cargo test --test regression_tests
 
-# Run Python training pipeline tests (100 tests)
+# Run Python training pipeline tests (~150 tests)
 cd python && python -m pytest test_replay_buffer.py test_train.py test_orchestrate.py -v
 ```
 
@@ -326,7 +340,7 @@ The unit test suite covers all core modules:
 | KOTH variant | koth_tests | Center square detection, king proximity |
 | Training diversity | training_diversity_tests | Dirichlet noise, KOTH gating, game diversity |
 | Inference server | inference_server_tests | Mock servers, v_logit returns, batching |
-| Model evaluation | evaluate_models_tests | Game termination, color alternation, win rate, acceptance |
+| Model evaluation | evaluate_models_tests | Game termination, color alternation, win rate, SPRT LLR and decisions |
 | Board encoding | board_encoding_tests | STM-perspective planes, rank flipping, castling, en passant, move indexing |
 | Experiment metrics | experiment_metrics_tests | NN reduction, NPS, selection confidence, aggregation, safety rates |
 | Experiment config | experiment_config_tests | Ablation presets, config generation, search settings |
@@ -336,7 +350,7 @@ The unit test suite covers all core modules:
 | Training pipeline | training_pipeline_tests | Game extraction, CSV roundtrip, tactical positions, edge cases |
 | Replay buffer | test_replay_buffer.py | FIFO eviction, manifest persistence, sampling, edge cases |
 | Training pipeline | test_train.py | Minibatch mode, LR scheduling, checkpoints, buffer chunking, loss logging |
-| Orchestrator | test_orchestrate.py | Config, state persistence, resumability, max generations, subprocess mocking |
+| Orchestrator | test_orchestrate.py | Config, state persistence, resumability, max generations, SPRT parsing, subprocess mocking |
 
 ## Visualization & Debugging
 Caissawary includes a powerful **MCTS Inspector** tool to visualize the search tree and debug its state-dependent logic. This tool generates Graphviz DOT files that color-code nodes based on their origin (Tier 1, 2, or 3).
@@ -422,7 +436,7 @@ The crate produces several binaries for different tasks:
 | `verbose_search` | Real-time search narration with configurable verbosity |
 | `verbose_game` | Play a full game between two classical MCTS agents with verbose output |
 | `self_play` | Self-play data generation for neural network training |
-| `evaluate_models` | Head-to-head model evaluation for AlphaZero gatekeeper |
+| `evaluate_models` | Head-to-head model evaluation with SPRT early stopping |
 | `run_experiments` | Ablation studies and experimental framework |
 | `elo_tournament` | Elo rating estimation via engine tournaments |
 | `texel_tune` | Texel tuning for evaluation weight optimization |
