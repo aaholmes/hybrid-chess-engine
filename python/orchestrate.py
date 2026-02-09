@@ -6,6 +6,7 @@ Config-driven loop: self-play -> buffer -> train -> evaluate -> accept/reject.
 import os
 import sys
 import json
+import math
 import shutil
 import subprocess
 import time
@@ -15,6 +16,29 @@ from dataclasses import dataclass, field, asdict
 import torch
 from model import LogosNet
 from replay_buffer import ReplayBuffer
+
+
+def _norm_ppf(p):
+    """Inverse standard normal CDF via rational approximation.
+
+    Abramowitz & Stegun 26.2.23. Accurate to ~4.5e-4.
+    """
+    if p < 0.5:
+        return -_norm_ppf(1 - p)
+    t = math.sqrt(-2 * math.log(1 - p))
+    c0, c1, c2 = 2.515517, 0.802853, 0.010328
+    d1, d2, d3 = 1.432788, 0.189269, 0.001308
+    return t - (c0 + c1 * t + c2 * t * t) / (1 + d1 * t + d2 * t * t + d3 * t * t * t)
+
+
+def compute_acceptance_threshold(n_games: int, alpha: float = 0.05) -> float:
+    """Minimum win rate for one-sided binomial test at significance level alpha.
+
+    Under H0 (candidate = current best), win rate ~ N(0.5, 0.25/n).
+    Returns threshold = 0.5 + z_alpha * 0.5 / sqrt(n).
+    """
+    z = _norm_ppf(1 - alpha)
+    return 0.5 + z * 0.5 / math.sqrt(n_games)
 
 
 @dataclass
@@ -44,7 +68,7 @@ class TrainingConfig:
     # Evaluation
     eval_games: int = 100
     eval_simulations: int = 800
-    acceptance_threshold: float = 0.55
+    acceptance_alpha: float = 0.05  # one-sided binomial test significance level
 
     # Parallelism
     inference_batch_size: int = 16
@@ -73,7 +97,8 @@ class TrainingConfig:
         parser.add_argument("--initial-lr", type=float, default=0.02)
         parser.add_argument("--eval-games", type=int, default=100)
         parser.add_argument("--eval-simulations", type=int, default=800)
-        parser.add_argument("--acceptance-threshold", type=float, default=0.55)
+        parser.add_argument("--acceptance-alpha", type=float, default=0.05,
+                            help="Significance level for one-sided binomial test (default: 0.05)")
         parser.add_argument("--weights-dir", type=str, default="weights")
         parser.add_argument("--data-dir", type=str, default="data")
         parser.add_argument("--log-file", type=str, default="training_log.jsonl")
@@ -108,7 +133,7 @@ class TrainingConfig:
             initial_lr=args.initial_lr,
             eval_games=args.eval_games,
             eval_simulations=args.eval_simulations,
-            acceptance_threshold=args.acceptance_threshold,
+            acceptance_alpha=args.acceptance_alpha,
             weights_dir=args.weights_dir,
             data_dir=args.data_dir,
             log_file=args.log_file,
@@ -401,6 +426,11 @@ class Orchestrator:
 
     def run_evaluation(self, candidate_pt):
         """Evaluate candidate vs current best. Returns (accepted, results_dict)."""
+        # Compute acceptance threshold from one-sided binomial test
+        threshold = compute_acceptance_threshold(
+            self.config.eval_games, self.config.acceptance_alpha
+        )
+
         cmd = [
             "cargo", "run", "--release", "--features", "neural",
             "--bin", "evaluate_models", "--",
@@ -408,7 +438,7 @@ class Orchestrator:
             self.state.current_best_pt,
             str(self.config.eval_games),
             str(self.config.eval_simulations),
-            "--threshold", str(self.config.acceptance_threshold),
+            "--threshold", str(threshold),
         ]
         if self.config.enable_koth:
             cmd.append("--enable-koth")
@@ -421,7 +451,7 @@ class Orchestrator:
             cmd.extend(["--threads", str(self.config.game_threads)])
 
         print(f"Evaluating: {self.config.eval_games} games, "
-              f"threshold={self.config.acceptance_threshold}")
+              f"threshold={threshold:.4f} (alpha={self.config.acceptance_alpha})")
 
         result = subprocess.run(
             cmd, env=get_libtorch_env(),
@@ -450,7 +480,8 @@ class Orchestrator:
         losses = int(parts.get("LOSSES", 0))
         draws = int(parts.get("DRAWS", 0))
         winrate = float(parts.get("WINRATE", 0.0))
-        accepted = parts.get("ACCEPTED", "false").lower() == "true"
+        # Accept/reject based on our computed statistical threshold
+        accepted = winrate >= threshold
 
         return accepted, {
             "wins": wins,

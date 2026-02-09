@@ -12,7 +12,10 @@ from dataclasses import asdict
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from orchestrate import TrainingConfig, OrchestratorState, Orchestrator
+from orchestrate import (
+    TrainingConfig, OrchestratorState, Orchestrator,
+    compute_acceptance_threshold, _norm_ppf,
+)
 from replay_buffer import ReplayBuffer
 from replay_buffer import SAMPLE_SIZE_FLOATS
 
@@ -44,7 +47,7 @@ class TestTrainingConfig:
         assert cfg.initial_lr == 0.02
         assert cfg.eval_games == 100
         assert cfg.eval_simulations == 800
-        assert cfg.acceptance_threshold == 0.55
+        assert cfg.acceptance_alpha == 0.05
         assert cfg.resume is True
 
     def test_config_from_args(self):
@@ -53,7 +56,7 @@ class TestTrainingConfig:
             "--games-per-generation", "500",
             "--optimizer", "adam",
             "--eval-games", "200",
-            "--acceptance-threshold", "0.60",
+            "--acceptance-alpha", "0.01",
             "--buffer-capacity", "1000000",
         ]
         with patch("sys.argv", test_args):
@@ -61,7 +64,7 @@ class TestTrainingConfig:
         assert cfg.games_per_generation == 500
         assert cfg.optimizer == "adam"
         assert cfg.eval_games == 200
-        assert cfg.acceptance_threshold == 0.60
+        assert cfg.acceptance_alpha == 0.01
         assert cfg.buffer_capacity == 1000000
 
 
@@ -799,6 +802,102 @@ class TestMaxGenerations:
             orch.run()
             # Should run generations 6 and 7 (2 total)
             assert mock_eval.call_count == 2
+
+
+class TestStatisticalAcceptance:
+    def test_norm_ppf_known_values(self):
+        """Check inverse normal CDF against known z-scores."""
+        # z for alpha=0.05 (one-sided) → ppf(0.95) ≈ 1.645
+        assert _norm_ppf(0.95) == pytest.approx(1.645, abs=0.002)
+        # z for alpha=0.01 → ppf(0.99) ≈ 2.326
+        assert _norm_ppf(0.99) == pytest.approx(2.326, abs=0.002)
+        # ppf(0.5) = 0
+        assert _norm_ppf(0.5) == pytest.approx(0.0, abs=0.001)
+        # Symmetry: ppf(0.05) ≈ -1.645
+        assert _norm_ppf(0.05) == pytest.approx(-1.645, abs=0.002)
+
+    def test_threshold_40_games(self):
+        """40 games at alpha=0.05 should require ~63% win rate."""
+        t = compute_acceptance_threshold(40, 0.05)
+        assert t == pytest.approx(0.630, abs=0.005)
+
+    def test_threshold_100_games(self):
+        """100 games at alpha=0.05 should require ~58.2% win rate."""
+        t = compute_acceptance_threshold(100, 0.05)
+        assert t == pytest.approx(0.582, abs=0.005)
+
+    def test_threshold_200_games(self):
+        """200 games at alpha=0.05 should require ~55.8% win rate."""
+        t = compute_acceptance_threshold(200, 0.05)
+        assert t == pytest.approx(0.558, abs=0.005)
+
+    def test_threshold_decreases_with_more_games(self):
+        """More eval games → lower threshold (smaller margin needed)."""
+        t40 = compute_acceptance_threshold(40)
+        t100 = compute_acceptance_threshold(100)
+        t200 = compute_acceptance_threshold(200)
+        assert t40 > t100 > t200
+
+    def test_stricter_alpha_raises_threshold(self):
+        """Smaller alpha → higher threshold (harder to accept)."""
+        t_05 = compute_acceptance_threshold(100, 0.05)
+        t_01 = compute_acceptance_threshold(100, 0.01)
+        assert t_01 > t_05
+
+    def test_run_evaluation_uses_statistical_threshold(self, tmp_workspace):
+        """run_evaluation should compute threshold from alpha, not use a fixed value."""
+        cfg = TrainingConfig(
+            weights_dir=os.path.join(tmp_workspace, "weights"),
+            data_dir=os.path.join(tmp_workspace, "data"),
+            buffer_dir=os.path.join(tmp_workspace, "buffer"),
+            log_file=os.path.join(tmp_workspace, "log.jsonl"),
+            eval_games=100,
+            acceptance_alpha=0.05,
+        )
+        orch = Orchestrator(cfg)
+        orch.state.current_best_pt = "current.pt"
+
+        expected_threshold = compute_acceptance_threshold(100, 0.05)
+
+        mock_result = MagicMock()
+        # Win rate 0.57 < threshold ~0.582 → should be rejected
+        mock_result.stdout = "WINS=47 LOSSES=33 DRAWS=20 WINRATE=0.5700 ACCEPTED=false\n"
+        mock_result.stderr = ""
+
+        with patch("subprocess.run", return_value=mock_result) as mock_run:
+            accepted, results = orch.run_evaluation("candidate.pt")
+
+        # Should be rejected since 0.57 < 0.582
+        assert accepted is False
+
+        # Verify the threshold was passed to Rust binary
+        cmd = mock_run.call_args[0][0]
+        thresh_idx = cmd.index("--threshold")
+        passed_threshold = float(cmd[thresh_idx + 1])
+        assert passed_threshold == pytest.approx(expected_threshold, abs=0.001)
+
+    def test_run_evaluation_accepts_above_threshold(self, tmp_workspace):
+        """Win rate above statistical threshold should be accepted."""
+        cfg = TrainingConfig(
+            weights_dir=os.path.join(tmp_workspace, "weights"),
+            data_dir=os.path.join(tmp_workspace, "data"),
+            buffer_dir=os.path.join(tmp_workspace, "buffer"),
+            log_file=os.path.join(tmp_workspace, "log.jsonl"),
+            eval_games=100,
+            acceptance_alpha=0.05,
+        )
+        orch = Orchestrator(cfg)
+        orch.state.current_best_pt = "current.pt"
+
+        mock_result = MagicMock()
+        # Win rate 0.60 > threshold ~0.582 → should be accepted
+        mock_result.stdout = "WINS=55 LOSSES=25 DRAWS=20 WINRATE=0.6500 ACCEPTED=true\n"
+        mock_result.stderr = ""
+
+        with patch("subprocess.run", return_value=mock_result):
+            accepted, results = orch.run_evaluation("candidate.pt")
+
+        assert accepted is True
 
 
 if __name__ == "__main__":
