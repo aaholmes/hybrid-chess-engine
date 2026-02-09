@@ -13,6 +13,7 @@ from dataclasses import asdict
 sys.path.insert(0, os.path.dirname(__file__))
 
 from orchestrate import TrainingConfig, OrchestratorState, Orchestrator
+from replay_buffer import ReplayBuffer
 from replay_buffer import SAMPLE_SIZE_FLOATS
 
 
@@ -613,6 +614,203 @@ class TestCudaEnv:
         with patch.dict(os.environ, {"CUDA_VISIBLE_DEVICES": "1,2"}):
             env = get_libtorch_env()
             assert env["CUDA_VISIBLE_DEVICES"] == "1,2"
+
+
+class TestBufferClearOnAcceptance:
+    def _make_orch(self, tmp_workspace, **overrides):
+        cfg = TrainingConfig(
+            weights_dir=os.path.join(tmp_workspace, "weights"),
+            data_dir=os.path.join(tmp_workspace, "data"),
+            buffer_dir=os.path.join(tmp_workspace, "buffer"),
+            log_file=os.path.join(tmp_workspace, "log.jsonl"),
+            **overrides,
+        )
+        return Orchestrator(cfg)
+
+    def test_acceptance_clears_buffer(self, tmp_workspace):
+        """When a model is accepted, the replay buffer should be cleared."""
+        orch = self._make_orch(tmp_workspace)
+        orch.state.current_best_pt = "weights/gen_3.pt"
+        orch.state.current_best_pth = "weights/gen_3.pth"
+
+        # Add some data to buffer
+        game_dir = os.path.join(tmp_workspace, "games")
+        os.makedirs(game_dir)
+        make_fake_bin(os.path.join(game_dir, "game.bin"), 50)
+        orch.update_buffer(game_dir)
+
+        # Verify buffer has data
+        buf = ReplayBuffer(capacity_positions=500_000, buffer_dir=orch.config.buffer_dir)
+        buf.load_manifest()
+        assert buf.total_positions() > 0
+
+        # Create fake candidate files
+        candidate_pt = os.path.join(orch.config.weights_dir, "candidate_4.pt")
+        candidate_pth = os.path.join(orch.config.weights_dir, "candidate_4.pth")
+        with open(candidate_pt, "w") as f:
+            f.write("fake")
+        with open(candidate_pth, "w") as f:
+            f.write("fake")
+
+        # Accept
+        orch.handle_eval_result(
+            accepted=True, generation=4,
+            candidate_pt=candidate_pt, candidate_pth=candidate_pth,
+            eval_results={"wins": 60, "losses": 30, "draws": 10},
+        )
+
+        # Buffer should be empty
+        buf2 = ReplayBuffer(capacity_positions=500_000, buffer_dir=orch.config.buffer_dir)
+        buf2.load_manifest()
+        assert buf2.total_positions() == 0
+
+    def test_acceptance_sets_reset_optimizer_flag(self, tmp_workspace):
+        """Acceptance should flag optimizer reset for next training run."""
+        orch = self._make_orch(tmp_workspace)
+        orch.state.current_best_pt = "weights/gen_3.pt"
+        orch.state.current_best_pth = "weights/gen_3.pth"
+        assert orch.state.reset_optimizer_next is False
+
+        candidate_pt = os.path.join(orch.config.weights_dir, "candidate_4.pt")
+        candidate_pth = os.path.join(orch.config.weights_dir, "candidate_4.pth")
+        with open(candidate_pt, "w") as f:
+            f.write("fake")
+        with open(candidate_pth, "w") as f:
+            f.write("fake")
+
+        orch.handle_eval_result(
+            accepted=True, generation=4,
+            candidate_pt=candidate_pt, candidate_pth=candidate_pth,
+            eval_results={"wins": 60, "losses": 30, "draws": 10},
+        )
+        assert orch.state.reset_optimizer_next is True
+
+    def test_rejection_does_not_clear_buffer(self, tmp_workspace):
+        """Rejected models should not affect the buffer."""
+        orch = self._make_orch(tmp_workspace)
+        orch.state.current_best_pt = "weights/gen_3.pt"
+        orch.state.current_best_pth = "weights/gen_3.pth"
+
+        # Add data
+        game_dir = os.path.join(tmp_workspace, "games")
+        os.makedirs(game_dir)
+        make_fake_bin(os.path.join(game_dir, "game.bin"), 50)
+        orch.update_buffer(game_dir)
+
+        buf = ReplayBuffer(capacity_positions=500_000, buffer_dir=orch.config.buffer_dir)
+        buf.load_manifest()
+        positions_before = buf.total_positions()
+
+        orch.handle_eval_result(
+            accepted=False, generation=4,
+            candidate_pt="candidate_4.pt", candidate_pth="candidate_4.pth",
+            eval_results={"wins": 30, "losses": 60, "draws": 10},
+        )
+
+        buf2 = ReplayBuffer(capacity_positions=500_000, buffer_dir=orch.config.buffer_dir)
+        buf2.load_manifest()
+        assert buf2.total_positions() == positions_before
+
+    def test_reset_optimizer_passed_to_training(self, tmp_workspace):
+        """When reset_optimizer_next is set, --reset-optimizer should be in the command."""
+        orch = self._make_orch(tmp_workspace)
+        orch.state.current_best_pth = "best.pth"
+        orch.state.reset_optimizer_next = True
+
+        mock_result = MagicMock()
+        mock_result.stdout = "Step 100/100 (global 100): Loss=1.50 P=3.00 V=0.50 K=0.35\n"
+        mock_result.returncode = 0
+
+        with patch("subprocess.run", return_value=mock_result) as mock_run, \
+             patch("orchestrate.LogosNet") as mock_model_cls, \
+             patch("torch.load", return_value={"model_state_dict": {}}), \
+             patch("orchestrate.export_model_for_rust"):
+            mock_model_cls.return_value = MagicMock()
+            orch.run_training(1, buffer_positions=5000)
+
+            cmd = mock_run.call_args[0][0]
+            assert "--reset-optimizer" in cmd
+
+        # Flag should be cleared after use
+        assert orch.state.reset_optimizer_next is False
+
+
+class TestLRScaling:
+    def _make_orch(self, tmp_workspace, **overrides):
+        cfg = TrainingConfig(
+            weights_dir=os.path.join(tmp_workspace, "weights"),
+            data_dir=os.path.join(tmp_workspace, "data"),
+            buffer_dir=os.path.join(tmp_workspace, "buffer"),
+            log_file=os.path.join(tmp_workspace, "log.jsonl"),
+            **overrides,
+        )
+        return Orchestrator(cfg)
+
+    def test_small_buffer_gets_low_lr(self, tmp_workspace):
+        """Small buffer (after clear) should get reduced LR."""
+        orch = self._make_orch(tmp_workspace, initial_lr=0.02)
+        orch.state.current_best_pth = "best.pth"
+
+        mock_result = MagicMock()
+        mock_result.stdout = "Step 100/100 (global 100): Loss=1.50 P=3.00 V=0.50 K=0.35\n"
+        mock_result.returncode = 0
+
+        with patch("subprocess.run", return_value=mock_result) as mock_run, \
+             patch("orchestrate.LogosNet") as mock_model_cls, \
+             patch("torch.load", return_value={"model_state_dict": {}}), \
+             patch("orchestrate.export_model_for_rust"):
+            mock_model_cls.return_value = MagicMock()
+            # 5000 positions, target = 1000*64 = 64000 → scale = 5000/64000 ≈ 0.078 → floored to 0.1
+            orch.run_training(1, buffer_positions=5000)
+
+            cmd = mock_run.call_args[0][0]
+            lr_idx = cmd.index("--lr")
+            lr_val = float(cmd[lr_idx + 1])
+            assert lr_val == pytest.approx(0.002)  # 0.02 * 0.1 (floored)
+
+    def test_full_buffer_gets_full_lr(self, tmp_workspace):
+        """Buffer at/above target size should get full LR."""
+        orch = self._make_orch(tmp_workspace, initial_lr=0.02)
+        orch.state.current_best_pth = "best.pth"
+
+        mock_result = MagicMock()
+        mock_result.stdout = "Step 1000/1000 (global 1000): Loss=1.50 P=3.00 V=0.50 K=0.35\n"
+        mock_result.returncode = 0
+
+        with patch("subprocess.run", return_value=mock_result) as mock_run, \
+             patch("orchestrate.LogosNet") as mock_model_cls, \
+             patch("torch.load", return_value={"model_state_dict": {}}), \
+             patch("orchestrate.export_model_for_rust"):
+            mock_model_cls.return_value = MagicMock()
+            # 100000 positions, target = 64000 → scale = 1.0
+            orch.run_training(1, buffer_positions=100_000)
+
+            cmd = mock_run.call_args[0][0]
+            lr_idx = cmd.index("--lr")
+            lr_val = float(cmd[lr_idx + 1])
+            assert lr_val == pytest.approx(0.02)
+
+    def test_mid_buffer_scales_proportionally(self, tmp_workspace):
+        """Buffer at half the target should get half the LR."""
+        orch = self._make_orch(tmp_workspace, initial_lr=0.02)
+        orch.state.current_best_pth = "best.pth"
+
+        mock_result = MagicMock()
+        mock_result.stdout = "Step 500/500 (global 500): Loss=1.50 P=3.00 V=0.50 K=0.35\n"
+        mock_result.returncode = 0
+
+        with patch("subprocess.run", return_value=mock_result) as mock_run, \
+             patch("orchestrate.LogosNet") as mock_model_cls, \
+             patch("torch.load", return_value={"model_state_dict": {}}), \
+             patch("orchestrate.export_model_for_rust"):
+            mock_model_cls.return_value = MagicMock()
+            # 32000 positions, target = 64000 → scale = 0.5
+            orch.run_training(1, buffer_positions=32_000)
+
+            cmd = mock_run.call_args[0][0]
+            lr_idx = cmd.index("--lr")
+            lr_val = float(cmd[lr_idx + 1])
+            assert lr_val == pytest.approx(0.01)
 
 
 class TestMaxGenerations:

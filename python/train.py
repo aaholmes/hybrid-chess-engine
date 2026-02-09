@@ -184,6 +184,7 @@ def train_with_config(
     _return_lr_history=False,
     disable_material=False,
     augment=True,
+    reset_optimizer=False,
 ):
     """Core training function. Returns number of minibatches trained.
 
@@ -219,7 +220,7 @@ def train_with_config(
             if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
                 model.load_state_dict(checkpoint["model_state_dict"])
                 optimizer = make_optimizer(model, optimizer_name, lr)
-                if "optimizer_state_dict" in checkpoint:
+                if not reset_optimizer and "optimizer_state_dict" in checkpoint:
                     try:
                         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
                     except Exception:
@@ -387,6 +388,8 @@ def parse_args():
                         help='Replay buffer directory (overrides data_dir when set)')
     parser.add_argument('--disable-material', action='store_true',
                         help='Zero out material scalars (for pure AlphaZero baseline)')
+    parser.add_argument('--reset-optimizer', action='store_true',
+                        help='Reset optimizer state (fresh momentum after buffer clear)')
     parser.add_argument('--augment', action='store_true', default=True,
                         help='Enable symmetry augmentation (default: enabled)')
     parser.add_argument('--no-augment', action='store_false', dest='augment',
@@ -430,6 +433,7 @@ def train():
         buffer_dir=args.buffer_dir,
         disable_material=args.disable_material,
         augment=args.augment,
+        reset_optimizer=args.reset_optimizer,
     )
 
 
