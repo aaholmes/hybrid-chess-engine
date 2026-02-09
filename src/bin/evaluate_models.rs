@@ -481,7 +481,7 @@ pub fn evaluate_models(
     num_games: u32,
     simulations: u32,
 ) -> EvalResults {
-    evaluate_models_koth(candidate_path, current_path, num_games, simulations, false, true, true)
+    evaluate_models_koth(candidate_path, current_path, num_games, simulations, false, true, true, 8)
 }
 
 /// Run a full evaluation match between two models with optional KOTH mode.
@@ -493,6 +493,7 @@ pub fn evaluate_models_koth(
     enable_koth: bool,
     enable_tier1: bool,
     enable_material: bool,
+    inference_batch_size: usize,
 ) -> EvalResults {
     // Load each model once, create shared InferenceServers
     let candidate_server: Option<Arc<InferenceServer>> = {
@@ -501,7 +502,7 @@ pub fn evaluate_models_koth(
             eprintln!("Failed to load candidate model: {}", e);
             return EvalResults { wins: 0, losses: 0, draws: 0 };
         }
-        Some(Arc::new(InferenceServer::new(nn, 8)))
+        Some(Arc::new(InferenceServer::new(nn, inference_batch_size)))
     };
 
     let current_server: Option<Arc<InferenceServer>> = {
@@ -510,7 +511,7 @@ pub fn evaluate_models_koth(
             eprintln!("Failed to load current model: {}", e);
             return EvalResults { wins: 0, losses: 0, draws: 0 };
         }
-        Some(Arc::new(InferenceServer::new(nn, 8)))
+        Some(Arc::new(InferenceServer::new(nn, inference_batch_size)))
     };
 
     let results = Mutex::new(EvalResults {
@@ -580,11 +581,29 @@ fn main() {
     let enable_tier1 = !args.iter().any(|a| a == "--disable-tier1");
     let enable_material = !args.iter().any(|a| a == "--disable-material");
 
+    let inference_batch_size: usize = args.iter()
+        .position(|a| a == "--batch-size")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(8);
+
+    let num_threads: Option<usize> = args.iter()
+        .position(|a| a == "--threads")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|v| v.parse().ok());
+
+    if let Some(threads) = num_threads {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .build_global()
+            .ok();
+    }
+
     eprintln!("Evaluating: {} vs {}", candidate_path, current_path);
     eprintln!("Games: {}, Sims: {}, Threshold: {}, KOTH: {}, Tier1: {}, Material: {}",
               num_games, simulations, threshold, enable_koth, enable_tier1, enable_material);
 
-    let results = evaluate_models_koth(candidate_path, current_path, num_games, simulations, enable_koth, enable_tier1, enable_material);
+    let results = evaluate_models_koth(candidate_path, current_path, num_games, simulations, enable_koth, enable_tier1, enable_material, inference_batch_size);
     let win_rate = results.win_rate();
     let accepted = results.accepted(threshold);
 

@@ -45,6 +45,10 @@ class TrainingConfig:
     eval_simulations: int = 800
     acceptance_threshold: float = 0.55
 
+    # Parallelism
+    inference_batch_size: int = 16
+    game_threads: int = 0  # 0 = auto (RAYON_NUM_THREADS or rayon default)
+
     # Infrastructure
     weights_dir: str = "weights"
     data_dir: str = "data"
@@ -82,6 +86,10 @@ class TrainingConfig:
         parser.add_argument("--log-games", type=str, default="first",
                             choices=["all", "first", "none"],
                             help="Which self-play games to log (default: first)")
+        parser.add_argument("--inference-batch-size", type=int, default=16,
+                            help="Batch size for GPU inference server (default: 16)")
+        parser.add_argument("--game-threads", type=int, default=0,
+                            help="Parallel game threads for self-play/eval (0 = auto)")
 
         args = parser.parse_args()
         return cls(
@@ -106,6 +114,8 @@ class TrainingConfig:
             resume=not args.no_resume,
             max_generations=args.max_generations,
             log_games=args.log_games,
+            inference_batch_size=args.inference_batch_size,
+            game_threads=args.game_threads,
         )
 
 
@@ -138,11 +148,23 @@ def export_model_for_rust(model, output_path):
 
 
 def get_libtorch_env():
-    """Get environment with LibTorch on LD_LIBRARY_PATH."""
+    """Get environment with LibTorch and NVIDIA CUDA libs on LD_LIBRARY_PATH."""
     import multiprocessing
     torch_lib_path = os.path.join(os.path.dirname(torch.__file__), "lib")
+
+    # Collect nvidia pip package lib dirs (cudart, cublas, cudnn, etc.)
+    # These are needed for libtorch_cuda.so to load successfully.
+    nvidia_dir = os.path.join(os.path.dirname(torch.__file__), "..", "nvidia")
+    nvidia_lib_paths = []
+    if os.path.isdir(nvidia_dir):
+        for name in os.listdir(nvidia_dir):
+            lib_dir = os.path.join(nvidia_dir, name, "lib")
+            if os.path.isdir(lib_dir):
+                nvidia_lib_paths.append(lib_dir)
+
+    all_paths = [torch_lib_path] + nvidia_lib_paths
     env = os.environ.copy()
-    env["LD_LIBRARY_PATH"] = torch_lib_path + ":" + env.get("LD_LIBRARY_PATH", "")
+    env["LD_LIBRARY_PATH"] = ":".join(all_paths) + ":" + env.get("LD_LIBRARY_PATH", "")
     env["LIBTORCH_USE_PYTORCH"] = "1"
     env["LIBTORCH_BYPASS_VERSION_CHECK"] = "1"
     # Ensure CUDA is visible to tch-rs (defaults to GPU 0 if not set)
@@ -229,10 +251,14 @@ class Orchestrator:
             str(self.config.enable_tier1).lower(),
             str(self.config.enable_material_value).lower(),
             self.config.log_games,
+            "--batch-size", str(self.config.inference_batch_size),
         ]
+        if self.config.game_threads > 0:
+            cmd.extend(["--threads", str(self.config.game_threads)])
 
         print(f"Self-play: {self.config.games_per_generation} games, "
-              f"{self.config.simulations_per_move} sims...")
+              f"{self.config.simulations_per_move} sims, "
+              f"batch_size={self.config.inference_batch_size}...")
         result = subprocess.run(
             cmd, env=get_libtorch_env(),
             capture_output=True, text=True, check=True,
@@ -373,6 +399,9 @@ class Orchestrator:
             cmd.append("--disable-tier1")
         if not self.config.enable_material_value:
             cmd.append("--disable-material")
+        cmd.extend(["--batch-size", str(self.config.inference_batch_size)])
+        if self.config.game_threads > 0:
+            cmd.extend(["--threads", str(self.config.game_threads)])
 
         print(f"Evaluating: {self.config.eval_games} games, "
               f"threshold={self.config.acceptance_threshold}")

@@ -53,6 +53,17 @@ fn main() {
     let log_all = log_games == "all";
     let log_first = log_games == "first";
 
+    let inference_batch_size: usize = args.iter()
+        .position(|a| a == "--batch-size")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(16);
+
+    let num_threads: Option<usize> = args.iter()
+        .position(|a| a == "--threads")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|v| v.parse().ok());
+
     println!("Self-Play Generator Starting...");
     println!("   Games: {}", num_games);
     println!("   Simulations/Move: {}", simulations);
@@ -62,6 +73,19 @@ fn main() {
     println!("   Tier1 Gate: {}", enable_tier1);
     println!("   Material Value: {}", enable_material);
     println!("   Log Games: {}", log_games);
+    println!("   Inference Batch Size: {}", inference_batch_size);
+
+    // Set thread count if specified (overrides RAYON_NUM_THREADS env var)
+    if let Some(threads) = num_threads {
+        println!("   Game Threads: {}", threads);
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .build_global()
+            .ok(); // Fails silently if already initialized
+    } else {
+        println!("   Game Threads: {} (from RAYON_NUM_THREADS or default)",
+                 rayon::current_num_threads());
+    }
 
     std::fs::create_dir_all(output_dir).unwrap();
 
@@ -72,8 +96,8 @@ fn main() {
             eprintln!("Failed to load model from {}: {}", path, e);
             None
         } else {
-            println!("   Shared InferenceServer: batch_size=16");
-            Some(Arc::new(InferenceServer::new(nn, 16)))
+            println!("   Shared InferenceServer: batch_size={}", inference_batch_size);
+            Some(Arc::new(InferenceServer::new(nn, inference_batch_size)))
         }
     } else {
         None

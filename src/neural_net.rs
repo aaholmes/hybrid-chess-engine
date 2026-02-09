@@ -17,6 +17,49 @@ mod real {
     use tch::{CModule, Tensor, Device, Kind};
     use std::path::Path;
 
+    /// Force-load libtorch_cuda.so so that PyTorch's CUDA hooks register.
+    /// Without this, the dynamic linker only loads libtorch_cpu.so (since all
+    /// symbols resolve through it), and torch::cuda::is_available() returns false.
+    fn ensure_cuda_loaded() {
+        use std::sync::Once;
+        static INIT: Once = Once::new();
+        INIT.call_once(|| {
+            // Find libtorch_cuda.so via LD_LIBRARY_PATH (same dirs where libtorch_cpu.so lives)
+            let search_paths: Vec<String> = std::env::var("LD_LIBRARY_PATH")
+                .unwrap_or_default()
+                .split(':')
+                .map(|s| s.to_string())
+                .collect();
+
+            for dir in &search_paths {
+                let cuda_lib = format!("{}/libtorch_cuda.so", dir);
+                if std::path::Path::new(&cuda_lib).exists() {
+                    // dlopen with RTLD_NOW | RTLD_GLOBAL to register CUDA hooks
+                    extern "C" {
+                        fn dlopen(filename: *const std::ffi::c_char, flags: i32) -> *mut std::ffi::c_void;
+                        fn dlerror() -> *const std::ffi::c_char;
+                    }
+                    const RTLD_NOW: i32 = 0x2;
+                    const RTLD_GLOBAL: i32 = 0x100;
+                    unsafe {
+                        let cstr = std::ffi::CString::new(cuda_lib.clone()).unwrap();
+                        let handle = dlopen(cstr.as_ptr(), RTLD_NOW | RTLD_GLOBAL);
+                        if handle.is_null() {
+                            let err = dlerror();
+                            if !err.is_null() {
+                                let msg = std::ffi::CStr::from_ptr(err);
+                                eprintln!("Warning: failed to load {}: {:?}", cuda_lib, msg);
+                            }
+                        } else {
+                            eprintln!("Loaded libtorch_cuda.so from {}", dir);
+                        }
+                    }
+                    return;
+                }
+            }
+        });
+    }
+
     pub struct NeuralNetPolicy {
         model: Option<CModule>,
         device: Device,
@@ -24,6 +67,7 @@ mod real {
 
     impl NeuralNetPolicy {
         pub fn new() -> Self {
+            ensure_cuda_loaded();
             NeuralNetPolicy {
                 model: None,
                 device: if tch::Cuda::is_available() { Device::Cuda(0) } else { Device::Cpu },
