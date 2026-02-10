@@ -471,6 +471,9 @@ class Orchestrator:
         cmd.extend(["--batch-size", str(self.config.inference_batch_size)])
         if self.config.game_threads > 0:
             cmd.extend(["--threads", str(self.config.game_threads)])
+        if generation is not None:
+            eval_seed_offset = generation * self.config.eval_max_games
+            cmd.extend(["--seed-offset", str(eval_seed_offset)])
 
         print(f"Evaluating: up to {self.config.eval_max_games} games @ {eval_sims} sims (SPRT "
               f"elo0={self.config.sprt_elo0}, elo1={self.config.sprt_elo1}, "

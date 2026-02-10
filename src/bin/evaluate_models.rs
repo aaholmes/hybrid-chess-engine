@@ -473,7 +473,7 @@ pub fn evaluate_models(
     num_games: u32,
     simulations: u32,
 ) -> EvalResults {
-    evaluate_models_koth(candidate_path, current_path, num_games, simulations, false, true, true, 8)
+    evaluate_models_koth(candidate_path, current_path, num_games, simulations, false, true, true, 8, 0)
 }
 
 /// Run a full evaluation match between two models with optional KOTH mode.
@@ -486,6 +486,7 @@ pub fn evaluate_models_koth(
     enable_tier1: bool,
     enable_material: bool,
     inference_batch_size: usize,
+    seed_offset: u64,
 ) -> EvalResults {
     // Load each model once, create shared InferenceServers
     let candidate_server: Option<Arc<InferenceServer>> = {
@@ -523,7 +524,7 @@ pub fn evaluate_models_koth(
             enable_koth,
             enable_tier1,
             enable_material,
-            game_idx as u64,
+            seed_offset + game_idx as u64,
         );
 
         let mut r = results.lock().unwrap();
@@ -562,6 +563,7 @@ pub fn evaluate_models_koth_sprt(
     enable_material: bool,
     inference_batch_size: usize,
     sprt_config: &SprtConfig,
+    seed_offset: u64,
 ) -> (EvalResults, Option<f64>, SprtResult) {
     // Load each model once, create shared InferenceServers
     let candidate_server: Option<Arc<InferenceServer>> = {
@@ -601,7 +603,7 @@ pub fn evaluate_models_koth_sprt(
             enable_koth,
             enable_tier1,
             enable_material,
-            game_idx as u64,
+            seed_offset + game_idx as u64,
         );
 
         let mut state = sprt_state.lock().unwrap();
@@ -692,6 +694,12 @@ fn main() {
         .and_then(|i| args.get(i + 1))
         .and_then(|v| v.parse().ok());
 
+    let seed_offset: u64 = args.iter()
+        .position(|a| a == "--seed-offset")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+
     if let Some(threads) = num_threads {
         rayon::ThreadPoolBuilder::new()
             .num_threads(threads)
@@ -718,7 +726,7 @@ fn main() {
         let (results, llr, decision) = evaluate_models_koth_sprt(
             candidate_path, current_path, num_games, simulations,
             enable_koth, enable_tier1, enable_material, inference_batch_size,
-            &sprt_config,
+            &sprt_config, seed_offset,
         );
 
         let win_rate = results.win_rate();
@@ -748,6 +756,7 @@ fn main() {
         let results = evaluate_models_koth(
             candidate_path, current_path, num_games, simulations,
             enable_koth, enable_tier1, enable_material, inference_batch_size,
+            seed_offset,
         );
         let win_rate = results.win_rate();
         let games_played = results.wins + results.losses + results.draws;
