@@ -413,7 +413,7 @@ class Orchestrator:
         # Save full training output
         data_dir = os.path.join(self.config.data_dir, f"gen_{generation}")
         os.makedirs(data_dir, exist_ok=True)
-        stats_path = os.path.join(data_dir, "training_stats.txt")
+        stats_path = os.path.join(data_dir, f"training_stats{suffix}.txt")
         with open(stats_path, "w") as f:
             f.write(result.stdout)
 
@@ -451,7 +451,7 @@ class Orchestrator:
 
         return candidate_pth, candidate_pt
 
-    def run_evaluation(self, candidate_pt, generation=None):
+    def run_evaluation(self, candidate_pt, generation=None, suffix=""):
         """Evaluate candidate vs current best using SPRT. Returns (accepted, results_dict)."""
         eval_sims = self.config.eval_simulations
         if generation is not None and self.config.sims_schedule:
@@ -494,7 +494,7 @@ class Orchestrator:
         # Save eval game logs
         data_dir = os.path.join(self.config.data_dir, f"gen_{self._current_generation}")
         os.makedirs(data_dir, exist_ok=True)
-        eval_log_path = os.path.join(data_dir, "eval_games.txt")
+        eval_log_path = os.path.join(data_dir, f"eval_games{suffix}.txt")
         with open(eval_log_path, "w") as f:
             if result.stderr:
                 f.write(result.stderr)
@@ -628,7 +628,7 @@ class Orchestrator:
                 )
                 variant_training_losses = dict(self._last_training_losses)
 
-                accepted, eval_results = self.run_evaluation(candidate_pt, generation=generation)
+                accepted, eval_results = self.run_evaluation(candidate_pt, generation=generation, suffix=suffix)
                 print(f"  {train_heads}: W:{eval_results['wins']} L:{eval_results['losses']} "
                       f"D:{eval_results['draws']} WR:{eval_results['winrate']:.3f} "
                       f"LLR:{eval_results.get('llr', 'N/A')} -> "
