@@ -52,8 +52,13 @@ impl EvalResults {
     }
 }
 
-/// Select a move for evaluation: deterministic for forced wins, (counts-1) sampling otherwise.
-fn select_eval_move(root: &Rc<RefCell<MctsNode>>, rng: &mut impl Rng) -> Option<Move> {
+/// Number of half-moves using proportional sampling for opening diversity.
+/// After this, switch to greedy (most-visited) for strength measurement.
+const EVAL_EXPLORATION_PLIES: u32 = 10;
+
+/// Select a move for evaluation: deterministic for forced wins,
+/// proportional sampling for the first few moves, then greedy.
+fn select_eval_move(root: &Rc<RefCell<MctsNode>>, rng: &mut impl Rng, move_count: u32) -> Option<Move> {
     let root_ref = root.borrow();
 
     // 1. If any child is a forced win (terminal_or_mate_value < -0.5 from child's STM = we win),
@@ -81,7 +86,7 @@ fn select_eval_move(root: &Rc<RefCell<MctsNode>>, rng: &mut impl Rng) -> Option<
         return Some(mate_mv);
     }
 
-    // 3. Otherwise, sample proportionally from (visits - 1)
+    // 3. Collect visit counts
     let visit_pairs: Vec<(Move, u32)> = root_ref.children.iter()
         .filter_map(|c| {
             let cr = c.borrow();
@@ -89,7 +94,13 @@ fn select_eval_move(root: &Rc<RefCell<MctsNode>>, rng: &mut impl Rng) -> Option<
         })
         .collect();
 
-    sample_proportional(&visit_pairs, rng)
+    if move_count < EVAL_EXPLORATION_PLIES {
+        // Early game: proportional sampling for opening diversity
+        sample_proportional(&visit_pairs, rng)
+    } else {
+        // Rest of game: greedy (most-visited) for strength measurement
+        visit_pairs.iter().max_by_key(|(_, v)| *v).map(|(mv, _)| *mv)
+    }
 }
 
 /// Sample a move proportionally from visit counts (temperature = 1, counts-1).
@@ -202,7 +213,7 @@ pub fn play_evaluation_game_koth(
         };
 
         // Use (counts-1) sampling for variety, but play forced wins deterministically
-        let selected_move = select_eval_move(&root, &mut rng);
+        let selected_move = select_eval_move(&root, &mut rng, move_count);
         match selected_move {
             None => break,
             Some(mv) => {
@@ -376,7 +387,7 @@ pub fn play_evaluation_game_with_servers(
             )
         };
 
-        let selected_move = select_eval_move(&root, &mut rng);
+        let selected_move = select_eval_move(&root, &mut rng, move_count);
         match selected_move {
             None => break,
             Some(mv) => {
