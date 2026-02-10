@@ -41,7 +41,7 @@ Full-width mate search is too expensive to run at every MCTS expansion. The comp
 
 In King of the Hill, a king that can reach {d4, e4, d5, e5} wins. The gate computes: can the side-to-move's king reach any center square in at most 3 moves, considering blocking pieces and opponent interception? This is pure geometry — no search needed.
 
-## 3. Tier 2: From Grafting to MVV-LVA Q-init
+## 3. Tier 2: From Grafting to MVV-LVA Visit Ordering
 
 ### v1: Q-search grafting at expansion
 
@@ -49,11 +49,11 @@ The first approach was ambitious: at every MCTS expansion, run a quiescence sear
 
 **What went wrong.** Q-search at every expansion was expensive (~10x slower expansions), and the grafted values were noisy — Q-search with alpha-beta in a random MCTS leaf often had poor alpha/beta bounds. The complexity was high (converting Q-search nodes to MCTS nodes, handling transpositions between the two trees) and the benefit was marginal over simpler approaches.
 
-### v2: MVV-LVA integer scores as Q-init
+### v2: MVV-LVA visit ordering
 
-The simple alternative: at expansion, score each capture child with `10*victim - attacker` (Most Valuable Victim - Least Valuable Attacker), normalized to [-1, 1]. These scores serve as initial Q-values in UCB selection. PxQ (score = 39) gets explored before QxP (score = 5). No Q-search, no tree grafting — just a single integer per capture child.
+The simple alternative: at expansion, score each capture/promotion child with `10*victim - attacker` (Most Valuable Victim - Least Valuable Attacker). On their first visit, tactical children are visited in MVV-LVA order — PxQ (score = 39) before QxP (score = 5). No Q-values are initialized; after the first visit, normal UCB selection takes over based on the actual backpropagated values.
 
-**The lesson:** The material dynamics are fully handled by the Tier 3 leaf value function ($\tanh(V_{logit} + k \cdot \Delta M)$), which runs `forced_material_balance()` — a material-only Q-search at evaluation time. Tier 2 only needs to help UCB *order* the first few visits to captures. A simple heuristic suffices.
+**The lesson:** The material dynamics are fully handled by the Tier 3 leaf value function ($\tanh(V_{logit} + k \cdot \Delta M)$), which runs `forced_material_balance()` — a material-only Q-search at evaluation time. Tier 2 only needs to control the *order* of first visits to captures. A simple heuristic suffices.
 
 ## 4. The Value Function: V = tanh(V\_logit + k * DeltaM)
 
@@ -152,6 +152,18 @@ This means a freshly initialized network immediately produces meaningful behavio
 
 Fixed minibatch counts caused overfitting in early generations (small buffer, many passes) and underfitting in late generations (large buffer, few passes). The current approach targets ~1.5 epochs over the buffer, capped at a configurable maximum. This scales training proportionally to data availability.
 
+### Data augmentation: exploiting board symmetries
+
+Chess has a horizontal flip symmetry (a-file ↔ h-file) that holds whenever castling rights are absent. Pawnless, castling-free positions additionally have the full D4 dihedral symmetry (4 rotations x 2 reflections = 8 transforms). The augmentation system classifies each training sample into one of three symmetry groups:
+
+- **D4** (no pawns, no castling, no en passant): randomly apply one of 8 transforms
+- **Horizontal flip** (no castling): randomly apply identity or h-flip
+- **None** (castling rights present): no augmentation
+
+Both the board tensor and the 4672-element policy vector must be transformed consistently — each spatial transform induces a permutation on the policy indices (queen slide directions rotate, knight move indices permute, underpromotion capture directions swap). The permutation tables are precomputed at module load time.
+
+Samples are weighted by $1/N$ where $N$ is the symmetry group size (8, 2, or 1), so that each original position contributes equally to the loss regardless of how many equivalent views exist.
+
 ### Optimizer: Adam → Muon
 
 Adam was the initial default. Muon (Momentum + Newton-Schulz orthogonalization) converges faster on ResNet-style architectures — it normalizes gradient updates using Newton-Schulz iterations, which helps with the ill-conditioning typical of deep convnets. Falls back to AdamW for 1D parameters (biases, batch norm).
@@ -180,7 +192,7 @@ The three-tier decomposition is not chess-specific. The pattern generalizes:
 
 | Domain | Tier 1 (Exact) | Tier 2 (Heuristic) | Tier 3 (Learned) |
 |--------|---------------|-------------------|-----------------|
-| **Chess** | Mate search, KOTH geometry | MVV-LVA capture ordering | Neural position evaluation |
+| **Chess** | Mate search, KOTH geometry | MVV-LVA tactical visit ordering | Neural position evaluation |
 | **Theorem proving** | Decidable fragments, rewriting rules | Lemma relevance ranking | Proof step prediction |
 | **Program synthesis** | Type checking, partial evaluation | API frequency heuristics | Code generation model |
 | **Robotics** | Collision geometry, kinematic limits | Distance-to-goal heuristics | Contact dynamics prediction |

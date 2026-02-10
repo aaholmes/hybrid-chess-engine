@@ -4,6 +4,8 @@
 
 Caissawary decomposes MCTS positions into tractable subgames solved exactly by classical methods and uncertain residuals evaluated by a neural network. When a subproblem is tractable, the engine *proves* the answer rather than learning it — injecting ground-truth values directly into the search tree. This reduces the sample complexity of self-play RL by reserving neural network queries for genuinely uncertain positions. The approach generalizes to any MCTS domain with tractable subproblems (theorem proving, program synthesis, robotics planning). Demonstrated here on chess and King of the Hill (KOTH).
 
+The name is a hybrid, like the engine: **Caissa** (the mythical goddess of chess) + **Cassowary** (a large, formidable, and famously aggressive bird).
+
 ![Caissawary Logo](Caissawary.png)
 
 [![Rust](https://img.shields.io/badge/rust-1.70+-orange)](https://rustup.rs/)
@@ -14,7 +16,7 @@ Caissawary decomposes MCTS positions into tractable subgames solved exactly by c
 | Tier | Mechanism | Property | Cost |
 |------|-----------|----------|------|
 | **Tier 1** | Safety Gates (mate search, KOTH geometry) | Provably correct, exact values | ~microseconds |
-| **Tier 2** | MVV-LVA Q-init for captures | Heuristic ordering via UCB | Zero (integer scores) |
+| **Tier 2** | MVV-LVA tactical move ordering | Prioritizes good captures on first visit | Zero (integer scores) |
 | **Tier 3** | Neural network (OracleNet) | Learned evaluation for uncertain positions | ~milliseconds |
 
 The key insight: gate-resolved nodes are **terminal** — they are never expanded, so proven values cannot be diluted by approximate child evaluations. This is the critical difference from using exact values as priors.
@@ -23,7 +25,7 @@ The key insight: gate-resolved nodes are **terminal** — they are never expande
 
 **Tier 1** runs ultra-fast safety gates before expansion: a checks-only mate search and KOTH geometric pruning. When a gate fires, the node receives an exact cached value and becomes terminal — identical to checkmate/stalemate.
 
-**Tier 2** assigns MVV-LVA scores to capture/promotion children at expansion time (e.g., PxQ = 39, QxP = 5, normalized to [-1, 1]). These serve as Q-init values for UCB selection, prioritizing good captures with zero computational overhead.
+**Tier 2** orders capture/promotion children by MVV-LVA scores on their first visit (e.g., PxQ = 39 is visited before QxP = 5). This is purely visit ordering — no Q-values are initialized. After the first visit, normal UCB selection takes over.
 
 **Tier 3** evaluates leaf nodes with a neurosymbolic value function:
 
@@ -31,9 +33,9 @@ $$V_{final} = \tanh(V_{logit} + k \cdot \Delta M)$$
 
 Where $V_{logit}$ is the NN's positional assessment (unbounded), $k$ is a learned material confidence scalar, and $\Delta M$ is the material balance after forced captures computed by `forced_material_balance()`. Without a neural network, the classical fallback uses $V_{logit}=0$, $k=0.5$: $V_{final} = \tanh(0.5 \cdot \Delta M)$.
 
-## Example: Material-Aware Evaluation (No Neural Network)
+## Example: Material-Aware Evaluation at Initialization
 
-After White plays 1.b4 (100 MCTS iterations, classical fallback only), Black's root children:
+After White plays 1.b4 (100 MCTS iterations, zero-initialized OracleNet with all logits at 0), Black's root children:
 
 ```
   +-----------------+
@@ -57,7 +59,7 @@ b8c6            5    +0.185
 c7c5            1    -0.462
 ```
 
-With zero training, the engine already plays intelligently. All four top moves (e5, e6, Na6, Nc6) attack White's hanging b4 pawn — preferring pawn advances over knight moves, since advancing opens a bishop line to b4 while knights on a6/c6 can be chased by b5. Meanwhile 1...c5 is correctly avoided (Q = -0.462) because bxc5 wins a pawn outright. This emerges entirely from the material-aware quiescence search in the value function — $\tanh(0.5 \cdot \Delta M)$ with no neural network.
+With zero training, the engine already plays intelligently. All four top moves (e5, e6, Na6, Nc6) attack White's hanging b4 pawn — preferring pawn advances over knight moves, since advancing opens a bishop line to b4 while knights on a6/c6 can be chased by b5. Meanwhile 1...c5 is correctly avoided (Q = -0.462) because bxc5 wins a pawn outright. This emerges from the zero-initialized network: with $V_{logit} = 0$ and $k = 0.5$, the value function reduces to $\tanh(0.5 \cdot \Delta M)$ — pure material-aware evaluation via quiescence search, with no training required.
 
 ## Training Pipeline
 
