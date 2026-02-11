@@ -83,15 +83,24 @@ class OracleNet(nn.Module):
         self.v_out = nn.Linear(256, 1) # V_net (Residual)
         
         # --- DYNAMIC K HEAD (Confidence) ---
-        # Handcrafted scalar features (8 values) + 5x5 king patches.
+        # Handcrafted scalar features (12 values) + 5x5 king patches.
         # k is a position-type property: open vs closed, king safety, endgame.
         # Handcrafted features give k direct access to exactly the features
         # that determine material convertibility, without needing to rediscover
         # them from raw convolutions.
         self.k_stm_patch_fc = nn.Linear(12 * 25, 32)   # STM king 5x5 neighborhood
         self.k_opp_patch_fc = nn.Linear(12 * 25, 32)   # Opponent king 5x5 neighborhood
-        self.k_combine = nn.Linear(8 + 32 + 32, 32)    # scalars + both king patches
+        self.k_combine = nn.Linear(12 + 32 + 32, 32)   # scalars + both king patches
         self.k_out = nn.Linear(32, 1)                   # k_logit -> K_net (Confidence)
+
+        # Light/dark square mask for bishop color detection
+        # Checkerboard: (row + col) % 2 == 0 is one color, == 1 is the other
+        mask = torch.zeros(8, 8)
+        for r in range(8):
+            for c in range(8):
+                if (r + c) % 2 == 0:
+                    mask[r, c] = 1.0
+        self.register_buffer('light_sq_mask', mask)  # [8, 8]
         
         # Denominator Constant: 2 * ln(2)
         self.k_scale = 2 * math.log(2)
@@ -103,12 +112,12 @@ class OracleNet(nn.Module):
         self._zero_init_heads()
 
     def _extract_k_scalars(self, x):
-        """Extract 8 handcrafted scalar features from the raw input tensor.
+        """Extract 12 handcrafted scalar features from the raw input tensor.
 
         Args:
             x: [B, 17, 8, 8] input tensor (STM perspective)
         Returns:
-            [B, 8] tensor of scalar features
+            [B, 12] tensor of scalar features
         """
         B = x.size(0)
 
@@ -140,10 +149,22 @@ class OracleNet(nn.Module):
         king_pos = x[:, 5].view(B, 64).argmax(dim=1)  # [B]
         stm_king_rank = (king_pos // 8).float()  # [B] (0-7)
 
+        # 9-12. Bishop square colors (for opposite-colored bishops, bishop pair)
+        # Plane 2 = STM bishops, Plane 8 = opp bishops
+        # light_sq_mask has 1s on (r+c)%2==0 squares; the label swaps on board
+        # flip but relative same/opposite relationship is preserved.
+        stm_bishops = x[:, 2]   # [B, 8, 8]
+        opp_bishops = x[:, 8]   # [B, 8, 8]
+        stm_light_bishop = (stm_bishops * self.light_sq_mask).sum(dim=(1, 2))  # [B]
+        stm_dark_bishop = (stm_bishops * (1 - self.light_sq_mask)).sum(dim=(1, 2))  # [B]
+        opp_light_bishop = (opp_bishops * self.light_sq_mask).sum(dim=(1, 2))  # [B]
+        opp_dark_bishop = (opp_bishops * (1 - self.light_sq_mask)).sum(dim=(1, 2))  # [B]
+
         return torch.stack([
             total_pawns, stm_pieces, opp_pieces, stm_queen, opp_queen,
-            contacts, castling, stm_king_rank
-        ], dim=1)  # [B, 8]
+            contacts, castling, stm_king_rank,
+            stm_light_bishop, stm_dark_bishop, opp_light_bishop, opp_dark_bishop,
+        ], dim=1)  # [B, 12]
 
     def _extract_king_patch(self, x, king_plane):
         """Extract 5x5 patch of piece planes centered on a king.
