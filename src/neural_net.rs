@@ -127,8 +127,9 @@ mod real {
             let model = self.model.as_ref()?;
             let input = self.board_to_tensor(board).unsqueeze(0);
             
-            let mat_imb = board.material_imbalance() as f32;
-            let mat_tensor = Tensor::from_slice(&[mat_imb]).to_device(self.device).to_kind(Kind::Float).unsqueeze(0);
+            // Material scalar is unused by the traced eval-mode model (it returns
+            // raw v_logit; Rust combines with k * delta_M separately). Pass zero.
+            let mat_tensor = Tensor::zeros(&[1, 1], (Kind::Float, self.device));
 
             let ivalue = model.method_is("forward", &[tch::IValue::Tensor(input), tch::IValue::Tensor(mat_tensor)]).ok()?;
             
@@ -169,19 +170,16 @@ mod real {
             };
 
             let mut input_tensors = Vec::with_capacity(boards.len());
-            let mut mat_scalars = Vec::with_capacity(boards.len());
 
             for board in boards {
                 input_tensors.push(self.board_to_tensor(board));
-                mat_scalars.push(board.material_imbalance() as f32);
             }
 
-            // Stack inputs into [B, 17, 8, 8] and [B, 1]
+            // Stack inputs into [B, 17, 8, 8]
             let input_batch = Tensor::stack(&input_tensors, 0);
-            let mat_batch = Tensor::from_slice(&mat_scalars)
-                .to_device(self.device)
-                .to_kind(Kind::Float)
-                .unsqueeze(1);
+            // Material scalar is unused by the traced eval-mode model (it returns
+            // raw v_logit; Rust combines with k * delta_M separately). Pass zeros.
+            let mat_batch = Tensor::zeros(&[boards.len() as i64, 1], (Kind::Float, self.device));
 
             let ivalue = model.method_is("forward", &[tch::IValue::Tensor(input_batch), tch::IValue::Tensor(mat_batch)]);
 
