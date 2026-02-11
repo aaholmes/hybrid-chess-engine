@@ -75,7 +75,7 @@ With zero training, the engine already plays intelligently. All four top moves (
 
 AlphaZero-style loop: self-play → replay buffer → train → export → evaluate → gate (SPRT).
 
-Each generation trains all heads jointly, exports the candidate, and evaluates it against the current best via SPRT (up to 400 games with early stopping). Evaluation uses greedy move selection (most-visited child) after the first 10 plies, with proportional sampling only in the opening for diversity.
+Each generation trains all heads jointly, exports the candidate, and evaluates it against the current best via SPRT (up to 400 games with early stopping). Evaluation uses greedy move selection (most-visited child) after the first 10 plies, with proportional sampling only in the opening for diversity. Evaluation games also produce training data by default — each move's MCTS visit counts and material balance are recorded and fed back into the replay buffer. If the candidate is accepted, both sides' data is kept; if rejected, only the current model's data is retained (the candidate may be overfit).
 
 Multi-variant training (policy-only, value-only, all-heads in parallel) is available via `--multi-variant` but disabled by default — empirical testing showed policy-only training consistently underperformed, and joint training is stable thanks to the factored value function.
 

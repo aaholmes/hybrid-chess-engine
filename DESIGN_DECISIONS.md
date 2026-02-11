@@ -202,6 +202,18 @@ Each variant was evaluated independently via SPRT. The best passing variant was 
 
 **The solution.** Use proportional sampling only for the first 10 plies (opening diversity), then switch to greedy selection (most-visited child) for the rest of the game. Forced wins are always played deterministically regardless of move number. This gives evaluation games a diverse opening book while measuring pure strength in the middlegame and endgame.
 
+### Evaluation game data reuse
+
+**The problem.** Each generation runs 50-400 MCTS evaluation games (candidate vs current model) purely for gating. These games run full MCTS searches with policy outputs at every move, but all position data is discarded — only W/L/D is kept. This is wasted training data. Worse, eval games actually produce *higher quality* samples than self-play: each move starts a fresh MCTS search (no subtree reuse between moves), making samples more independent.
+
+**The solution.** Evaluation games now collect training samples by default. At each move, the MCTS root's visit-count distribution becomes the policy target and `forced_material_balance()` provides the material scalar — the same extraction used by self-play. Samples are partitioned by which model was side-to-move: candidate's moves go to one vector, current model's moves to another.
+
+**Selective ingestion based on gating outcome.** If the candidate wins SPRT: both sides' data is added to the replay buffer (the candidate is stronger, and the current model's data is still valid). If the candidate loses: only the current model's data is kept — the rejected candidate may be overfit or degenerate, so its policy targets could be harmful. The current model's data is always useful regardless of outcome, since by definition it represents the best known model.
+
+**Generation tagging.** Candidate samples are tagged with `model_generation = N+1` and current samples with `model_generation = N`, integrating naturally with the existing recency-weighted sampling. This means eval data from a newly accepted model is weighted as "fresh" by the half-life mechanism, while data from the previous model decays at the same rate as self-play data from that generation.
+
+**Cost-benefit.** A typical SPRT evaluation (mean ~75 games, ~100 positions per game) yields ~7,500 training samples — roughly equivalent to 75 self-play games but at zero marginal compute cost (the MCTS searches were already being run for evaluation). With 100 self-play games per generation, this represents a ~75% increase in training data per generation for free.
+
 ## 7. Performance Optimizations
 
 ### Incremental Zobrist hashing
