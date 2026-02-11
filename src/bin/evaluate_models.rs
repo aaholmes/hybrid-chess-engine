@@ -11,6 +11,9 @@ use kingfisher::move_types::Move;
 use kingfisher::mcts::{tactical_mcts_search_with_tt, MctsNode, TacticalMctsConfig, InferenceServer};
 use kingfisher::mcts::sprt::{SprtConfig, SprtState, SprtResult};
 use kingfisher::neural_net::NeuralNetPolicy;
+use kingfisher::search::quiescence::forced_material_balance;
+use kingfisher::tensor::move_to_index;
+use kingfisher::training_data::{TrainingSample, save_binary_data};
 use kingfisher::transposition::TranspositionTable;
 use rand::Rng;
 use rand::SeedableRng;
@@ -19,7 +22,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use rayon::prelude::*;
 
 /// Result of a single evaluation game.
@@ -50,6 +53,13 @@ impl EvalResults {
     pub fn accepted(&self, threshold: f64) -> bool {
         self.win_rate() >= threshold
     }
+}
+
+/// Result of a single evaluation game with optional training data.
+pub struct EvalGameData {
+    pub result: GameResult,
+    pub candidate_samples: Vec<TrainingSample>,
+    pub current_samples: Vec<TrainingSample>,
 }
 
 /// Number of half-moves using proportional sampling for opening diversity.
@@ -142,169 +152,10 @@ pub fn play_evaluation_game_koth(
     enable_material: bool,
     game_seed: u64,
 ) -> GameResult {
-    let mut rng = StdRng::seed_from_u64(game_seed);
-    let move_gen = MoveGen::new();
-
-    let candidate_has_nn = candidate_server.is_some();
-    let current_has_nn = current_server.is_some();
-
-    let config_candidate = TacticalMctsConfig {
-        max_iterations: simulations,
-        time_limit: Duration::from_secs(120),
-        mate_search_depth: if enable_tier1 { 5 } else { 0 },
-        exploration_constant: 1.414,
-        use_neural_policy: candidate_has_nn,
-        inference_server: candidate_server.clone(),
-        logger: None,
-        dirichlet_alpha: 0.0,
-        dirichlet_epsilon: 0.0,
-        enable_koth,
-        enable_tier1_gate: enable_tier1,
-        enable_material_value: enable_material,
-        enable_tier3_neural: candidate_has_nn,
-        ..Default::default()
-    };
-
-    let config_current = TacticalMctsConfig {
-        max_iterations: simulations,
-        time_limit: Duration::from_secs(120),
-        mate_search_depth: if enable_tier1 { 5 } else { 0 },
-        exploration_constant: 1.414,
-        use_neural_policy: current_has_nn,
-        inference_server: current_server.clone(),
-        logger: None,
-        dirichlet_alpha: 0.0,
-        dirichlet_epsilon: 0.0,
-        enable_koth,
-        enable_tier1_gate: enable_tier1,
-        enable_material_value: enable_material,
-        enable_tier3_neural: current_has_nn,
-        ..Default::default()
-    };
-
-    let mut board_stack = BoardStack::new();
-    let mut move_count = 0;
-    let mut game_moves: Vec<String> = Vec::new();
-    let mut tt_candidate = TranspositionTable::new();
-    let mut tt_current = TranspositionTable::new();
-
-    loop {
-        let board = board_stack.current_state().clone();
-        let white_to_move = board.w_to_move;
-
-        // Determine which model plays this turn
-        let candidate_turn = (white_to_move && candidate_is_white)
-            || (!white_to_move && !candidate_is_white);
-
-        let (_best_move, _stats, root) = if candidate_turn {
-            tactical_mcts_search_with_tt(
-                board.clone(),
-                &move_gen,
-                config_candidate.clone(),
-                &mut tt_candidate,
-            )
-        } else {
-            tactical_mcts_search_with_tt(
-                board.clone(),
-                &move_gen,
-                config_current.clone(),
-                &mut tt_current,
-            )
-        };
-
-        // Use (counts-1) sampling for variety, but play forced wins deterministically
-        let selected_move = select_eval_move(&root, &mut rng, move_count);
-        match selected_move {
-            None => break,
-            Some(mv) => {
-                game_moves.push(mv.to_uci());
-                board_stack.make_move(mv);
-                move_count += 1;
-            }
-        }
-
-        // Check KOTH win after each move
-        if enable_koth {
-            let (white_won, black_won) = board_stack.current_state().is_koth_win();
-            if white_won || black_won {
-                break;
-            }
-        }
-
-        // Check termination conditions
-        if board_stack.is_draw_by_repetition() {
-            break;
-        }
-        if board_stack.current_state().halfmove_clock() >= 100 {
-            break;
-        }
-        if move_count > 200 {
-            break;
-        }
-
-        let (mate, stalemate) = board_stack.current_state().is_checkmate_or_stalemate(&move_gen);
-        if mate || stalemate {
-            break;
-        }
-    }
-
-    // Determine outcome
-    let final_board = board_stack.current_state();
-    let (mate, stalemate) = final_board.is_checkmate_or_stalemate(&move_gen);
-    let is_repetition = board_stack.is_draw_by_repetition();
-    let is_50_move = final_board.halfmove_clock() >= 100;
-    let (koth_white, koth_black) = if enable_koth {
-        final_board.is_koth_win()
-    } else {
-        (false, false)
-    };
-
-    let (result, result_str) = if koth_white || koth_black {
-        let white_wins = koth_white;
-        let r = if (white_wins && candidate_is_white) || (!white_wins && !candidate_is_white) {
-            GameResult::CandidateWin
-        } else {
-            GameResult::CurrentWin
-        };
-        let s = if white_wins { "White wins (KOTH)" } else { "Black wins (KOTH)" };
-        (r, s)
-    } else if mate {
-        let white_wins = !final_board.w_to_move;
-        let r = if (white_wins && candidate_is_white) || (!white_wins && !candidate_is_white) {
-            GameResult::CandidateWin
-        } else {
-            GameResult::CurrentWin
-        };
-        let s = if white_wins { "White wins (checkmate)" } else { "Black wins (checkmate)" };
-        (r, s)
-    } else if stalemate {
-        (GameResult::Draw, "Draw (stalemate)")
-    } else if is_repetition {
-        (GameResult::Draw, "Draw (repetition)")
-    } else if is_50_move {
-        (GameResult::Draw, "Draw (50-move rule)")
-    } else if move_count > 200 {
-        (GameResult::Draw, "Draw (move limit)")
-    } else {
-        (GameResult::Draw, "Draw")
-    };
-
-    // Print game moves
-    let mut move_str = String::new();
-    for (i, uci) in game_moves.iter().enumerate() {
-        if i % 2 == 0 {
-            if !move_str.is_empty() { move_str.push(' '); }
-            move_str.push_str(&format!("{}.", i / 2 + 1));
-        }
-        move_str.push(' ');
-        move_str.push_str(uci);
-    }
-    let cand_color = if candidate_is_white { "White" } else { "Black" };
-    eprintln!("  [seed={}] Candidate={} | {} moves | {} -> {:?}",
-              game_seed, cand_color, game_moves.len(), result_str, result);
-    eprintln!("  {}", move_str);
-
-    result
+    play_evaluation_game_with_servers(
+        candidate_server, current_server, candidate_is_white, simulations,
+        enable_koth, enable_tier1, enable_material, game_seed, false,
+    ).result
 }
 
 /// Play a single evaluation game using shared InferenceServers (no ownership transfer).
@@ -317,7 +168,8 @@ pub fn play_evaluation_game_with_servers(
     enable_tier1: bool,
     enable_material: bool,
     game_seed: u64,
-) -> GameResult {
+    collect_training_data: bool,
+) -> EvalGameData {
     let mut rng = StdRng::seed_from_u64(game_seed);
     let move_gen = MoveGen::new();
 
@@ -364,6 +216,9 @@ pub fn play_evaluation_game_with_servers(
     let mut tt_candidate = TranspositionTable::new();
     let mut tt_current = TranspositionTable::new();
 
+    let mut candidate_samples: Vec<TrainingSample> = Vec::new();
+    let mut current_samples: Vec<TrainingSample> = Vec::new();
+
     loop {
         let board = board_stack.current_state().clone();
         let white_to_move = board.w_to_move;
@@ -386,6 +241,48 @@ pub fn play_evaluation_game_with_servers(
                 &mut tt_current,
             )
         };
+
+        // Collect training data from MCTS root visit counts
+        if collect_training_data {
+            let root_ref = root.borrow();
+            let total_visits: u32 = root_ref.children.iter()
+                .map(|c| c.borrow().visits)
+                .sum();
+
+            if total_visits > 0 {
+                let mut policy_dist = Vec::new();
+                let mut policy_moves = Vec::new();
+                for child in &root_ref.children {
+                    let cr = child.borrow();
+                    if let Some(mv) = cr.action {
+                        let relative_mv = if board.w_to_move { mv } else { mv.flip_vertical() };
+                        let idx = move_to_index(relative_mv) as u16;
+                        let prob = cr.visits as f32 / total_visits as f32;
+                        policy_dist.push((idx, prob));
+                        policy_moves.push((mv, prob));
+                    }
+                }
+
+                let mut temp_stack = BoardStack::with_board(board.clone());
+                let material_scalar = forced_material_balance(&mut temp_stack, &move_gen) as f32;
+
+                let sample = TrainingSample {
+                    board: board.clone(),
+                    policy: policy_dist,
+                    policy_moves,
+                    value_target: 0.0, // Backfilled after game ends
+                    material_scalar,
+                    w_to_move: board.w_to_move,
+                };
+
+                if candidate_turn {
+                    candidate_samples.push(sample);
+                } else {
+                    current_samples.push(sample);
+                }
+            }
+            drop(root_ref);
+        }
 
         let selected_move = select_eval_move(&root, &mut rng, move_count);
         match selected_move {
@@ -460,6 +357,27 @@ pub fn play_evaluation_game_with_servers(
         (GameResult::Draw, "Draw")
     };
 
+    // Backfill value targets: +1 for white win, -1 for black win, 0 for draw
+    if collect_training_data {
+        let final_score_white = if koth_white {
+            1.0f32
+        } else if koth_black {
+            -1.0
+        } else if mate {
+            if final_board.w_to_move { -1.0 } else { 1.0 }
+        } else {
+            0.0
+        };
+
+        for sample in candidate_samples.iter_mut().chain(current_samples.iter_mut()) {
+            sample.value_target = if sample.w_to_move {
+                final_score_white
+            } else {
+                -final_score_white
+            };
+        }
+    }
+
     let mut move_str = String::new();
     for (i, uci) in game_moves.iter().enumerate() {
         if i % 2 == 0 {
@@ -474,7 +392,11 @@ pub fn play_evaluation_game_with_servers(
               game_seed, cand_color, game_moves.len(), result_str, result);
     eprintln!("  {}", move_str);
 
-    result
+    EvalGameData {
+        result,
+        candidate_samples,
+        current_samples,
+    }
 }
 
 /// Run a full evaluation match between two models.
@@ -527,7 +449,7 @@ pub fn evaluate_models_koth(
     (0..num_games).into_par_iter().for_each(|game_idx| {
         let candidate_is_white = game_idx % 2 == 0;
 
-        let result = play_evaluation_game_with_servers(
+        let game_data = play_evaluation_game_with_servers(
             &candidate_server,
             &current_server,
             candidate_is_white,
@@ -536,10 +458,11 @@ pub fn evaluate_models_koth(
             enable_tier1,
             enable_material,
             seed_offset + game_idx as u64,
+            false,
         );
 
         let mut r = results.lock().unwrap();
-        match result {
+        match game_data.result {
             GameResult::CandidateWin => r.wins += 1,
             GameResult::CurrentWin => r.losses += 1,
             GameResult::Draw => r.draws += 1,
@@ -551,7 +474,7 @@ pub fn evaluate_models_koth(
             game_idx + 1,
             num_games,
             color_str,
-            result,
+            game_data.result,
             r.wins,
             r.losses,
             r.draws
@@ -564,6 +487,8 @@ pub fn evaluate_models_koth(
 /// Run an SPRT-based evaluation match with early stopping.
 ///
 /// Returns (results, final_llr, sprt_decision).
+/// When `save_training_data` is Some, saves candidate/current training samples
+/// to `{base_dir}/candidate/` and `{base_dir}/current/` respectively.
 pub fn evaluate_models_koth_sprt(
     candidate_path: &str,
     current_path: &str,
@@ -575,7 +500,10 @@ pub fn evaluate_models_koth_sprt(
     inference_batch_size: usize,
     sprt_config: &SprtConfig,
     seed_offset: u64,
+    save_training_data: Option<&str>,
 ) -> (EvalResults, Option<f64>, SprtResult) {
+    let collect = save_training_data.is_some();
+
     // Load each model once, create shared InferenceServers
     let candidate_server: Option<Arc<InferenceServer>> = {
         let mut nn = NeuralNetPolicy::new();
@@ -599,6 +527,10 @@ pub fn evaluate_models_koth_sprt(
     let stop_flag = Arc::new(AtomicBool::new(false));
     let games_completed = Arc::new(Mutex::new(0u32));
 
+    // Thread-safe accumulators for training samples
+    let all_candidate_samples: Arc<Mutex<Vec<TrainingSample>>> = Arc::new(Mutex::new(Vec::new()));
+    let all_current_samples: Arc<Mutex<Vec<TrainingSample>>> = Arc::new(Mutex::new(Vec::new()));
+
     (0..max_games).into_par_iter().for_each(|game_idx| {
         if stop_flag.load(Ordering::Relaxed) {
             return;
@@ -606,7 +538,7 @@ pub fn evaluate_models_koth_sprt(
 
         let candidate_is_white = game_idx % 2 == 0;
 
-        let result = play_evaluation_game_with_servers(
+        let game_data = play_evaluation_game_with_servers(
             &candidate_server,
             &current_server,
             candidate_is_white,
@@ -615,10 +547,21 @@ pub fn evaluate_models_koth_sprt(
             enable_tier1,
             enable_material,
             seed_offset + game_idx as u64,
+            collect,
         );
 
+        // Collect training samples
+        if collect {
+            if !game_data.candidate_samples.is_empty() {
+                all_candidate_samples.lock().unwrap().extend(game_data.candidate_samples);
+            }
+            if !game_data.current_samples.is_empty() {
+                all_current_samples.lock().unwrap().extend(game_data.current_samples);
+            }
+        }
+
         let mut state = sprt_state.lock().unwrap();
-        match result {
+        match game_data.result {
             GameResult::CandidateWin => state.wins += 1,
             GameResult::CurrentWin => state.losses += 1,
             GameResult::Draw => state.draws += 1,
@@ -637,7 +580,7 @@ pub fn evaluate_models_koth_sprt(
             *completed,
             max_games,
             color_str,
-            result,
+            game_data.result,
             state.wins,
             state.losses,
             state.draws,
@@ -652,6 +595,43 @@ pub fn evaluate_models_koth_sprt(
             SprtResult::Inconclusive => {}
         }
     });
+
+    // Save training data to disk
+    if let Some(base_dir) = save_training_data {
+        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+
+        let candidate_dir = format!("{}/candidate", base_dir);
+        let current_dir = format!("{}/current", base_dir);
+        std::fs::create_dir_all(&candidate_dir).ok();
+        std::fs::create_dir_all(&current_dir).ok();
+
+        let candidate_samples: Vec<TrainingSample> = {
+            let mut guard = all_candidate_samples.lock().unwrap();
+            std::mem::take(&mut *guard)
+        };
+        let current_samples: Vec<TrainingSample> = {
+            let mut guard = all_current_samples.lock().unwrap();
+            std::mem::take(&mut *guard)
+        };
+
+        if !candidate_samples.is_empty() {
+            let path = format!("{}/eval_{}.bin", candidate_dir, timestamp);
+            if let Err(e) = save_binary_data(&path, &candidate_samples) {
+                eprintln!("Failed to save candidate training data: {}", e);
+            } else {
+                eprintln!("Saved {} candidate training samples to {}", candidate_samples.len(), path);
+            }
+        }
+
+        if !current_samples.is_empty() {
+            let path = format!("{}/eval_{}.bin", current_dir, timestamp);
+            if let Err(e) = save_binary_data(&path, &current_samples) {
+                eprintln!("Failed to save current training data: {}", e);
+            } else {
+                eprintln!("Saved {} current training samples to {}", current_samples.len(), path);
+            }
+        }
+    }
 
     let final_state = sprt_state.lock().unwrap();
     let llr = final_state.compute_llr(sprt_config);
@@ -711,6 +691,11 @@ fn main() {
         .and_then(|v| v.parse().ok())
         .unwrap_or(0);
 
+    let save_training_data: Option<String> = args.iter()
+        .position(|a| a == "--save-training-data")
+        .and_then(|i| args.get(i + 1))
+        .cloned();
+
     if let Some(threads) = num_threads {
         rayon::ThreadPoolBuilder::new()
             .num_threads(threads)
@@ -738,6 +723,7 @@ fn main() {
             candidate_path, current_path, num_games, simulations,
             enable_koth, enable_tier1, enable_material, inference_batch_size,
             &sprt_config, seed_offset,
+            save_training_data.as_deref(),
         );
 
         let win_rate = results.win_rate();

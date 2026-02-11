@@ -3,7 +3,6 @@
 //! This binary plays games of the engine against itself to generate training data
 //! for the neural network. It outputs binary files compatible with the Python training script.
 
-use kingfisher::board::Board;
 use kingfisher::boardstack::BoardStack;
 use kingfisher::move_generation::MoveGen;
 use kingfisher::mcts::{
@@ -15,26 +14,15 @@ use kingfisher::neural_net::NeuralNetPolicy;
 use kingfisher::search::mate_search;
 use kingfisher::search::koth_center_in_3;
 use kingfisher::search::quiescence::forced_material_balance;
-use kingfisher::tensor::{move_to_index, board_to_planes};
+use kingfisher::tensor::move_to_index;
+use kingfisher::training_data::{TrainingSample, save_binary_data};
 use kingfisher::transposition::TranspositionTable;
 use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use std::fs::File;
-use std::io::Write;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use rayon::prelude::*;
-
-// Data structure for holding a single training sample in memory before serialization
-struct TrainingSample {
-    board: Board,
-    policy: Vec<(u16, f32)>, // (Move Index, Probability)
-    policy_moves: Vec<(Move, f32)>, // (Move, Probability) for display
-    value_target: f32,       // +1 (Win), -1 (Loss), 0 (Draw)
-    material_scalar: f32,
-    w_to_move: bool,         // Side to move when sample was taken
-}
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -421,36 +409,3 @@ fn sample_proportional(policy: &[(Move, u32)], rng: &mut impl Rng) -> Option<Mov
     policy.last().map(|(mv, _)| *mv)
 }
 
-fn save_binary_data(filename: &str, samples: &[TrainingSample]) -> std::io::Result<()> {
-    let mut file = File::create(filename)?;
-    let mut buffer = Vec::new();
-
-    for sample in samples {
-        // 1. Board Features [17, 8, 8] -> 1088 floats
-        let board_planes = board_to_planes(&sample.board);
-
-        for val in board_planes {
-            buffer.extend_from_slice(&val.to_le_bytes());
-        }
-
-        // 2. Material Scalar [1 float]
-        buffer.extend_from_slice(&sample.material_scalar.to_le_bytes());
-
-        // 3. Value Target [1 float]
-        buffer.extend_from_slice(&sample.value_target.to_le_bytes());
-
-        // 4. Policy Target [4672 floats]
-        let mut policy_vec = vec![0.0f32; 4672];
-        for (idx, prob) in &sample.policy {
-            if (*idx as usize) < 4672 {
-                policy_vec[*idx as usize] = *prob;
-            }
-        }
-        for p in policy_vec {
-            buffer.extend_from_slice(&p.to_le_bytes());
-        }
-    }
-
-    file.write_all(&buffer)?;
-    Ok(())
-}

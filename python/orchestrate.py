@@ -380,6 +380,17 @@ class Orchestrator:
         print(f"Buffer: +{added} positions (model_gen={self.state.accepted_count}), {total} total")
         return total
 
+    def _add_eval_data_to_buffer(self, bin_dir, model_generation):
+        """Add eval training data to the replay buffer."""
+        buf = ReplayBuffer(
+            capacity_positions=self.config.buffer_capacity,
+            buffer_dir=self.config.buffer_dir,
+        )
+        buf.load_manifest()
+        added = buf.add_games(bin_dir, model_generation=model_generation)
+        buf.evict_oldest()
+        return added
+
     def _compute_adaptive_minibatches(self, buffer_positions):
         """Compute minibatches targeting ~1.5 epochs over the buffer.
 
@@ -515,6 +526,10 @@ class Orchestrator:
             # Same seed offset for all variants so games are directly comparable
             eval_seed_offset = generation * self.config.eval_max_games
             cmd.extend(["--seed-offset", str(eval_seed_offset)])
+
+        # Save training data from eval games for buffer ingestion
+        eval_data_dir = os.path.join(self.config.data_dir, f"gen_{self._current_generation}", "eval_data")
+        cmd.extend(["--save-training-data", eval_data_dir])
 
         print(f"Evaluating: up to {self.config.eval_max_games} games @ {eval_sims} sims (SPRT "
               f"elo0={self.config.sprt_elo0}, elo1={self.config.sprt_elo1}, "
@@ -691,6 +706,9 @@ class Orchestrator:
                 self._last_training_losses = variant_training_losses
                 print(f"\n>>> No variant passed SPRT")
 
+            # Capture current accepted_count before it may change
+            gen_before = self.state.accepted_count
+
             self.handle_eval_result(
                 accepted=accepted,
                 generation=generation,
@@ -698,6 +716,19 @@ class Orchestrator:
                 candidate_pth=candidate_pth,
                 eval_results=eval_results,
             )
+
+            # 4b. Ingest eval game training data into buffer
+            eval_data_dir = os.path.join(self.config.data_dir, f"gen_{generation}", "eval_data")
+            current_eval_dir = os.path.join(eval_data_dir, "current")
+            candidate_eval_dir = os.path.join(eval_data_dir, "candidate")
+            eval_added = 0
+            if os.path.isdir(current_eval_dir):
+                eval_added += self._add_eval_data_to_buffer(current_eval_dir, gen_before)
+            if accepted and os.path.isdir(candidate_eval_dir):
+                eval_added += self._add_eval_data_to_buffer(candidate_eval_dir, gen_before + 1)
+            if eval_added > 0:
+                print(f"Buffer: +{eval_added} eval positions ingested")
+                buffer_size += eval_added
 
             # 5. Log
             log = {
