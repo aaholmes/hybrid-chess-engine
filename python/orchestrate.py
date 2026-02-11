@@ -371,7 +371,7 @@ class Orchestrator:
         using a fixed count. Early generations with small buffers get fewer
         steps; later generations with large buffers get more.
         """
-        target = max(100, int(1.5 * buffer_positions / self.config.batch_size))
+        target = max(100, int(3.0 * buffer_positions / self.config.batch_size))
         actual = min(target, self.config.minibatches_per_generation)
         return actual
 
