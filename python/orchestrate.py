@@ -54,6 +54,9 @@ class TrainingConfig:
     inference_batch_size: int = 16
     game_threads: int = 0  # 0 = auto (RAYON_NUM_THREADS or rayon default)
 
+    # Training variants
+    single_variant: bool = False  # True = train "all" only, skip policy/value-only
+
     # Model architecture
     num_blocks: int = 6
     hidden_dim: int = 128
@@ -111,6 +114,8 @@ class TrainingConfig:
                             help="Batch size for GPU inference server (default: 16)")
         parser.add_argument("--game-threads", type=int, default=0,
                             help="Parallel game threads for self-play/eval (0 = auto)")
+        parser.add_argument("--single-variant", action="store_true",
+                            help="Train only 'all' variant (skip policy-only and value-only)")
         parser.add_argument("--num-blocks", type=int, default=6,
                             help="Number of residual blocks in OracleNet (default: 6)")
         parser.add_argument("--hidden-dim", type=int, default=128,
@@ -146,6 +151,7 @@ class TrainingConfig:
             log_games=args.log_games,
             inference_batch_size=args.inference_batch_size,
             game_threads=args.game_threads,
+            single_variant=args.single_variant,
             num_blocks=args.num_blocks,
             hidden_dim=args.hidden_dim,
         )
@@ -639,12 +645,15 @@ class Orchestrator:
             # 2. Buffer update
             buffer_size = self.update_buffer(game_data_dir)
 
-            # 3. Train 3 variants & evaluate each via SPRT
-            variants = [
-                ("policy", "_policy"),
-                ("value", "_value"),
-                ("all", ""),
-            ]
+            # 3. Train variant(s) & evaluate each via SPRT
+            if self.config.single_variant:
+                variants = [("all", "")]
+            else:
+                variants = [
+                    ("policy", "_policy"),
+                    ("value", "_value"),
+                    ("all", ""),
+                ]
 
             best_variant = None  # (accepted, train_heads, pth, pt, eval_results, training_losses)
 
