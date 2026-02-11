@@ -75,14 +75,9 @@ With zero training, the engine already plays intelligently. All four top moves (
 
 AlphaZero-style loop: self-play → replay buffer → train → export → evaluate → gate (SPRT).
 
-Each generation trains three model variants in parallel and evaluates each via SPRT:
-- **Policy-only:** freeze value + k heads, train only the policy head
-- **Value-only:** freeze policy head, train only value + k heads
-- **All-heads:** standard joint training of all parameters
+Each generation trains all heads jointly, exports the candidate, and evaluates it against the current best via SPRT (up to 400 games with early stopping). Evaluation uses greedy move selection (most-visited child) after the first 10 plies, with proportional sampling only in the opening for diversity.
 
-The best passing variant (if any) is promoted. This isolates whether gains come from better move selection or better position evaluation, and avoids catastrophic forgetting where improving one head degrades another.
-
-Evaluation games use greedy move selection (most-visited child) after the first 10 plies, with proportional sampling only in the opening for diversity. All three variants are evaluated with the same random seeds so game differences are attributable to the model, not randomness.
+Multi-variant training (policy-only, value-only, all-heads in parallel) is available via `--multi-variant` but disabled by default — empirical testing showed policy-only training consistently underperformed, and joint training is stable thanks to the factored value function.
 
 ```bash
 # Full training loop with KOTH, ramping sims from 100→800 over generations
@@ -106,7 +101,7 @@ python python/orchestrate.py \
 
 The orchestrator supports adaptive minibatch scaling (~3 epochs per generation), recency-weighted sampling from the replay buffer, and Muon optimizer by default. Model architecture is configurable via `--num-blocks` and `--hidden-dim`.
 
-Evaluation uses SPRT (Sequential Probability Ratio Test) with early stopping — clear winners/losers decided in ~30 games, marginal cases use up to the configured maximum (default 400).
+Evaluation uses SPRT (Sequential Probability Ratio Test) with early stopping — clear winners/losers decided in ~30 games, marginal cases use up to 400 (needed for statistical power at the ~84% draw rate typical of self-play). Data augmentation exploits board symmetry: positions without castling rights are expanded into both the original and horizontal flip (2x data), with pawnless endgames getting the full D4 dihedral group (8x data).
 
 ## Building and Running
 
