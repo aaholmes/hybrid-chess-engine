@@ -9,7 +9,7 @@ import struct
 import glob
 import sys
 from model import OracleNet
-from augmentation import augment_sample
+from augmentation import augment_sample, augment_all_transforms
 
 # Configuration
 INPUT_CHANNELS = 17
@@ -70,20 +70,18 @@ class ChessDataset(Dataset):
         policy_start = value_idx + 1
         policy_np = flat_data[policy_start:]
 
-        # 5. Augmentation
-        weight = 1.0
+        # 5. Augmentation (randomly pick one transform, weight 1.0)
         if self.augment:
-            board_np, material, value, policy_np, weight = augment_sample(
-                board_np, material, value, policy_np, self._rng
-            )
+            transforms = augment_all_transforms(board_np, material, value, policy_np)
+            idx = self._rng.integers(len(transforms))
+            board_np, material, value, policy_np = transforms[idx]
 
         board_tensor = torch.from_numpy(np.ascontiguousarray(board_np))
         material_scalar = torch.tensor([material])
         value_target = torch.tensor([value])
         policy_target = torch.from_numpy(np.ascontiguousarray(policy_np))
-        weight_tensor = torch.tensor([weight])
 
-        return board_tensor, material_scalar, value_target, policy_target, weight_tensor
+        return board_tensor, material_scalar, value_target, policy_target
 
 
 class BufferDataset(Dataset):
@@ -108,14 +106,32 @@ class BufferDataset(Dataset):
 
     def _refresh_chunk(self):
         boards, materials, values, policies = self.buffer.sample_batch(self.chunk_size)
-        self._chunk = (boards, materials, values, policies)
+        if self.augment:
+            aug_boards, aug_mats, aug_vals, aug_pols = [], [], [], []
+            for i in range(len(boards)):
+                for b, m, v, p in augment_all_transforms(
+                    boards[i], materials[i], values[i], policies[i]
+                ):
+                    aug_boards.append(b)
+                    aug_mats.append(m)
+                    aug_vals.append(v)
+                    aug_pols.append(p)
+            self._chunk = (
+                np.array(aug_boards),
+                np.array(aug_mats),
+                np.array(aug_vals),
+                np.array(aug_pols),
+            )
+        else:
+            self._chunk = (boards, materials, values, policies)
+        self._chunk_len = len(self._chunk[0])
         self._chunk_idx = 0
 
     def __len__(self):
         return self._total
 
     def __getitem__(self, idx):
-        if self._chunk_idx >= self.chunk_size:
+        if self._chunk_idx >= self._chunk_len:
             self._refresh_chunk()
         i = self._chunk_idx
         self._chunk_idx += 1
@@ -125,17 +141,10 @@ class BufferDataset(Dataset):
         value = self._chunk[2][i]
         policy_np = self._chunk[3][i]
 
-        weight = 1.0
-        if self.augment:
-            board_np, material, value, policy_np, weight = augment_sample(
-                board_np, material, value, policy_np, self._rng
-            )
-
         return (torch.from_numpy(np.ascontiguousarray(board_np)),
-                torch.tensor(material),
-                torch.tensor(value),
-                torch.from_numpy(np.ascontiguousarray(policy_np)),
-                torch.tensor([weight]))
+                torch.tensor([material.item()]) if hasattr(material, 'item') else torch.tensor([material]),
+                torch.tensor([value.item()]) if hasattr(value, 'item') else torch.tensor([value]),
+                torch.from_numpy(np.ascontiguousarray(policy_np)))
 
 
 def parse_lr_schedule(schedule_str):
@@ -303,19 +312,18 @@ def train_with_config(
                 data_iter = iter(dataloader)
                 batch = next(data_iter)
 
-            boards, materials, values, policies, weights = batch
+            boards, materials, values, policies = batch
             boards = boards.to(DEVICE)
             materials = materials.to(DEVICE)
             if disable_material:
                 materials = torch.zeros_like(materials)
             values = values.to(DEVICE)
             policies = policies.to(DEVICE)
-            weights = weights.to(DEVICE)
 
             pred_policy, pred_value, k = model(boards, materials)
             policy_loss_per = F.kl_div(pred_policy, policies, reduction='none').sum(dim=1)
             value_loss_per = F.mse_loss(pred_value, values, reduction='none').squeeze(1)
-            loss = (weights.squeeze(1) * (policy_loss_per + value_loss_per)).mean()
+            loss = (policy_loss_per + value_loss_per).mean()
             policy_loss = policy_loss_per.mean()
             value_loss = value_loss_per.mean()
 
@@ -346,7 +354,7 @@ def train_with_config(
             total_value_loss = 0
             total_k = 0
 
-            for batch_idx, (boards, materials, values, policies, weights) in enumerate(dataloader):
+            for batch_idx, (boards, materials, values, policies) in enumerate(dataloader):
                 # Apply LR schedule
                 current_lr = get_lr_for_step(schedule, lr, global_minibatch)
                 for pg in optimizer.param_groups:
@@ -361,12 +369,11 @@ def train_with_config(
                     materials = torch.zeros_like(materials)
                 values = values.to(DEVICE)
                 policies = policies.to(DEVICE)
-                weights = weights.to(DEVICE)
 
                 pred_policy, pred_value, k = model(boards, materials)
                 policy_loss_per = F.kl_div(pred_policy, policies, reduction='none').sum(dim=1)
                 value_loss_per = F.mse_loss(pred_value, values, reduction='none').squeeze(1)
-                loss = (weights.squeeze(1) * (policy_loss_per + value_loss_per)).mean()
+                loss = (policy_loss_per + value_loss_per).mean()
                 policy_loss = policy_loss_per.mean()
                 value_loss = value_loss_per.mean()
 

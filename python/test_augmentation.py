@@ -5,7 +5,7 @@ import pytest
 from augmentation import (
     HFLIP_SQ, ROT90_SQ, HFLIP_POLICY, ROT90_POLICY,
     D4_GROUP, HFLIP_GROUP,
-    classify_symmetry, apply_transform, augment_sample,
+    classify_symmetry, apply_transform, augment_sample, augment_all_transforms,
     _compose_sq, _compose_policy,
 )
 
@@ -282,3 +282,57 @@ class TestAugmentSampleDistribution:
             new_b, _, _, _, _ = augment_sample(board, 0.0, 0.0, policy, rng)
             boards_seen.add(tuple(new_b.ravel()))
         assert len(boards_seen) >= 4  # Should see many of the 8 transforms
+
+
+class TestAugmentAllTransforms:
+    def test_none_symmetry_returns_one(self):
+        """Positions with castling return just the original."""
+        board = np.zeros((17, 8, 8), dtype=np.float32)
+        board[13] = 1.0  # castling
+        policy = np.zeros(4672, dtype=np.float32)
+        results = augment_all_transforms(board, 0.0, 0.5, policy)
+        assert len(results) == 1
+        np.testing.assert_array_equal(results[0][0], board)
+
+    def test_hflip_returns_two(self):
+        """Positions with hflip symmetry return 2 transforms."""
+        board = np.zeros((17, 8, 8), dtype=np.float32)
+        board[0, 1, 0] = 1.0  # pawn, no castling
+        policy = np.zeros(4672, dtype=np.float32)
+        results = augment_all_transforms(board, 0.0, 0.5, policy)
+        assert len(results) == 2
+        # First is identity
+        np.testing.assert_array_equal(results[0][0], board)
+        # Second is different
+        assert not np.array_equal(results[0][0], results[1][0])
+
+    def test_d4_returns_eight(self):
+        """Positions with D4 symmetry return 8 transforms."""
+        board = np.zeros((17, 8, 8), dtype=np.float32)
+        board[1, 2, 3] = 1.0  # knight, no pawns, no castling
+        policy = np.zeros(4672, dtype=np.float32)
+        results = augment_all_transforms(board, 0.0, 0.5, policy)
+        assert len(results) == 8
+        # All distinct
+        boards_seen = {tuple(b.ravel()) for b, _, _, _ in results}
+        assert len(boards_seen) == 8
+
+    def test_preserves_material_and_value(self):
+        """Material and value are unchanged across all transforms."""
+        board = np.zeros((17, 8, 8), dtype=np.float32)
+        board[0, 1, 0] = 1.0  # pawn -> hflip
+        policy = np.zeros(4672, dtype=np.float32)
+        results = augment_all_transforms(board, 3.14, -0.5, policy)
+        for _, mat, val, _ in results:
+            assert mat == 3.14
+            assert val == -0.5
+
+    def test_all_policies_are_valid_permutations(self):
+        """Each transformed policy sums to the same value as the original."""
+        board = np.zeros((17, 8, 8), dtype=np.float32)
+        board[1, 2, 3] = 1.0  # D4
+        policy = np.random.default_rng(42).random(4672).astype(np.float32)
+        results = augment_all_transforms(board, 0.0, 0.0, policy)
+        original_sum = policy.sum()
+        for _, _, _, p in results:
+            np.testing.assert_almost_equal(p.sum(), original_sum)

@@ -201,15 +201,8 @@ def apply_transform(board, policy, sq_perm, pol_perm):
 def augment_sample(board, material, value, policy, rng=None):
     """Augment a training sample using its symmetry group.
 
-    Args:
-        board: numpy array (17, 8, 8)
-        material: scalar
-        value: scalar
-        policy: numpy array (4672,)
-        rng: numpy random Generator (optional)
-
-    Returns:
-        (board, material, value, policy, weight) where weight = 1/N_transforms
+    DEPRECATED: Use augment_all_transforms() instead. This function randomly
+    picks one transform and underweights symmetric positions.
     """
     if rng is None:
         rng = np.random.default_rng()
@@ -227,8 +220,38 @@ def augment_sample(board, material, value, policy, rng=None):
     sq_perm, pol_perm = group[idx]
 
     if idx == 0:
-        # Identity — skip transform
         return board, material, value, policy, 1.0 / len(group)
 
     new_board, new_policy = apply_transform(board, policy, sq_perm, pol_perm)
     return new_board, material, value, new_policy, 1.0 / len(group)
+
+
+def augment_all_transforms(board, material, value, policy):
+    """Return ALL equivalent transforms of a training sample.
+
+    For positions with castling rights: returns [original] (1 sample).
+    For positions without castling (hflip): returns [original, hflip] (2 samples).
+    For positions without castling/pawns/EP (D4): returns all 8 dihedral transforms.
+
+    Each returned sample has equal weight (no weighting needed).
+
+    Returns:
+        List of (board, material, value, policy) tuples.
+    """
+    sym = classify_symmetry(board)
+
+    if sym == "d4":
+        group = D4_GROUP
+    elif sym == "hflip":
+        group = HFLIP_GROUP
+    else:
+        return [(board, material, value, policy)]
+
+    results = []
+    for i, (sq_perm, pol_perm) in enumerate(group):
+        if i == 0:
+            results.append((board, material, value, policy))
+        else:
+            new_board, new_policy = apply_transform(board, policy, sq_perm, pol_perm)
+            results.append((new_board, material, value, new_policy))
+    return results
