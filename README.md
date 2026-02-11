@@ -35,13 +35,13 @@ Where $V_{logit}$ is the NN's positional assessment (unbounded), $k$ is a learne
 
 ### OracleNet Architecture
 
-OracleNet is a ~2M parameter SE-ResNet (6 blocks, 128 channels) with three heads:
+OracleNet is a configurable SE-ResNet (default: 6 blocks, 128 channels, ~2M parameters) with three heads:
 
 - **Policy head:** 4672 logits (AlphaZero encoding)
 - **Value head ($V_{logit}$):** Unbounded positional assessment
 - **Confidence head ($k$):** Handcrafted features + 5x5 king patches
 
-The $k$ head uses domain knowledge rather than learned convolutions: 8 scalar features (pawn counts, piece counts, queen presence, castling rights, king rank) plus two 5x5 spatial patches centered on each king, combined via small FC layers (~21.6k parameters). This lets $k$ reason about king safety and material distribution without needing to learn these patterns from scratch.
+The $k$ head uses domain knowledge rather than learned convolutions: 12 scalar features (pawn counts, piece counts, queen presence, pawn contacts, castling rights, king rank, and bishop square-color presence for detecting opposite-colored bishop endgames and bishop pair advantage) plus two 5x5 spatial patches centered on each king, combined via small FC layers (~21.8k parameters). This lets $k$ reason about king safety, material convertibility, and piece-specific endgame dynamics without needing to learn these patterns from scratch.
 
 ## Example: Material-Aware Evaluation at Initialization
 
@@ -95,13 +95,16 @@ python python/orchestrate.py --disable-tier1
 # Ablation: disable material-aware evaluation (pure AlphaZero)
 python python/orchestrate.py --disable-material
 
+# Smaller model for faster iteration (240K params vs 2M default)
+python python/orchestrate.py --num-blocks 2 --hidden-dim 64
+
 # Quick smoke test
 python python/orchestrate.py \
   --games-per-generation 2 --simulations-per-move 50 \
   --minibatches-per-gen 10 --eval-max-games 4 --buffer-capacity 1000
 ```
 
-The orchestrator supports adaptive minibatch scaling (~1.5 epochs per generation), recency-weighted sampling from the replay buffer, and Muon optimizer by default.
+The orchestrator supports adaptive minibatch scaling (~3 epochs per generation), recency-weighted sampling from the replay buffer, and Muon optimizer by default. Model architecture is configurable via `--num-blocks` and `--hidden-dim`.
 
 Evaluation uses SPRT (Sequential Probability Ratio Test) with early stopping — clear winners/losers decided in ~30 games, marginal cases use up to the configured maximum (default 400).
 

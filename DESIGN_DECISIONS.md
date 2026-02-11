@@ -91,11 +91,11 @@ The second design used a **separate shallow input network** for $k$: a single 3x
 
 The current design uses **handcrafted scalar features + king patches**, consistent with the project philosophy of "compute what you can, learn what you must":
 
-**Scalar features (8 values):** total pawns (open vs closed), STM/opponent non-pawn piece counts (endgame detection), STM/opponent queen presence (tactical complexity), pawn contacts (direct closedness measure), castling rights count (game phase), STM king rank (exposed vs castled). These are extracted directly from the input tensor with simple sums — no learned parameters.
+**Scalar features (12 values):** total pawns (open vs closed), STM/opponent non-pawn piece counts (endgame detection), STM/opponent queen presence (tactical complexity), pawn contacts (direct closedness measure), castling rights count (game phase), STM king rank (exposed vs castled), plus 4 bishop square-color features (light-squared and dark-squared bishop presence for each side). The bishop features enable $k$ to detect opposite-colored bishop endgames (lower $k$ — material harder to convert) and bishop pair advantage (higher $k$). These are extracted directly from the input tensor with simple sums and a precomputed checkerboard mask — no learned parameters.
 
 **King patches (2 × 32 features):** 5×5 windows of all 12 piece planes centered on each king, padded for edge kings. Each 300-dim patch is compressed by a separate FC(300→32) + ReLU — separate weights for STM and opponent kings since they have different semantics (king safety vs. attack potential). This captures local piece configurations around each king without global average pooling's dilution.
 
-**Combination:** `[8 scalars | 32 STM patch features | 32 opp patch features]` → FC(72→32) → ReLU → FC(32→1) → k_logit. Only the final FC(32→1) is zero-initialized; patch FCs and combine layer use standard He init. Total: ~21.6k parameters (tiny vs ~1.98M model total).
+**Combination:** `[12 scalars | 32 STM patch features | 32 opp patch features]` → FC(76→32) → ReLU → FC(32→1) → k_logit. Only the final FC(32→1) is zero-initialized; patch FCs and combine layer use standard He init. Total: ~21.8k parameters (tiny vs ~2M model total).
 
 ### Classical fallback: V\_logit=0, k=0.5
 
@@ -105,7 +105,7 @@ With no neural network, the engine uses $V_{logit} = 0$ (no positional knowledge
 
 ### SE-ResNet backbone
 
-6 residual blocks with Squeeze-and-Excitation (SE) attention. SE blocks let the network learn which feature channels are important for each position — essentially a per-position "volume knob" for different types of features (material patterns, king safety features, pawn structure features).
+Configurable depth and width (default: 6 residual blocks, 128 channels, ~2M params; `--num-blocks 2 --hidden-dim 64` gives ~240K params for faster iteration). Squeeze-and-Excitation (SE) attention in each block lets the network learn which feature channels are important for each position — essentially a per-position "volume knob" for different types of features (material patterns, king safety features, pawn structure features).
 
 ### Board encoding: STM perspective
 
@@ -127,7 +127,7 @@ When Black is to move, ranks are flipped so STM pieces always appear at the "bot
 
 ### k head: handcrafted features + king patches
 
-8 scalar features (pawn count, piece counts, queen presence, pawn contacts, castling rights, king rank) + two 5×5 king-centered patches compressed via FC(300→32). Scalars + compressed patches → FC(72→32) → FC(32→1). Operates on raw input, independent of the backbone. See Section 4 for the rationale.
+12 scalar features (pawn count, piece counts, queen presence, pawn contacts, castling rights, king rank, bishop square-color presence) + two 5×5 king-centered patches compressed via FC(300→32). Scalars + compressed patches → FC(76→32) → FC(32→1). Operates on raw input, independent of the backbone. See Section 4 for the rationale.
 
 ### Zero initialization
 
@@ -158,7 +158,7 @@ This means a freshly initialized network immediately produces meaningful behavio
 
 ### Adaptive minibatches
 
-Fixed minibatch counts caused overfitting in early generations (small buffer, many passes) and underfitting in late generations (large buffer, few passes). The current approach targets ~1.5 epochs over the buffer, capped at a configurable maximum. This scales training proportionally to data availability.
+Fixed minibatch counts caused overfitting in early generations (small buffer, many passes) and underfitting in late generations (large buffer, few passes). The current approach targets ~3 epochs over the buffer, capped at a configurable maximum. This scales training proportionally to data availability.
 
 ### Data augmentation: exploiting board symmetries
 
