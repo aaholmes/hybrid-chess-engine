@@ -298,131 +298,124 @@ class TestReplayBuffer:
         assert np.all(np.isfinite(policies))
 
 
-class TestRecencyWeighting:
-    def test_recency_weighting_favors_newer_model_gen(self, tmp_dirs):
-        """Data from a newer model generation should be weighted higher."""
+class TestEloWeighting:
+    def test_same_elo_weighted_uniformly(self, tmp_dirs):
+        """Entries with the same Elo should have equal weight per position."""
         buffer_dir, _ = tmp_dirs
-        buf = ReplayBuffer(capacity_positions=100000, buffer_dir=buffer_dir,
-                           sampling_half_life=50)
+        buf = ReplayBuffer(capacity_positions=100000, buffer_dir=buffer_dir)
 
-        # Add data from model_generation=0 and model_generation=1
-        src1 = tempfile.mkdtemp(prefix="old_")
-        src2 = tempfile.mkdtemp(prefix="new_")
-        try:
-            make_fake_bin(os.path.join(src1, "old.bin"), 100)
-            buf.add_games(src1, model_generation=0)
-            make_fake_bin(os.path.join(src2, "new.bin"), 100)
-            buf.add_games(src2, model_generation=1)
-
-            # gen_0 data has 100 positions from newer gen → weight = 100 * 0.5^(100/50) = 25
-            # gen_1 data has 0 positions from newer gen → weight = 100
-            # gen_1 fraction = 100/125 = 0.8
-            counts = np.array([e["num_positions"] for e in buf.entries], dtype=np.float64)
-            model_gens = np.array([e.get("model_generation", 0) for e in buf.entries])
-            positions_from_newer = np.zeros(len(buf.entries), dtype=np.float64)
-            for i in range(len(buf.entries)):
-                positions_from_newer[i] = counts[model_gens > model_gens[i]].sum()
-            recency = np.power(0.5, positions_from_newer / buf.sampling_half_life)
-            weights = counts * recency
-            weights /= weights.sum()
-
-            assert weights[1] > 0.7, f"Newer model gen weight {weights[1]:.3f} should be > 0.7"
-        finally:
-            shutil.rmtree(src1, ignore_errors=True)
-            shutil.rmtree(src2, ignore_errors=True)
-
-    def test_same_model_gen_weighted_equally(self, tmp_dirs):
-        """Multiple entries from the same model generation should have equal weight per position."""
-        buffer_dir, _ = tmp_dirs
-        buf = ReplayBuffer(capacity_positions=100000, buffer_dir=buffer_dir,
-                           sampling_half_life=50)
-
-        # Add 3 batches all from model_generation=0
         srcs = [tempfile.mkdtemp(prefix=f"src{i}_") for i in range(3)]
         try:
             for src in srcs:
                 make_fake_bin(os.path.join(src, "game.bin"), 100)
-                buf.add_games(src, model_generation=0)
+                buf.add_games(src, model_elo=0.0)
 
+            # All same Elo, same size → equal weights
             counts = np.array([e["num_positions"] for e in buf.entries], dtype=np.float64)
-            model_gens = np.array([e.get("model_generation", 0) for e in buf.entries])
-            positions_from_newer = np.zeros(len(buf.entries), dtype=np.float64)
-            for i in range(len(buf.entries)):
-                positions_from_newer[i] = counts[model_gens > model_gens[i]].sum()
-            recency = np.power(0.5, positions_from_newer / buf.sampling_half_life)
-            weights = counts * recency
+            elos = np.array([e.get("model_elo", 0.0) for e in buf.entries])
+            max_elo = elos.max()
+            expected_scores = 1.0 / (1.0 + np.power(10.0, (max_elo - elos) / 400.0))
+            weights = counts * 2.0 * expected_scores
             weights /= weights.sum()
 
-            # All same model gen, all same size → equal weights
             assert weights[0] == pytest.approx(weights[1], rel=1e-6)
             assert weights[1] == pytest.approx(weights[2], rel=1e-6)
+            assert weights[0] == pytest.approx(1.0 / 3.0, rel=1e-6)
         finally:
             for src in srcs:
                 shutil.rmtree(src, ignore_errors=True)
 
-    def test_recency_weighting_disabled_is_uniform(self, tmp_dirs):
-        """half_life=0 should give uniform weighting (proportional to file size)."""
+    def test_higher_elo_weighted_more(self, tmp_dirs):
+        """Data from a higher-Elo model should be weighted more than lower."""
         buffer_dir, _ = tmp_dirs
-        buf = ReplayBuffer(capacity_positions=100000, buffer_dir=buffer_dir,
-                           sampling_half_life=0)
+        buf = ReplayBuffer(capacity_positions=100000, buffer_dir=buffer_dir)
 
-        src1 = tempfile.mkdtemp(prefix="a_")
-        src2 = tempfile.mkdtemp(prefix="b_")
+        src1 = tempfile.mkdtemp(prefix="low_")
+        src2 = tempfile.mkdtemp(prefix="high_")
         try:
-            make_fake_bin(os.path.join(src1, "a.bin"), 100)
-            buf.add_games(src1, model_generation=0)
-            make_fake_bin(os.path.join(src2, "b.bin"), 100)
-            buf.add_games(src2, model_generation=1)
+            make_fake_bin(os.path.join(src1, "low.bin"), 100)
+            buf.add_games(src1, model_elo=0.0)
+            make_fake_bin(os.path.join(src2, "high.bin"), 100)
+            # 55% winrate → elo_delta = -400*log10(1/0.55 - 1) ≈ 35
+            buf.add_games(src2, model_elo=35.0)
 
-            # With equal sizes and no recency, weights should be equal
             counts = np.array([e["num_positions"] for e in buf.entries], dtype=np.float64)
-            weights = counts / counts.sum()
+            elos = np.array([e.get("model_elo", 0.0) for e in buf.entries])
+            max_elo = elos.max()
+            expected_scores = 1.0 / (1.0 + np.power(10.0, (max_elo - elos) / 400.0))
+            weights = counts * 2.0 * expected_scores
+            weights /= weights.sum()
 
-            assert weights[0] == pytest.approx(0.5)
-            assert weights[1] == pytest.approx(0.5)
+            # 35 Elo gap → expected score ≈ 0.45 → weight ratio ≈ 0.9:1
+            # So higher Elo should have more weight, but not dramatically more
+            assert weights[1] > weights[0], "Higher Elo should have more weight"
+            # The ratio should be moderate (~1.2:1), not extreme like 7:1
+            ratio = weights[1] / weights[0]
+            assert 1.0 < ratio < 2.0, f"Ratio {ratio:.2f} should be moderate (1-2x)"
         finally:
             shutil.rmtree(src1, ignore_errors=True)
             shutil.rmtree(src2, ignore_errors=True)
 
-    def test_recency_weighting_tiny_half_life(self, tmp_dirs):
-        """half_life=1 should almost exclusively sample from the newest model gen."""
+    def test_large_elo_gap_still_contributes(self, tmp_dirs):
+        """Even with a 500 Elo gap, old data should still have non-zero weight."""
         buffer_dir, _ = tmp_dirs
-        buf = ReplayBuffer(capacity_positions=100000, buffer_dir=buffer_dir,
-                           sampling_half_life=1)
+        buf = ReplayBuffer(capacity_positions=100000, buffer_dir=buffer_dir)
 
         src1 = tempfile.mkdtemp(prefix="old_")
         src2 = tempfile.mkdtemp(prefix="new_")
         try:
             make_fake_bin(os.path.join(src1, "old.bin"), 100)
-            buf.add_games(src1, model_generation=0)
+            buf.add_games(src1, model_elo=0.0)
             make_fake_bin(os.path.join(src2, "new.bin"), 100)
-            buf.add_games(src2, model_generation=1)
+            buf.add_games(src2, model_elo=500.0)
 
             counts = np.array([e["num_positions"] for e in buf.entries], dtype=np.float64)
-            model_gens = np.array([e.get("model_generation", 0) for e in buf.entries])
-            positions_from_newer = np.zeros(len(buf.entries), dtype=np.float64)
-            for i in range(len(buf.entries)):
-                positions_from_newer[i] = counts[model_gens > model_gens[i]].sum()
-            recency = np.power(0.5, positions_from_newer / buf.sampling_half_life)
-            weights = counts * recency
+            elos = np.array([e.get("model_elo", 0.0) for e in buf.entries])
+            max_elo = elos.max()
+            expected_scores = 1.0 / (1.0 + np.power(10.0, (max_elo - elos) / 400.0))
+            weights = counts * 2.0 * expected_scores
             weights /= weights.sum()
 
-            # gen_0 has 100 positions from newer gen → weight = 0.5^(100/1) ≈ 0
-            assert weights[1] > 0.99, f"Newest weight {weights[1]:.6f} should be > 0.99"
+            # Old data should still get meaningful weight (~0.1)
+            assert weights[0] > 0.05, f"Old data weight {weights[0]:.3f} should be > 0.05"
+            # But new data should dominate
+            assert weights[1] > weights[0]
         finally:
             shutil.rmtree(src1, ignore_errors=True)
             shutil.rmtree(src2, ignore_errors=True)
 
-    def test_recency_weighting_sample_batch_integration(self, tmp_dirs):
-        """sample_batch with recency weighting returns valid data."""
+    def test_legacy_entries_default_to_elo_zero(self, tmp_dirs):
+        """Entries without model_elo field default to 0.0."""
         buffer_dir, _ = tmp_dirs
-        buf = ReplayBuffer(capacity_positions=100000, buffer_dir=buffer_dir,
-                           sampling_half_life=50)
+        buf = ReplayBuffer(capacity_positions=100000, buffer_dir=buffer_dir)
+
+        src = tempfile.mkdtemp(prefix="legacy_")
+        try:
+            make_fake_bin(os.path.join(src, "game.bin"), 50)
+            buf.add_games(src)
+
+            # Manually strip model_elo to simulate legacy manifest
+            for entry in buf.entries:
+                entry.pop("model_elo", None)
+            buf.save_manifest()
+
+            # Reload and sample — should not crash
+            buf2 = ReplayBuffer(capacity_positions=100000, buffer_dir=buffer_dir)
+            buf2.load_manifest()
+            boards, _, _, _ = buf2.sample_batch(4)
+            assert boards.shape[0] == 4
+        finally:
+            shutil.rmtree(src, ignore_errors=True)
+
+    def test_elo_weighting_sample_batch_integration(self, tmp_dirs):
+        """sample_batch with Elo weighting returns valid data."""
+        buffer_dir, _ = tmp_dirs
+        buf = ReplayBuffer(capacity_positions=100000, buffer_dir=buffer_dir)
 
         src = tempfile.mkdtemp(prefix="data_")
         try:
             make_fake_bin(os.path.join(src, "game.bin"), 20)
-            buf.add_games(src, model_generation=0)
+            buf.add_games(src, model_elo=100.0)
 
             boards, materials, values, policies = buf.sample_batch(8)
             assert boards.shape == (8, INPUT_CHANNELS, 8, 8)
@@ -430,30 +423,33 @@ class TestRecencyWeighting:
         finally:
             shutil.rmtree(src, ignore_errors=True)
 
-    def test_legacy_entries_without_model_generation(self, tmp_dirs):
-        """Entries without model_generation field default to 0."""
+    def test_200_elo_gap_weight_ratio(self, tmp_dirs):
+        """200 Elo gap should give ~0.48x weight ratio."""
         buffer_dir, _ = tmp_dirs
-        buf = ReplayBuffer(capacity_positions=100000, buffer_dir=buffer_dir,
-                           sampling_half_life=50)
+        buf = ReplayBuffer(capacity_positions=100000, buffer_dir=buffer_dir)
 
-        src = tempfile.mkdtemp(prefix="legacy_")
+        src1 = tempfile.mkdtemp(prefix="low_")
+        src2 = tempfile.mkdtemp(prefix="high_")
         try:
-            make_fake_bin(os.path.join(src, "game.bin"), 50)
-            buf.add_games(src)  # no model_generation arg → defaults to 0
+            make_fake_bin(os.path.join(src1, "low.bin"), 100)
+            buf.add_games(src1, model_elo=0.0)
+            make_fake_bin(os.path.join(src2, "high.bin"), 100)
+            buf.add_games(src2, model_elo=200.0)
 
-            # Manually strip model_generation to simulate legacy manifest
-            for entry in buf.entries:
-                entry.pop("model_generation", None)
-            buf.save_manifest()
-
-            # Reload and sample — should not crash
-            buf2 = ReplayBuffer(capacity_positions=100000, buffer_dir=buffer_dir,
-                                sampling_half_life=50)
-            buf2.load_manifest()
-            boards, _, _, _ = buf2.sample_batch(4)
-            assert boards.shape[0] == 4
+            counts = np.array([e["num_positions"] for e in buf.entries], dtype=np.float64)
+            elos = np.array([e.get("model_elo", 0.0) for e in buf.entries])
+            max_elo = elos.max()
+            expected_scores = 1.0 / (1.0 + np.power(10.0, (max_elo - elos) / 400.0))
+            # Raw weight ratio (before normalization)
+            raw_weights = counts * 2.0 * expected_scores
+            ratio = raw_weights[0] / raw_weights[1]
+            # expected_score(200 gap) = 1/(1+10^(200/400)) = 1/(1+10^0.5) ≈ 0.240
+            # expected_score(0 gap) = 1/(1+10^0) = 0.5
+            # ratio = 0.240 / 0.5 ≈ 0.48
+            assert 0.4 < ratio < 0.55, f"Weight ratio {ratio:.3f} should be ~0.48"
         finally:
-            shutil.rmtree(src, ignore_errors=True)
+            shutil.rmtree(src1, ignore_errors=True)
+            shutil.rmtree(src2, ignore_errors=True)
 
 
 if __name__ == "__main__":

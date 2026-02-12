@@ -20,19 +20,18 @@ BYTES_PER_SAMPLE = SAMPLE_SIZE_FLOATS * 4
 
 
 class ReplayBuffer:
-    def __init__(self, capacity_positions: int, buffer_dir: str, sampling_half_life: int = 0):
+    def __init__(self, capacity_positions: int, buffer_dir: str):
         self.capacity = capacity_positions
         self.buffer_dir = buffer_dir
-        self.sampling_half_life = sampling_half_life  # 0 = uniform (disabled)
-        self.entries = []  # [{path, num_positions, timestamp}] ordered by insertion
+        self.entries = []  # [{path, num_positions, timestamp, model_elo}] ordered by insertion
         os.makedirs(buffer_dir, exist_ok=True)
 
-    def add_games(self, bin_dir: str, model_generation: int = 0) -> int:
+    def add_games(self, bin_dir: str, model_elo: float = 0.0) -> int:
         """Add all .bin files from bin_dir to the buffer. Returns number of positions added.
 
-        model_generation: which accepted model produced this data. Used for
-        recency weighting — data from the same model generation is weighted
-        equally, with decay applied only across model generation boundaries.
+        model_elo: cumulative Elo of the model that produced this data. Used for
+        Elo-based strength weighting — data from stronger models is weighted
+        higher using expected score formula.
         """
         bin_files = sorted(glob.glob(os.path.join(bin_dir, "*.bin")))
         total_added = 0
@@ -55,7 +54,7 @@ class ReplayBuffer:
                 "path": dst_path,
                 "num_positions": num_positions,
                 "timestamp": time.time(),
-                "model_generation": model_generation,
+                "model_elo": model_elo,
             })
             total_added += num_positions
 
@@ -68,28 +67,15 @@ class ReplayBuffer:
         if total == 0:
             raise ValueError("Cannot sample from empty buffer")
 
-        # Weight files by position count
+        # Weight files by position count, scaled by Elo-based expected score.
+        # Data from stronger models (higher Elo) is weighted more heavily.
+        # expected_score = 1 / (1 + 10^((max_elo - entry_elo) / 400))
+        # weight = num_positions * 2 * expected_score  (so best model → weight 1.0 per position)
         counts = np.array([e["num_positions"] for e in self.entries], dtype=np.float64)
-
-        # Apply recency weighting across model generation boundaries only.
-        # Data from the same model generation is weighted equally — the model
-        # that generated it was identical, so there's no reason to prefer newer
-        # games over older ones within the same generation.
-        if self.sampling_half_life > 0:
-            model_gens = np.array([e.get("model_generation", 0) for e in self.entries])
-            latest_gen = model_gens.max() if len(model_gens) > 0 else 0
-
-            # Compute positions from newer model generations (not same-gen peers)
-            positions_from_newer_gens = np.zeros(len(self.entries), dtype=np.float64)
-            for i, entry in enumerate(self.entries):
-                gen = model_gens[i]
-                # Sum positions from all entries with strictly newer model_generation
-                positions_from_newer_gens[i] = counts[model_gens > gen].sum()
-
-            recency = np.power(0.5, positions_from_newer_gens / self.sampling_half_life)
-            weights = counts * recency
-        else:
-            weights = counts
+        elos = np.array([e.get("model_elo", 0.0) for e in self.entries])
+        max_elo = elos.max() if len(elos) > 0 else 0.0
+        expected_scores = 1.0 / (1.0 + np.power(10.0, (max_elo - elos) / 400.0))
+        weights = counts * 2.0 * expected_scores
 
         weights /= weights.sum()
 

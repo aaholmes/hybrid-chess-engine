@@ -6,6 +6,7 @@ Config-driven loop: self-play -> buffer -> train -> evaluate -> accept/reject.
 import os
 import sys
 import json
+import math
 import shutil
 import subprocess
 import time
@@ -33,7 +34,6 @@ class TrainingConfig:
     # Replay buffer (sliding window — old data evicted FIFO)
     buffer_capacity: int = 100_000
     buffer_dir: str = "data/buffer"
-    sampling_half_life: int = 20_000  # recency weighting; 0 = uniform sampling
 
     # Training
     minibatches_per_generation: int = 1000
@@ -78,8 +78,6 @@ class TrainingConfig:
         parser.add_argument("--enable-koth", action="store_true")
         parser.add_argument("--buffer-capacity", type=int, default=100_000)
         parser.add_argument("--buffer-dir", type=str, default="data/buffer")
-        parser.add_argument("--sampling-half-life", type=int, default=20_000,
-                            help="Recency sampling half-life in positions (0 = uniform)")
         parser.add_argument("--minibatches-per-gen", type=int, default=1000)
         parser.add_argument("--batch-size", type=int, default=64)
         parser.add_argument("--optimizer", type=str, default="muon",
@@ -131,7 +129,6 @@ class TrainingConfig:
             enable_material_value=not args.disable_material,
             buffer_capacity=args.buffer_capacity,
             buffer_dir=args.buffer_dir,
-            sampling_half_life=args.sampling_half_life,
             minibatches_per_generation=args.minibatches_per_gen,
             batch_size=args.batch_size,
             optimizer=args.optimizer,
@@ -164,7 +161,8 @@ class OrchestratorState:
     current_best_pt: str = ""
     global_minibatches: int = 0
     reset_optimizer_next: bool = False
-    accepted_count: int = 0  # number of models accepted (for recency weighting)
+    accepted_count: int = 0  # number of models accepted
+    model_elos: dict = field(default_factory=dict)  # str(accepted_count) → cumulative Elo
 
     def save(self, path):
         with open(path, "w") as f:
@@ -174,6 +172,9 @@ class OrchestratorState:
     def load(cls, path):
         with open(path, "r") as f:
             data = json.load(f)
+        # Backward compat: old state files may not have model_elos
+        if "model_elos" not in data:
+            data["model_elos"] = {}
         return cls(**data)
 
 
@@ -254,6 +255,7 @@ class Orchestrator:
 
         self.state.current_best_pt = gen0_pt
         self.state.current_best_pth = gen0_pth
+        self.state.model_elos = {"0": 0.0}
 
     def log_entry(self, entry: dict):
         """Append a JSON line to the log file."""
@@ -272,7 +274,13 @@ class Orchestrator:
 
             self.state.current_best_pt = gen_pt
             self.state.current_best_pth = gen_pth
+
+            # Compute cumulative Elo for new model
+            winrate = max(0.01, min(0.99, eval_results.get("winrate", 0.5)))
+            elo_delta = -400 * math.log10(1.0 / winrate - 1.0)
+            prev_elo = self.state.model_elos.get(str(self.state.accepted_count), 0.0)
             self.state.accepted_count += 1
+            self.state.model_elos[str(self.state.accepted_count)] = prev_elo + elo_delta
 
             # Update latest symlink
             latest_pt = os.path.join(self.config.weights_dir, "latest.pt")
@@ -281,7 +289,8 @@ class Orchestrator:
             os.symlink(os.path.abspath(gen_pt), latest_pt)
 
             print(f"Generation {generation} ACCEPTED (W:{eval_results['wins']} "
-                  f"L:{eval_results['losses']} D:{eval_results['draws']})")
+                  f"L:{eval_results['losses']} D:{eval_results['draws']} "
+                  f"Elo: {self.state.model_elos[str(self.state.accepted_count)]:.1f})")
         else:
             print(f"Generation {generation} REJECTED (W:{eval_results['wins']} "
                   f"L:{eval_results['losses']} D:{eval_results['draws']})")
@@ -369,25 +378,26 @@ class Orchestrator:
 
     def update_buffer(self, game_data_dir):
         """Add new games to replay buffer and evict if over capacity."""
+        current_elo = self.state.model_elos.get(str(self.state.accepted_count), 0.0)
         buf = ReplayBuffer(
             capacity_positions=self.config.buffer_capacity,
             buffer_dir=self.config.buffer_dir,
         )
         buf.load_manifest()
-        added = buf.add_games(game_data_dir, model_generation=self.state.accepted_count)
+        added = buf.add_games(game_data_dir, model_elo=current_elo)
         buf.evict_oldest()
         total = buf.total_positions()
-        print(f"Buffer: +{added} positions (model_gen={self.state.accepted_count}), {total} total")
+        print(f"Buffer: +{added} positions (elo={current_elo:.1f}), {total} total")
         return total
 
-    def _add_eval_data_to_buffer(self, bin_dir, model_generation):
+    def _add_eval_data_to_buffer(self, bin_dir, model_elo):
         """Add eval training data to the replay buffer."""
         buf = ReplayBuffer(
             capacity_positions=self.config.buffer_capacity,
             buffer_dir=self.config.buffer_dir,
         )
         buf.load_manifest()
-        added = buf.add_games(bin_dir, model_generation=model_generation)
+        added = buf.add_games(bin_dir, model_elo=model_elo)
         buf.evict_oldest()
         return added
 
@@ -435,8 +445,6 @@ class Orchestrator:
         ]
         if self.config.lr_schedule:
             cmd.extend(["--lr-schedule", self.config.lr_schedule])
-
-        cmd.extend(["--sampling-half-life", str(self.config.sampling_half_life)])
 
         if not self.config.enable_material_value:
             cmd.append("--disable-material")
@@ -706,8 +714,8 @@ class Orchestrator:
                 self._last_training_losses = variant_training_losses
                 print(f"\n>>> No variant passed SPRT")
 
-            # Capture current accepted_count before it may change
-            gen_before = self.state.accepted_count
+            # Capture current Elo before it may change
+            current_elo = self.state.model_elos.get(str(self.state.accepted_count), 0.0)
 
             self.handle_eval_result(
                 accepted=accepted,
@@ -723,9 +731,10 @@ class Orchestrator:
             candidate_eval_dir = os.path.join(eval_data_dir, "candidate")
             eval_added = 0
             if os.path.isdir(current_eval_dir):
-                eval_added += self._add_eval_data_to_buffer(current_eval_dir, gen_before)
+                eval_added += self._add_eval_data_to_buffer(current_eval_dir, current_elo)
             if accepted and os.path.isdir(candidate_eval_dir):
-                eval_added += self._add_eval_data_to_buffer(candidate_eval_dir, gen_before + 1)
+                new_elo = self.state.model_elos.get(str(self.state.accepted_count), 0.0)
+                eval_added += self._add_eval_data_to_buffer(candidate_eval_dir, new_elo)
             if eval_added > 0:
                 print(f"Buffer: +{eval_added} eval positions ingested")
                 buffer_size += eval_added
@@ -747,6 +756,7 @@ class Orchestrator:
                 "accepted": accepted,
                 "accepted_variant": train_heads if accepted else None,
                 "current_best": self.state.current_best_pt,
+                "current_model_elo": self.state.model_elos.get(str(self.state.accepted_count), 0.0),
             }
             if self._last_training_losses:
                 log["training_loss"] = self._last_training_losses.get("loss")

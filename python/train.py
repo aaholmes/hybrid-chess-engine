@@ -90,10 +90,9 @@ class BufferDataset(Dataset):
     Pre-samples chunks into memory to avoid per-item file opens.
     """
 
-    def __init__(self, buffer_dir, chunk_size=4096, augment=False, sampling_half_life=0):
+    def __init__(self, buffer_dir, chunk_size=4096, augment=False):
         from replay_buffer import ReplayBuffer
-        self.buffer = ReplayBuffer(capacity_positions=10**9, buffer_dir=buffer_dir,
-                                   sampling_half_life=sampling_half_life)
+        self.buffer = ReplayBuffer(capacity_positions=10**9, buffer_dir=buffer_dir)
         self.buffer.load_manifest()
         self._total = self.buffer.total_positions()
         self.chunk_size = chunk_size
@@ -226,7 +225,6 @@ def train_with_config(
     disable_material=False,
     augment=True,
     reset_optimizer=False,
-    sampling_half_life=0,
     train_heads="all",
     num_blocks=6,
     hidden_dim=128,
@@ -239,8 +237,7 @@ def train_with_config(
 
     # Data
     if buffer_dir:
-        dataset = BufferDataset(buffer_dir, augment=augment,
-                                sampling_half_life=sampling_half_life)
+        dataset = BufferDataset(buffer_dir, augment=augment)
     else:
         dataset = ChessDataset(data_dir, augment=augment)
 
@@ -446,8 +443,6 @@ def parse_args():
                         help='Enable symmetry augmentation (default: enabled)')
     parser.add_argument('--no-augment', action='store_false', dest='augment',
                         help='Disable symmetry augmentation')
-    parser.add_argument('--sampling-half-life', type=int, default=0,
-                        help='Recency sampling half-life in positions (0 = uniform)')
     parser.add_argument('--train-heads', type=str, default='all',
                         choices=['all', 'policy', 'value'],
                         help='Which heads to train: all, policy (freeze value+k), value (freeze policy)')
@@ -480,9 +475,6 @@ def train():
     if args.buffer_dir:
         print(f"Buffer Dir: {args.buffer_dir}")
     print(f"Augmentation: {'enabled' if args.augment else 'disabled'}")
-    if args.sampling_half_life > 0:
-        print(f"Sampling half-life: {args.sampling_half_life} positions")
-
     train_with_config(
         data_dir=args.data_dir,
         output_path=args.output_path,
@@ -497,7 +489,6 @@ def train():
         disable_material=args.disable_material,
         augment=args.augment,
         reset_optimizer=args.reset_optimizer,
-        sampling_half_life=args.sampling_half_life,
         train_heads=args.train_heads,
         num_blocks=args.num_blocks,
         hidden_dim=args.hidden_dim,

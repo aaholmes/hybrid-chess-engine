@@ -40,7 +40,6 @@ class TestTrainingConfig:
         assert cfg.simulations_per_move == 800
         assert cfg.enable_koth is False
         assert cfg.buffer_capacity == 100_000
-        assert cfg.sampling_half_life == 20_000
         assert cfg.minibatches_per_generation == 1000
         assert cfg.batch_size == 64
         assert cfg.optimizer == "muon"
@@ -528,12 +527,12 @@ class TestAdaptiveMinibatches:
         assert result == 100
 
     def test_gen1_buffer_gets_scaled_minibatches(self, tmp_workspace):
-        """~7000 positions (gen 1) should get ~162 minibatches, not 1000."""
+        """~7000 positions (gen 1) should get ~324 minibatches, not 1000."""
         orch = self._make_orch(tmp_workspace)
         result = orch._compute_adaptive_minibatches(6914)
-        expected = int(1.5 * 6914 / 64)  # = 162
+        expected = int(3.0 * 6914 / 64)  # = 324
         assert result == expected
-        assert result < 200  # Much less than the old default of 1000
+        assert result < 400  # Much less than the old default of 1000
 
     def test_large_buffer_capped_at_config_max(self, tmp_workspace):
         """With large buffer, minibatches capped at config maximum."""
@@ -544,19 +543,19 @@ class TestAdaptiveMinibatches:
 
     def test_medium_buffer_scales_linearly(self, tmp_workspace):
         """Buffer in the middle range scales proportionally."""
-        orch = self._make_orch(tmp_workspace)
+        orch = self._make_orch(tmp_workspace, minibatches_per_generation=5000)
+        result_10k = orch._compute_adaptive_minibatches(10_000)
         result_20k = orch._compute_adaptive_minibatches(20_000)
-        result_40k = orch._compute_adaptive_minibatches(40_000)
         # Both should be proportional (before hitting cap)
-        assert result_40k == pytest.approx(2 * result_20k, abs=2)
+        assert result_20k == pytest.approx(2 * result_10k, abs=2)
 
-    def test_effective_epochs_around_1_5(self, tmp_workspace):
-        """The adaptive calculation should produce ~1.5 effective epochs."""
+    def test_effective_epochs_around_3(self, tmp_workspace):
+        """The adaptive calculation should produce ~3.0 effective epochs."""
         orch = self._make_orch(tmp_workspace)
         buffer_size = 12_920  # Gen 2 from the analysis
         minibatches = orch._compute_adaptive_minibatches(buffer_size)
         effective_epochs = (minibatches * 64) / buffer_size
-        assert 1.0 <= effective_epochs <= 2.0
+        assert 2.5 <= effective_epochs <= 3.5
 
     def test_run_training_passes_buffer_positions(self, tmp_workspace):
         """run_training uses adaptive minibatches when buffer_positions given."""
@@ -758,10 +757,10 @@ class TestMaxGenerations:
             # Run the main loop
             orch.run()
 
-            # Should have run exactly 3 generations (1 self-play + 3 variants each)
+            # Should have run exactly 3 generations (single variant mode)
             assert mock_sp.call_count == 3
-            assert mock_train.call_count == 9   # 3 variants x 3 generations
-            assert mock_eval.call_count == 9    # 3 variants x 3 generations
+            assert mock_train.call_count == 3   # 1 variant x 3 generations
+            assert mock_eval.call_count == 3    # 1 variant x 3 generations
 
     def test_loop_runs_one_generation(self, tmp_workspace):
         """max_generations=1 should run exactly one iteration."""
@@ -782,7 +781,7 @@ class TestMaxGenerations:
             orch.initialize_gen0()
             orch.save_state()
             orch.run()
-            assert mock_eval.call_count == 3  # 3 variants in 1 generation
+            assert mock_eval.call_count == 1  # 1 variant in 1 generation (single_variant=True)
 
     def test_loop_respects_resume_with_max_generations(self, tmp_workspace):
         """When resuming, max_generations counts from the resume point."""
@@ -807,8 +806,8 @@ class TestMaxGenerations:
              patch.object(orch, 'run_evaluation', return_value=(False, {"wins": 0, "losses": 0, "draws": 0, "winrate": 0.0})) as mock_eval:
 
             orch.run()
-            # Should run generations 6 and 7 (2 total, 3 variants each)
-            assert mock_eval.call_count == 6
+            # Should run generations 6 and 7 (2 total, 1 variant each)
+            assert mock_eval.call_count == 2
 
 
 class TestSPRT:
@@ -943,7 +942,7 @@ class TestSPRT:
         assert cmd[beta_idx + 1] == "0.05"
 
 
-class TestSamplingHalfLife:
+class TestEloTracking:
     def _make_orch(self, tmp_workspace, **overrides):
         cfg = TrainingConfig(
             weights_dir=os.path.join(tmp_workspace, "weights"),
@@ -954,23 +953,123 @@ class TestSamplingHalfLife:
         )
         return Orchestrator(cfg)
 
-    def test_sampling_half_life_config_from_args(self):
-        """Verify CLI parsing of --sampling-half-life."""
-        test_args = ["orchestrate.py", "--sampling-half-life", "50000"]
-        with patch("sys.argv", test_args):
-            cfg = TrainingConfig.from_args()
-        assert cfg.sampling_half_life == 50000
+    def test_elo_accumulation_on_acceptance(self, tmp_workspace):
+        """Accepting a model with 55% winrate should add ~35 Elo."""
+        import math
+        orch = self._make_orch(tmp_workspace)
+        os.makedirs(orch.config.weights_dir, exist_ok=True)
 
-    def test_sampling_half_life_default_from_args(self):
-        """Default --sampling-half-life should be 20000."""
-        test_args = ["orchestrate.py"]
-        with patch("sys.argv", test_args):
-            cfg = TrainingConfig.from_args()
-        assert cfg.sampling_half_life == 20_000
+        candidate_pt = os.path.join(orch.config.weights_dir, "candidate.pt")
+        candidate_pth = os.path.join(orch.config.weights_dir, "candidate.pth")
+        with open(candidate_pt, "w") as f:
+            f.write("fake")
+        with open(candidate_pth, "w") as f:
+            f.write("fake")
 
-    def test_run_training_passes_sampling_half_life(self, tmp_workspace):
-        """run_training should pass --sampling-half-life to the subprocess."""
-        orch = self._make_orch(tmp_workspace, sampling_half_life=30000)
+        # Initial state: gen 0 at Elo 0
+        orch.state.model_elos = {"0": 0.0}
+        orch.state.accepted_count = 0
+
+        # Accept with 55% winrate
+        orch.handle_eval_result(
+            accepted=True, generation=1,
+            candidate_pt=candidate_pt, candidate_pth=candidate_pth,
+            eval_results={"wins": 55, "losses": 45, "draws": 0, "winrate": 0.55},
+        )
+
+        expected_delta = -400 * math.log10(1/0.55 - 1)
+        assert orch.state.accepted_count == 1
+        assert "1" in orch.state.model_elos
+        assert orch.state.model_elos["1"] == pytest.approx(expected_delta, rel=1e-4)
+
+    def test_elo_accumulates_across_multiple_acceptances(self, tmp_workspace):
+        """Multiple acceptances should accumulate Elo."""
+        import math
+        orch = self._make_orch(tmp_workspace)
+        os.makedirs(orch.config.weights_dir, exist_ok=True)
+
+        orch.state.model_elos = {"0": 0.0}
+        orch.state.accepted_count = 0
+
+        winrates = [0.55, 0.60, 0.52]
+        for i, wr in enumerate(winrates):
+            candidate_pt = os.path.join(orch.config.weights_dir, f"candidate_{i+1}.pt")
+            candidate_pth = os.path.join(orch.config.weights_dir, f"candidate_{i+1}.pth")
+            with open(candidate_pt, "w") as f:
+                f.write("fake")
+            with open(candidate_pth, "w") as f:
+                f.write("fake")
+
+            orch.handle_eval_result(
+                accepted=True, generation=i+1,
+                candidate_pt=candidate_pt, candidate_pth=candidate_pth,
+                eval_results={"wins": int(wr*100), "losses": int((1-wr)*100),
+                              "draws": 0, "winrate": wr},
+            )
+
+        # Verify cumulative Elo
+        cumulative = 0.0
+        for wr in winrates:
+            cumulative += -400 * math.log10(1/wr - 1)
+
+        assert orch.state.accepted_count == 3
+        assert orch.state.model_elos["3"] == pytest.approx(cumulative, rel=1e-4)
+
+    def test_rejection_does_not_change_elos(self, tmp_workspace):
+        """Rejecting a model should not add any Elo entry."""
+        orch = self._make_orch(tmp_workspace)
+        orch.state.model_elos = {"0": 0.0}
+        orch.state.accepted_count = 0
+        orch.state.current_best_pt = "old.pt"
+        orch.state.current_best_pth = "old.pth"
+
+        orch.handle_eval_result(
+            accepted=False, generation=1,
+            candidate_pt="candidate.pt", candidate_pth="candidate.pth",
+            eval_results={"wins": 40, "losses": 50, "draws": 10, "winrate": 0.45},
+        )
+
+        assert orch.state.accepted_count == 0
+        assert len(orch.state.model_elos) == 1
+        assert "0" in orch.state.model_elos
+
+    def test_elo_state_save_load_roundtrip(self, tmp_workspace):
+        """model_elos should survive save/load cycle."""
+        orch = self._make_orch(tmp_workspace)
+        orch.state.model_elos = {"0": 0.0, "1": 35.0, "2": 105.0}
+        orch.state.accepted_count = 2
+        orch.save_state()
+
+        orch2 = self._make_orch(tmp_workspace)
+        loaded = orch2.load_state()
+        assert loaded is True
+        assert orch2.state.model_elos == {"0": 0.0, "1": 35.0, "2": 105.0}
+        assert orch2.state.accepted_count == 2
+
+    def test_legacy_state_without_model_elos(self, tmp_workspace):
+        """Old state files without model_elos should load with default {}."""
+        state_path = os.path.join(tmp_workspace, "data", "orchestrator_state.json")
+        os.makedirs(os.path.dirname(state_path), exist_ok=True)
+
+        # Write a legacy state file without model_elos
+        legacy_state = {
+            "generation": 5,
+            "current_best_pth": "weights/gen_4.pth",
+            "current_best_pt": "weights/gen_4.pt",
+            "global_minibatches": 5000,
+            "reset_optimizer_next": False,
+            "accepted_count": 3,
+        }
+        with open(state_path, "w") as f:
+            json.dump(legacy_state, f)
+
+        state = OrchestratorState.load(state_path)
+        assert state.model_elos == {}
+        assert state.generation == 5
+
+    def test_run_training_no_longer_passes_sampling_half_life(self, tmp_workspace):
+        """run_training should NOT pass --sampling-half-life to subprocess."""
+        orch = self._make_orch(tmp_workspace)
         orch.state.current_best_pth = "best.pth"
 
         mock_result = MagicMock()
@@ -985,28 +1084,13 @@ class TestSamplingHalfLife:
             orch.run_training(1, buffer_positions=10000)
 
             cmd = mock_run.call_args[0][0]
-            hl_idx = cmd.index("--sampling-half-life")
-            assert cmd[hl_idx + 1] == "30000"
+            assert "--sampling-half-life" not in cmd
 
-    def test_run_training_passes_zero_half_life(self, tmp_workspace):
-        """run_training with half_life=0 should still pass arg to subprocess."""
-        orch = self._make_orch(tmp_workspace, sampling_half_life=0)
-        orch.state.current_best_pth = "best.pth"
-
-        mock_result = MagicMock()
-        mock_result.stdout = "Step 100/100 (global 100): Loss=1.50 P=3.00 V=0.50 K=0.35\n"
-        mock_result.returncode = 0
-
-        with patch("subprocess.run", return_value=mock_result) as mock_run, \
-             patch("orchestrate.OracleNet") as mock_model_cls, \
-             patch("torch.load", return_value={"model_state_dict": {}}), \
-             patch("orchestrate.export_model_for_rust"):
-            mock_model_cls.return_value = MagicMock()
-            orch.run_training(1, buffer_positions=10000)
-
-            cmd = mock_run.call_args[0][0]
-            hl_idx = cmd.index("--sampling-half-life")
-            assert cmd[hl_idx + 1] == "0"
+    def test_initialize_gen0_sets_elo_zero(self, tmp_workspace):
+        """initialize_gen0 should set model_elos['0'] = 0.0."""
+        orch = self._make_orch(tmp_workspace)
+        orch.initialize_gen0()
+        assert orch.state.model_elos == {"0": 0.0}
 
 
 if __name__ == "__main__":
