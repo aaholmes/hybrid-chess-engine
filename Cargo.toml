@@ -110,3 +110,7 @@ path = "src/bin/verbose_game.rs"
 [[bin]]
 name = "evaluate_models"
 path = "src/bin/evaluate_models.rs"
+
+[[bin]]
+name = "round_robin"
+path = "src/bin/round_robin.rs"
