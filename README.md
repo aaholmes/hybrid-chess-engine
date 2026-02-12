@@ -4,6 +4,8 @@
 
 Caissawary decomposes MCTS positions into tractable subgames solved exactly by classical methods and uncertain residuals evaluated by a neural network. When a subproblem is tractable, the engine *proves* the answer rather than learning it — injecting ground-truth values directly into the search tree. This reduces the sample complexity of self-play RL by reserving neural network queries for genuinely uncertain positions. The approach generalizes to any MCTS domain with tractable subproblems (theorem proving, program synthesis, robotics planning). Demonstrated here on chess and King of the Hill (KOTH).
 
+Prior work has explored parts of this space — KataGo incorporates handcrafted features alongside neural evaluation, and MCTS-Solver propagates proven game-theoretic values through the tree — but no existing system combines provably correct terminal nodes (with anti-dilution semantics), heuristic move ordering, and a factored value function where learned and computed components interact through a position-dependent confidence scalar.
+
 The name is a hybrid, like the engine: **Caissa** (the mythical goddess of chess) + **Cassowary** (a large, formidable, and famously aggressive bird).
 
 ![Caissawary Logo](Caissawary.png)
@@ -132,7 +134,7 @@ cargo build --release --features neural  # With neural network support
 
 ## Testing
 
-~800 tests (650 Rust + 150 Python). See [TESTING.md](TESTING.md) for details.
+~830 tests (660 Rust + 175 Python). See [TESTING.md](TESTING.md) for details.
 
 ```bash
 cargo test                                        # Fast Rust tests (~50s)

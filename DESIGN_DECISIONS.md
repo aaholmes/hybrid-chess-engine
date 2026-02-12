@@ -259,3 +259,17 @@ The three-tier decomposition is not chess-specific. The pattern generalizes:
 The key requirement: Tier 1 solutions must be **terminal** in the MCTS tree. If a proven node can be expanded and diluted by approximate children, the proof is wasted. This terminal semantics insight is the most transferable contribution.
 
 The value function factorization ($V = \tanh(V_{learned} + k \cdot V_{computed})$) also generalizes: any domain where part of the evaluation can be computed exactly benefits from separating the learnable residual from the computable component. The learned $k$ allows the network to adaptively weight the two components based on context.
+
+## Related Work
+
+Caissawary draws on and extends several lines of prior work:
+
+- **AlphaZero** (Silver et al., 2017) established pure neural MCTS for chess, learning everything from self-play. Caissawary uses the same MCTS + self-play framework but decomposes evaluation into learnable and computable components rather than learning end-to-end.
+
+- **MCTS-Solver** (Winands et al., 2008) propagates proven game-theoretic values (wins/losses) through MCTS trees, avoiding the dilution of exact values by approximate backups. Caissawary extends this idea by treating *any* provably resolved node as terminal — not just endgame wins/losses, but also short forced mates and KOTH geometric wins detected mid-search.
+
+- **KataGo** (Wu, 2019) incorporates handcrafted features alongside neural evaluation, including ownership predictions and score estimation. Caissawary's $k$-head similarly uses handcrafted features (pawn structure, piece counts, king patches) but in a different role: as a learned confidence scalar that modulates the influence of a separately computed material balance, rather than as auxiliary prediction targets.
+
+- **MT-MCTS** (Mannen & Wiering, 2012) decomposes games into subgames solved by specialized agents. Caissawary's three-tier structure is a specific instance of this: Tier 1 handles tractable subgames exactly, Tier 2 applies domain heuristics, and Tier 3 handles the uncertain residual with learned evaluation.
+
+The primary novelty is the *combination*: terminal semantics for proven nodes (preventing value dilution), factored value function with a learned confidence scalar, and systematic subgame decomposition — integrated into a single MCTS framework.

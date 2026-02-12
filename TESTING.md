@@ -1,64 +1,73 @@
 # Testing Guide for Caissawary
 
-Caissawary employs a comprehensive testing strategy ensuring correctness, stability, and performance. The test suite is divided into several categories targeting different layers of the engine.
+~830 tests (660 Rust + 175 Python) covering the engine, search, and training pipeline.
 
 ## Quick Start
 
-To run the full test suite (Unit, Integration, Property, and Regression):
-
 ```bash
-./scripts/test.sh
+cargo test                                        # Fast Rust tests (~50s, ~660 tests)
+cargo test --features slow-tests                  # Full suite including perft (~200s)
+cd python && python -m pytest test_*.py -v        # Python pipeline tests (~175 tests)
+./scripts/test.sh                                 # Scripted run (unit → integration → property)
 ```
 
-To run only standard Cargo tests:
+## Rust Test Categories
+
+### Unit Tests (`tests/unit/`)
+
+Focus on individual components in isolation:
+- **Board:** FEN parsing, state representation, castling rights
+- **Move Generation:** Validity of moves, pseudo-legal vs legal generation
+- **Node:** MCTS node value logic, terminal state handling
+- **Selection:** UCB/PUCT calculations, tactical priority ordering
+- **Make Move:** Incremental Zobrist hashing, castling updates
+- **SEE:** Static exchange evaluation
+- **Quiescence:** `forced_material_balance()`, material-only Q-search
+- **Training Data:** Binary serialization, sample extraction
+
+### Integration Tests (`tests/integration/`)
+
+Test the interaction between subsystems:
+- **Mate Search:** Verifies the engine finds mates in complex positions
+- **Tactical Priority:** Ensures tactical moves (captures, checks) are prioritized
+- **Neural Integration:** Tests the flow between the search tree and (mocked) inference server
+- **KOTH:** King of the Hill win detection and geometric pruning
+
+### Property Tests (`tests/property/`)
+
+Uses `proptest` to generate random inputs and verify invariants:
+- **Legal Moves:** Random positions ensure `generate_legal_moves` never produces illegal states
+- **Value Domains:** Verifies evaluations stay within valid bounds
+
+### Perft Tests (`tests/perft_tests.rs`)
+
+Performance and correctness tests for move generation (gated behind `--features slow-tests`). Walk the game tree to a fixed depth and compare leaf counts against known correct values.
+
+## Python Tests
+
+Located in `python/`:
+
+| File | Coverage |
+|------|----------|
+| `test_orchestrate.py` | Training loop, SPRT gating, state management, eval data reuse |
+| `test_train.py` | Model training, loss computation, data loading, chunk refreshing |
+| `test_augmentation.py` | D4/horizontal flip transforms, policy vector permutation |
+| `test_replay_buffer.py` | Elo-based weighting, FIFO eviction, manifest handling |
+| `test_architectures.py` | OracleNet variants, k-head, SE-ResNet blocks |
 
 ```bash
-cargo test
-```
-
-## Test Categories
-
-### 1. Unit Tests (`tests/unit/`)
-Focus on individual components in isolation.
-- **Board:** FEN parsing, state representation, castling rights.
-- **Move Generation:** Validity of moves, pseudo-legal vs legal generation.
-- **Node:** MCTS node value logic, terminal state handling.
-- **Selection:** UCB/PUCT calculations.
-
-### 2. Integration Tests (`tests/integration/`)
-Test the interaction between subsystems, particularly the MCTS search pipeline.
-- **Mate Search:** Verifies the engine finds mates in complex positions.
-- **Tactical Priority:** Ensures tactical moves (captures, checks) are prioritized.
-- **Neural Integration:** Tests the flow between the search tree and (mocked) inference server.
-
-### 3. Property Tests (`tests/property/`)
-Uses `proptest` to generate random inputs and verify invariants.
-- **Legal Moves:** Random positions are generated to ensure `generate_legal_moves` never produces illegal states.
-- **Value Domains:** Verifies evaluations stay within valid bounds (e.g., tanh domain [-1, 1]).
-
-### 4. Regression Tests (`tests/regression/`)
-Target specific bugs found during development to ensure they do not reoccur.
-- **Stack Overflow:** Verifies fix for `BoardStack` history handling.
-- **Castling Rules:** Ensures castling is correctly blocked when traversing check.
-
-### 5. Perft Tests (`tests/perft_tests.rs`)
-Performance and correctness tests for move generation. These walk the game tree to a fixed depth and compare the leaf node count against known correct values.
-
-```bash
-cargo test --test perft_tests
+cd python && python -m pytest test_*.py -v
 ```
 
 ## Running Specific Tests
 
-To run a specific test file or test case:
-
 ```bash
-# Run only regression tests
-cargo test --test regression_tests
+# Run only unit tests
+cargo test --test unit_tests
 
 # Run a specific test case
 cargo test test_castling_blocked_by_check
-```
 
-## Continuous Integration
-The `scripts/test.sh` script is the entry point for CI pipelines. It executes tests in a specific order (Unit -> Integration -> Property) to fail fast on fundamental errors.
+# Run a specific Python test file
+cd python && python -m pytest test_augmentation.py -v
+```

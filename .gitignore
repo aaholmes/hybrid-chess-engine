@@ -11,3 +11,23 @@ weights/
 .aider*
 perf.data*
 flamegraph.*
+
+# Debug game logs
+*_move_game*
+game
+game_old
+long_game*
+koth_win*
+0
+
+# MCTS debug output
+mcts_tree.*
+
+# IDE artifacts
+bundle.xml
+
+# Training runs (large, not for git)
+runs/
+
+# Claude Code session files
+.claude/
