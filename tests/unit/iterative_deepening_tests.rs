@@ -23,14 +23,9 @@ fn test_id_returns_legal_move() {
     let mut tt = TranspositionTable::new();
 
     let (depth, _eval, best_move, nodes) = iterative_deepening_ab_search(
-        &mut board,
-        &move_gen,
-        &pesto,
-        &mut tt,
-        4, // max_depth
+        &mut board, &move_gen, &pesto, &mut tt, 4, // max_depth
         4, // q_search_max_depth
-        None,
-        false,
+        None, false,
     );
 
     // Should return a valid move
@@ -38,7 +33,10 @@ fn test_id_returns_legal_move() {
 
     // Verify the move is legal
     board.make_move(best_move);
-    assert!(board.current_state().is_legal(&move_gen), "Move should be legal");
+    assert!(
+        board.current_state().is_legal(&move_gen),
+        "Move should be legal"
+    );
 
     // Should have searched some nodes
     assert!(nodes > 0, "Should search at least one node");
@@ -54,14 +52,8 @@ fn test_id_reaches_requested_depth() {
     let mut tt = TranspositionTable::new();
 
     let (depth_reached, _eval, _best_move, _nodes) = iterative_deepening_ab_search(
-        &mut board,
-        &move_gen,
-        &pesto,
-        &mut tt,
-        3, // max_depth
-        2,
-        None,
-        false,
+        &mut board, &move_gen, &pesto, &mut tt, 3, // max_depth
+        2, None, false,
     );
 
     // Should reach the requested depth (or close to it)
@@ -125,7 +117,11 @@ fn test_id_finds_mate() {
     // Should find a winning move
     assert!(best_move != NULL_MOVE, "Should find a move");
     // Score should be very good for white
-    assert!(eval > 100, "Should evaluate position as winning, got {}", eval);
+    assert!(
+        eval > 100,
+        "Should evaluate position as winning, got {}",
+        eval
+    );
 }
 
 #[test]
@@ -135,30 +131,14 @@ fn test_id_deeper_search_same_or_better() {
     // Search at depth 2
     let mut board = BoardStack::new();
     let mut tt = TranspositionTable::new();
-    let (_depth1, eval1, _best_move1, _nodes1) = iterative_deepening_ab_search(
-        &mut board,
-        &move_gen,
-        &pesto,
-        &mut tt,
-        2,
-        2,
-        None,
-        false,
-    );
+    let (_depth1, eval1, _best_move1, _nodes1) =
+        iterative_deepening_ab_search(&mut board, &move_gen, &pesto, &mut tt, 2, 2, None, false);
 
     // Search at depth 4
     let mut board = BoardStack::new();
     let mut tt = TranspositionTable::new();
-    let (_depth2, eval2, _best_move2, _nodes2) = iterative_deepening_ab_search(
-        &mut board,
-        &move_gen,
-        &pesto,
-        &mut tt,
-        4,
-        2,
-        None,
-        false,
-    );
+    let (_depth2, eval2, _best_move2, _nodes2) =
+        iterative_deepening_ab_search(&mut board, &move_gen, &pesto, &mut tt, 4, 2, None, false);
 
     // Evaluations should be similar (starting position is roughly equal)
     // Both should be close to 0 for a balanced position

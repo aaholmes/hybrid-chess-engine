@@ -2,7 +2,6 @@
 ///
 /// The key invariant: value_target should be from the side-to-move's perspective.
 /// White win (1.0) → white-to-move sample gets +1.0, black-to-move sample gets -1.0.
-
 use kingfisher::board::Board;
 use kingfisher::boardstack::BoardStack;
 use kingfisher::move_generation::MoveGen;
@@ -31,7 +30,10 @@ fn test_value_target_white_wins_white_perspective() {
     let board = Board::new(); // White to move
     let samples = vec![(true, &board)];
     let targets = assign_value_targets(&samples, 1.0);
-    assert_eq!(targets[0], 1.0, "White-to-move sample should get +1.0 when White wins");
+    assert_eq!(
+        targets[0], 1.0,
+        "White-to-move sample should get +1.0 when White wins"
+    );
 }
 
 #[test]
@@ -39,7 +41,10 @@ fn test_value_target_white_wins_black_perspective() {
     let board = Board::new_from_fen("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1");
     let samples = vec![(false, &board)];
     let targets = assign_value_targets(&samples, 1.0);
-    assert_eq!(targets[0], -1.0, "Black-to-move sample should get -1.0 when White wins");
+    assert_eq!(
+        targets[0], -1.0,
+        "Black-to-move sample should get -1.0 when White wins"
+    );
 }
 
 // === Black wins scenarios ===
@@ -49,7 +54,10 @@ fn test_value_target_black_wins_white_perspective() {
     let board = Board::new();
     let samples = vec![(true, &board)];
     let targets = assign_value_targets(&samples, -1.0);
-    assert_eq!(targets[0], -1.0, "White-to-move sample should get -1.0 when Black wins");
+    assert_eq!(
+        targets[0], -1.0,
+        "White-to-move sample should get -1.0 when Black wins"
+    );
 }
 
 #[test]
@@ -57,7 +65,10 @@ fn test_value_target_black_wins_black_perspective() {
     let board = Board::new_from_fen("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1");
     let samples = vec![(false, &board)];
     let targets = assign_value_targets(&samples, -1.0);
-    assert_eq!(targets[0], 1.0, "Black-to-move sample should get +1.0 when Black wins");
+    assert_eq!(
+        targets[0], 1.0,
+        "Black-to-move sample should get +1.0 when Black wins"
+    );
 }
 
 // === Draw scenarios ===
@@ -68,8 +79,14 @@ fn test_value_target_draw_both_perspectives() {
     let board_b = Board::new_from_fen("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1");
     let samples = vec![(true, &board_w), (false, &board_b)];
     let targets = assign_value_targets(&samples, 0.0);
-    assert_eq!(targets[0], 0.0, "Draw should give 0.0 from white's perspective");
-    assert_eq!(targets[1], 0.0, "Draw should give 0.0 from black's perspective (negated 0 = 0)");
+    assert_eq!(
+        targets[0], 0.0,
+        "Draw should give 0.0 from white's perspective"
+    );
+    assert_eq!(
+        targets[1], 0.0,
+        "Draw should give 0.0 from black's perspective (negated 0 = 0)"
+    );
 }
 
 // === Multi-sample game simulation ===
@@ -79,11 +96,11 @@ fn test_value_target_alternating_moves_white_wins() {
     // Simulate a short game: W, B, W, B, W — White wins
     let board = Board::new();
     let samples = vec![
-        (true, &board),   // Move 1: White
-        (false, &board),  // Move 1: Black
-        (true, &board),   // Move 2: White
-        (false, &board),  // Move 2: Black
-        (true, &board),   // Move 3: White
+        (true, &board),  // Move 1: White
+        (false, &board), // Move 1: Black
+        (true, &board),  // Move 2: White
+        (false, &board), // Move 2: Black
+        (true, &board),  // Move 3: White
     ];
     let targets = assign_value_targets(&samples, 1.0);
     assert_eq!(targets, vec![1.0, -1.0, 1.0, -1.0, 1.0]);
@@ -96,10 +113,7 @@ fn test_value_target_uses_w_to_move_not_index() {
     // assignment gives correct results, but i%2 would be wrong.
     let board = Board::new();
     // Two consecutive white-to-move samples
-    let samples = vec![
-        (true, &board),
-        (true, &board),
-    ];
+    let samples = vec![(true, &board), (true, &board)];
     let targets = assign_value_targets(&samples, 1.0);
     // Both should be +1.0 since both are white's perspective
     assert_eq!(targets[0], 1.0);
@@ -114,9 +128,8 @@ fn test_value_target_checkmate_white_wins() {
     let move_gen = MoveGen::new();
 
     // Scholar's mate final position: Black is checkmated, White to move is false
-    let board = Board::new_from_fen(
-        "rnbqkbnr/ppppp2p/5p2/6pQ/4P3/8/PPPP1PPP/RNB1KBNR b KQkq - 0 3"
-    );
+    let board =
+        Board::new_from_fen("rnbqkbnr/ppppp2p/5p2/6pQ/4P3/8/PPPP1PPP/RNB1KBNR b KQkq - 0 3");
     let (mate, _) = board.is_checkmate_or_stalemate(&move_gen);
     assert!(mate, "This should be checkmate");
 
@@ -128,9 +141,9 @@ fn test_value_target_checkmate_white_wins() {
     // Samples from this game
     let start = Board::new();
     let samples = vec![
-        (true, &start),   // White's first move
-        (false, &start),  // Black's first move
-        (true, &start),   // White's second move
+        (true, &start),  // White's first move
+        (false, &start), // Black's first move
+        (true, &start),  // White's second move
     ];
     let targets = assign_value_targets(&samples, final_score_white);
     assert_eq!(targets[0], 1.0, "White move → White wins → +1.0");
@@ -148,10 +161,7 @@ fn test_value_target_koth_white_wins() {
     assert!(white_won);
 
     let final_score_white = 1.0;
-    let samples = vec![
-        (true, &board),
-        (false, &board),
-    ];
+    let samples = vec![(true, &board), (false, &board)];
     let targets = assign_value_targets(&samples, final_score_white);
     assert_eq!(targets[0], 1.0);
     assert_eq!(targets[1], -1.0);
@@ -165,10 +175,7 @@ fn test_value_target_koth_black_wins() {
     assert!(black_won);
 
     let final_score_white = -1.0;
-    let samples = vec![
-        (true, &board),
-        (false, &board),
-    ];
+    let samples = vec![(true, &board), (false, &board)];
     let targets = assign_value_targets(&samples, final_score_white);
     assert_eq!(targets[0], -1.0);
     assert_eq!(targets[1], 1.0);
@@ -211,14 +218,26 @@ fn test_value_target_50_move_draw() {
 #[test]
 fn test_board_w_to_move_tracks_correctly_through_game() {
     let mut stack = BoardStack::new();
-    assert!(stack.current_state().w_to_move, "Starting position: White to move");
+    assert!(
+        stack.current_state().w_to_move,
+        "Starting position: White to move"
+    );
 
     stack.make_move(Move::new(12, 28, None)); // e2-e4
-    assert!(!stack.current_state().w_to_move, "After White's move: Black to move");
+    assert!(
+        !stack.current_state().w_to_move,
+        "After White's move: Black to move"
+    );
 
     stack.make_move(Move::new(52, 36, None)); // e7-e5
-    assert!(stack.current_state().w_to_move, "After Black's move: White to move");
+    assert!(
+        stack.current_state().w_to_move,
+        "After Black's move: White to move"
+    );
 
     stack.make_move(Move::new(6, 21, None)); // Ng1-f3
-    assert!(!stack.current_state().w_to_move, "After White's move: Black to move");
+    assert!(
+        !stack.current_state().w_to_move,
+        "After White's move: Black to move"
+    );
 }

@@ -1,11 +1,10 @@
 /// Tests for MCTS selection optimization: children created during expansion
 /// are already legality-checked, so selection should NOT re-validate them.
-
 use kingfisher::board::Board;
-use kingfisher::move_generation::MoveGen;
 use kingfisher::mcts::node::MctsNode;
-use kingfisher::mcts::selection::{select_child_with_tactical_priority, calculate_ucb_value};
-use kingfisher::mcts::tactical_mcts::{TacticalMctsStats, TacticalMctsConfig};
+use kingfisher::mcts::selection::{calculate_ucb_value, select_child_with_tactical_priority};
+use kingfisher::mcts::tactical_mcts::{TacticalMctsConfig, TacticalMctsStats};
+use kingfisher::move_generation::MoveGen;
 use std::rc::Rc;
 
 use crate::common::board_from_fen;
@@ -21,20 +20,23 @@ fn test_selection_returns_valid_child() {
     let mut stats = TacticalMctsStats::default();
 
     // First selection should expand and return a child
-    let child = select_child_with_tactical_priority(
-        root.clone(), &config, &move_gen, &mut stats, None, 0,
-    );
+    let child =
+        select_child_with_tactical_priority(root.clone(), &config, &move_gen, &mut stats, None, 0);
 
-    assert!(child.is_some(), "Selection should return a child from starting position");
+    assert!(
+        child.is_some(),
+        "Selection should return a child from starting position"
+    );
     let child = child.unwrap();
     let child_action = child.borrow().action;
     assert!(child_action.is_some(), "Child should have an action");
 
     // Verify the returned child is actually in the root's children list
     let root_ref = root.borrow();
-    let found = root_ref.children.iter().any(|c| {
-        c.borrow().action == child_action
-    });
+    let found = root_ref
+        .children
+        .iter()
+        .any(|c| c.borrow().action == child_action);
     assert!(found, "Selected child should exist in root's children list");
 }
 
@@ -49,20 +51,26 @@ fn test_selection_consistent_with_expansion() {
     let mut stats = TacticalMctsStats::default();
 
     // Trigger expansion via selection
-    let _ = select_child_with_tactical_priority(
-        root.clone(), &config, &move_gen, &mut stats, None, 0,
-    );
+    let _ =
+        select_child_with_tactical_priority(root.clone(), &config, &move_gen, &mut stats, None, 0);
 
     // Verify all children have legal actions
     let root_ref = root.borrow();
-    assert_eq!(root_ref.children.len(), 20, "Starting position should have 20 legal moves");
+    assert_eq!(
+        root_ref.children.len(),
+        20,
+        "Starting position should have 20 legal moves"
+    );
 
     for child in &root_ref.children {
         let child_ref = child.borrow();
         let action = child_ref.action.expect("Child must have an action");
         // The child's state should be the result of a legal move
-        assert!(child_ref.state.is_legal(&move_gen),
-            "Child state for move {} should be legal", action.to_uci());
+        assert!(
+            child_ref.state.is_legal(&move_gen),
+            "Child state for move {} should be legal",
+            action.to_uci()
+        );
     }
 }
 
@@ -76,9 +84,8 @@ fn test_selection_handles_no_children() {
     let config = TacticalMctsConfig::default();
     let mut stats = TacticalMctsStats::default();
 
-    let child = select_child_with_tactical_priority(
-        root.clone(), &config, &move_gen, &mut stats, None, 0,
-    );
+    let child =
+        select_child_with_tactical_priority(root.clone(), &config, &move_gen, &mut stats, None, 0);
 
     assert!(child.is_none(), "Terminal position should return None");
 }
@@ -101,8 +108,12 @@ fn test_ucb_selection_picks_highest_value() {
     // Low prior
     let ucb_low_prior = calculate_ucb_value(&child.borrow(), 100, 0.01, 1.414);
 
-    assert!(ucb_high_prior > ucb_low_prior,
-        "Higher prior should produce higher UCB: {} vs {}", ucb_high_prior, ucb_low_prior);
+    assert!(
+        ucb_high_prior > ucb_low_prior,
+        "Higher prior should produce higher UCB: {} vs {}",
+        ucb_high_prior,
+        ucb_low_prior
+    );
 }
 
 /// select_best_explored_child should return the highest-PUCT child directly
@@ -116,9 +127,8 @@ fn test_best_explored_child_no_revalidation() {
     let mut stats = TacticalMctsStats::default();
 
     // Expand the root
-    let _ = select_child_with_tactical_priority(
-        root.clone(), &config, &move_gen, &mut stats, None, 0,
-    );
+    let _ =
+        select_child_with_tactical_priority(root.clone(), &config, &move_gen, &mut stats, None, 0);
 
     // Give one child more visits so it has a defined Q-value
     {
@@ -131,7 +141,10 @@ fn test_best_explored_child_no_revalidation() {
     // select_best_explored_child should work without issues
     let root_ref = root.borrow();
     let best = root_ref.select_best_explored_child(&move_gen, 1.414);
-    assert!(best.borrow().action.is_some(), "Best child should have an action");
+    assert!(
+        best.borrow().action.is_some(),
+        "Best child should have an action"
+    );
 }
 
 /// Selection in a tactical position should still work correctly.
@@ -144,11 +157,13 @@ fn test_selection_tactical_position() {
     let config = TacticalMctsConfig::default();
     let mut stats = TacticalMctsStats::default();
 
-    let child = select_child_with_tactical_priority(
-        root.clone(), &config, &move_gen, &mut stats, None, 0,
-    );
+    let child =
+        select_child_with_tactical_priority(root.clone(), &config, &move_gen, &mut stats, None, 0);
 
-    assert!(child.is_some(), "Should select a child in tactical position");
+    assert!(
+        child.is_some(),
+        "Should select a child in tactical position"
+    );
 }
 
 /// Multiple selections should all return valid children without errors.
@@ -163,8 +178,16 @@ fn test_repeated_selection_no_errors() {
     // Run selection many times (simulating MCTS iterations)
     for _ in 0..50 {
         let child = select_child_with_tactical_priority(
-            root.clone(), &config, &move_gen, &mut stats, None, 0,
+            root.clone(),
+            &config,
+            &move_gen,
+            &mut stats,
+            None,
+            0,
         );
-        assert!(child.is_some(), "Selection should always return a child from starting position");
+        assert!(
+            child.is_some(),
+            "Selection should always return a child from starting position"
+        );
     }
 }

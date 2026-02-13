@@ -1,15 +1,15 @@
+use crate::agent::{Agent, HumanlikeAgent, SimpleAgent};
 use crate::boardstack::BoardStack;
-use crate::move_types::Move;
-use crate::move_generation::MoveGen;
 use crate::eval::PestoEval;
-use crate::agent::{Agent, SimpleAgent, HumanlikeAgent};
+use crate::move_generation::MoveGen;
+use crate::move_types::Move;
 use std::time::{Duration, Instant};
 
-pub mod tactical_suite;
-pub mod performance;
-pub mod strength_testing;
 pub mod elo_estimation;
 pub mod elo_tournament;
+pub mod performance;
+pub mod strength_testing;
+pub mod tactical_suite;
 
 #[derive(Debug, Clone)]
 pub struct BenchmarkResult {
@@ -65,7 +65,10 @@ impl BenchmarkSummary {
         println!("Average Time: {:.2}ms", self.average_time.as_millis());
         println!("Total Nodes: {}", self.total_nodes);
         if self.total_positions > 0 {
-            println!("Nodes per Position: {:.0}", self.total_nodes as f64 / self.total_positions as f64);
+            println!(
+                "Nodes per Position: {:.0}",
+                self.total_nodes as f64 / self.total_positions as f64
+            );
         }
         println!("=======================================\n");
     }
@@ -79,7 +82,7 @@ lazy_static::lazy_static! {
 pub fn create_simple_agent() -> SimpleAgent<'static> {
     SimpleAgent::new(
         3,     // mate_search_depth
-        8,     // ab_search_depth  
+        8,     // ab_search_depth
         16,    // q_search_max_depth
         false, // verbose
         &*BENCH_MOVE_GEN,

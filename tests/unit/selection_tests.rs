@@ -1,8 +1,8 @@
 //! Tests for PUCT selection logic
 
-use kingfisher::mcts::selection::calculate_ucb_value;
-use kingfisher::mcts::node::MctsNode;
 use kingfisher::board::Board;
+use kingfisher::mcts::node::MctsNode;
+use kingfisher::mcts::selection::calculate_ucb_value;
 use kingfisher::move_generation::MoveGen;
 
 #[test]
@@ -13,8 +13,8 @@ fn test_ucb_unvisited_uses_zero_q() {
     let exploration = 1.5;
 
     let ucb = calculate_ucb_value_for_test(
-        0,    // visits
-        0.0,  // total_value
+        0,   // visits
+        0.0, // total_value
         parent_visits,
         prior_prob,
         exploration,
@@ -23,7 +23,12 @@ fn test_ucb_unvisited_uses_zero_q() {
     // UCB = Q(0) + U = 0 + c * p * sqrt(N) / (1 + 0)
     let expected_u = exploration * prior_prob * (parent_visits as f64).sqrt();
     let diff = (ucb - expected_u).abs();
-    assert!(diff < 0.0001, "UCB for unvisited node should equal the exploration term, got {} vs {}", ucb, expected_u);
+    assert!(
+        diff < 0.0001,
+        "UCB for unvisited node should equal the exploration term, got {} vs {}",
+        ucb,
+        expected_u
+    );
 }
 
 #[test]
@@ -35,8 +40,8 @@ fn test_ucb_visited_uses_average_q() {
 
     // Visited node with total_value = 5.0 over 10 visits = Q of 0.5
     let ucb = calculate_ucb_value_for_test(
-        10,   // visits
-        5.0,  // total_value
+        10,  // visits
+        5.0, // total_value
         parent_visits,
         prior_prob,
         exploration,
@@ -46,7 +51,12 @@ fn test_ucb_visited_uses_average_q() {
     let expected_u = exploration * prior_prob * (parent_visits as f64).sqrt() / (1.0 + 10.0);
     let expected = expected_q + expected_u;
     let diff = (ucb - expected).abs();
-    assert!(diff < 0.0001, "UCB should be Q + U = {}, got {}", expected, ucb);
+    assert!(
+        diff < 0.0001,
+        "UCB should be Q + U = {}, got {}",
+        expected,
+        ucb
+    );
 }
 
 #[test]
@@ -58,13 +68,21 @@ fn test_ucb_exploration_term() {
     let exploration = 1.5;
 
     let ucb_1_visit = calculate_ucb_value_for_test(1, 0.5, parent_visits, prior_prob, exploration);
-    let ucb_10_visits = calculate_ucb_value_for_test(10, 5.0, parent_visits, prior_prob, exploration);
-    let ucb_50_visits = calculate_ucb_value_for_test(50, 25.0, parent_visits, prior_prob, exploration);
+    let ucb_10_visits =
+        calculate_ucb_value_for_test(10, 5.0, parent_visits, prior_prob, exploration);
+    let ucb_50_visits =
+        calculate_ucb_value_for_test(50, 25.0, parent_visits, prior_prob, exploration);
 
     // All have same average Q (0.5), so differences are purely from exploration term
     // Exploration should decrease with more visits
-    assert!(ucb_1_visit > ucb_10_visits, "More visits should reduce exploration bonus");
-    assert!(ucb_10_visits > ucb_50_visits, "More visits should reduce exploration bonus");
+    assert!(
+        ucb_1_visit > ucb_10_visits,
+        "More visits should reduce exploration bonus"
+    );
+    assert!(
+        ucb_10_visits > ucb_50_visits,
+        "More visits should reduce exploration bonus"
+    );
 }
 
 fn calculate_ucb_value_for_test(
@@ -86,10 +104,5 @@ fn calculate_ucb_value_for_test(
     }
 
     let node_ref = node.borrow();
-    calculate_ucb_value(
-        &node_ref,
-        parent_visits,
-        prior_prob,
-        exploration_constant,
-    )
+    calculate_ucb_value(&node_ref, parent_visits, prior_prob, exploration_constant)
 }

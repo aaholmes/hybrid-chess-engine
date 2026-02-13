@@ -8,17 +8,15 @@ mod mcts_tests {
 
     use kingfisher::board::Board;
     use kingfisher::eval::PestoEval; // Needed for PestoPolicy example
-    // use kingfisher::mcts::policy::{PestoPolicy, PolicyNetwork}; // Not needed for pesto MCTS
+                                     // use kingfisher::mcts::policy::{PestoPolicy, PolicyNetwork}; // Not needed for pesto MCTS
     use kingfisher::move_generation::MoveGen;
     // Updated imports for MCTS components
-    use kingfisher::mcts::{
-        mcts_pesto_search, select_leaf_for_expansion, MctsNode, MoveCategory,
-    };
-    use kingfisher::mcts::simulation::simulate_random_playout; // Keep for simulation tests
-    use kingfisher::move_types::{Move, NULL_MOVE};
     use kingfisher::board_utils;
-    use kingfisher::search::mate_search; // Needed for mate search context
-    use kingfisher::boardstack::BoardStack; // Needed for mate search context
+    use kingfisher::boardstack::BoardStack;
+    use kingfisher::mcts::simulation::simulate_random_playout; // Keep for simulation tests
+    use kingfisher::mcts::{mcts_pesto_search, select_leaf_for_expansion, MctsNode, MoveCategory};
+    use kingfisher::move_types::{Move, NULL_MOVE};
+    use kingfisher::search::mate_search; // Needed for mate search context // Needed for mate search context
 
     // Helper to create basic setup
     fn setup() -> MoveGen {
@@ -151,13 +149,7 @@ mod mcts_tests {
         let iterations = 100;
         let mate_depth = 0; // Disable mate search for this basic test
 
-        let best_move_opt = mcts_pesto_search(
-            board,
-            &move_gen,
-            mate_depth,
-            Some(iterations),
-            None,
-        );
+        let best_move_opt = mcts_pesto_search(board, &move_gen, mate_depth, Some(iterations), None);
 
         assert!(
             best_move_opt.is_some(),
@@ -175,7 +167,7 @@ mod mcts_tests {
         let move_gen = setup();
         // White to move, mate in 1 (Qh5#)
         let board = Board::new_from_fen(
-            "r1bqkbnr/pppp1ppp/2n5/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 0 3"
+            "r1bqkbnr/pppp1ppp/2n5/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 0 3",
         );
         let iterations = 1000; // More iterations to increase chance of finding mate quickly
         let pesto_eval = PestoEval::new();
@@ -223,17 +215,26 @@ mod mcts_tests {
         let best_move = mcts_pesto_search(
             board,
             &move_gen,
-            0, // Disable mate search
+            0,               // Disable mate search
             Some(1_000_000), // High iteration count to ensure time limit is hit
             Some(time_limit),
         );
 
         let elapsed = start_time.elapsed();
 
-        assert!(best_move.is_some(), "MCTS should return a move within the time limit");
+        assert!(
+            best_move.is_some(),
+            "MCTS should return a move within the time limit"
+        );
         // Allow a small margin for execution time overhead
-        assert!(elapsed >= time_limit, "Search should run for at least the time limit");
-        assert!(elapsed < time_limit + Duration::from_millis(50), "Search should terminate shortly after the time limit");
+        assert!(
+            elapsed >= time_limit,
+            "Search should run for at least the time limit"
+        );
+        assert!(
+            elapsed < time_limit + Duration::from_millis(50),
+            "Search should terminate shortly after the time limit"
+        );
     }
 
     #[test]
@@ -242,7 +243,9 @@ mod mcts_tests {
         let (mut board, move_gen, _pesto_eval) = setup_test_env();
         // Position with a forced capture sequence leading to material gain for White
         // White to move: Nxc6, Black must respond with ...dxc6, White then Qxc6+
-        board = Board::new_from_fen("rnbqkb1r/pp2pppp/2n2n2/3p4/3P4/2N5/PPP1PPPP/RNBQKBNR w KQkq - 0 4");
+        board = Board::new_from_fen(
+            "rnbqkb1r/pp2pppp/2n2n2/3p4/3P4/2N5/PPP1PPPP/RNBQKBNR w KQkq - 0 4",
+        );
 
         let expected_first_move = parse_uci_move(&board, "c3c6").unwrap(); // Nxc6
 
@@ -250,13 +253,16 @@ mod mcts_tests {
         let best_move = mcts_pesto_search(
             board.clone(),
             &move_gen,
-            0, // Disable mate search
+            0,          // Disable mate search
             Some(1000), // Sufficient iterations
             None,
         );
 
         assert!(best_move.is_some(), "MCTS should find a move");
-        assert_eq!(best_move.unwrap(), expected_first_move, "MCTS should prioritize the tactical capture sequence");
+        assert_eq!(
+            best_move.unwrap(),
+            expected_first_move,
+            "MCTS should prioritize the tactical capture sequence"
+        );
     }
-
 }

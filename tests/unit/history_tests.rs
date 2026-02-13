@@ -38,11 +38,7 @@ fn test_history_table_update() {
     // Update with depth 3 (bonus = 9)
     history.update(&mv, 3);
 
-    assert_eq!(
-        history.get_score(&mv),
-        9,
-        "Score should be depth^2 = 9"
-    );
+    assert_eq!(history.get_score(&mv), 9, "Score should be depth^2 = 9");
 }
 
 #[test]
@@ -66,7 +62,7 @@ fn test_history_table_accumulates() {
 fn test_history_table_different_moves() {
     let mut history = HistoryTable::new();
     let mv1 = create_move(12, 28); // e2-e4
-    let mv2 = create_move(6, 21);  // g1-f3
+    let mv2 = create_move(6, 21); // g1-f3
 
     history.update(&mv1, 3); // +9
     history.update(&mv2, 2); // +4
@@ -81,15 +77,14 @@ fn test_history_table_clear() {
     let mv = create_move(12, 28);
 
     history.update(&mv, 5);
-    assert!(history.get_score(&mv) > 0, "Score should be positive before clear");
+    assert!(
+        history.get_score(&mv) > 0,
+        "Score should be positive before clear"
+    );
 
     history.clear();
 
-    assert_eq!(
-        history.get_score(&mv),
-        0,
-        "Score should be 0 after clear"
-    );
+    assert_eq!(history.get_score(&mv), 0, "Score should be 0 after clear");
 }
 
 #[test]

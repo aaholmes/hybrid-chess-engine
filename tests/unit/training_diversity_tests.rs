@@ -2,13 +2,11 @@
 /// - Dirichlet noise application
 /// - KOTH gating config
 /// - Self-play game diversity
-
 use kingfisher::board::Board;
 
 use kingfisher::mcts::{
-    apply_dirichlet_noise,
-    tactical_mcts_search_for_training_with_reuse,
-    MctsNode, TacticalMctsConfig,
+    apply_dirichlet_noise, tactical_mcts_search_for_training_with_reuse, MctsNode,
+    TacticalMctsConfig,
 };
 use kingfisher::move_generation::MoveGen;
 use kingfisher::move_types::Move;
@@ -29,17 +27,15 @@ fn test_dirichlet_noise_modifies_priors() {
         for mv in captures.iter().chain(moves.iter()) {
             let new_board = node.state.apply_move_to_board(*mv);
             if new_board.is_legal(&move_gen) {
-                let child = MctsNode::new_child(
-                    std::rc::Rc::downgrade(&root),
-                    *mv,
-                    new_board,
-                    &move_gen,
-                );
+                let child =
+                    MctsNode::new_child(std::rc::Rc::downgrade(&root), *mv, new_board, &move_gen);
                 node.children.push(child);
             }
         }
         let n = node.children.len() as f64;
-        let moves: Vec<Move> = node.children.iter()
+        let moves: Vec<Move> = node
+            .children
+            .iter()
             .filter_map(|c| c.borrow().action)
             .collect();
         for mv in moves {
@@ -73,7 +69,10 @@ fn test_dirichlet_noise_modifies_priors() {
             changed += 1;
         }
     }
-    assert!(changed > 0, "Dirichlet noise should modify at least some priors");
+    assert!(
+        changed > 0,
+        "Dirichlet noise should modify at least some priors"
+    );
 }
 
 /// apply_dirichlet_noise with epsilon=0 leaves priors unchanged.
@@ -89,17 +88,15 @@ fn test_dirichlet_noise_epsilon_zero_no_change() {
         for mv in captures.iter().chain(moves.iter()) {
             let new_board = node.state.apply_move_to_board(*mv);
             if new_board.is_legal(&move_gen) {
-                let child = MctsNode::new_child(
-                    std::rc::Rc::downgrade(&root),
-                    *mv,
-                    new_board,
-                    &move_gen,
-                );
+                let child =
+                    MctsNode::new_child(std::rc::Rc::downgrade(&root), *mv, new_board, &move_gen);
                 node.children.push(child);
             }
         }
         let n = node.children.len() as f64;
-        let moves: Vec<Move> = node.children.iter()
+        let moves: Vec<Move> = node
+            .children
+            .iter()
             .filter_map(|c| c.borrow().action)
             .collect();
         for mv in moves {
@@ -108,8 +105,7 @@ fn test_dirichlet_noise_epsilon_zero_no_change() {
         node.policy_evaluated = true;
     }
 
-    let original: std::collections::HashMap<Move, f64> =
-        root.borrow().move_priorities.clone();
+    let original: std::collections::HashMap<Move, f64> = root.borrow().move_priorities.clone();
 
     apply_dirichlet_noise(&root, 0.3, 0.0);
 
@@ -138,15 +134,9 @@ fn test_koth_gating_disabled_by_default() {
     };
 
     // This should complete without KOTH interfering
-    let result = tactical_mcts_search_for_training_with_reuse(
-        board,
-        &move_gen,
-        config,
-        None,
-        &mut tt,
-    );
+    let result =
+        tactical_mcts_search_for_training_with_reuse(board, &move_gen, config, None, &mut tt);
 
     assert!(result.best_move.is_some(), "Should produce a move");
     assert!(result.stats.iterations > 0, "Should complete iterations");
 }
-

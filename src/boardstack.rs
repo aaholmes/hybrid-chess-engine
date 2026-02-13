@@ -89,7 +89,9 @@ impl BoardStack {
 
     /// Undoes the last move in the move stack.
     pub fn undo_move(&mut self) -> Option<Move> {
-        if let (Some(popped_board), Some(mv)) = (self.state_stack.pop_front(), self.move_stack.pop_front()) {
+        if let (Some(popped_board), Some(mv)) =
+            (self.state_stack.pop_front(), self.move_stack.pop_front())
+        {
             // Update position history for the position we just removed
             let hash = popped_board.zobrist_hash;
             if let Some(count) = self.position_history.get_mut(&hash) {

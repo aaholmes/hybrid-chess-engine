@@ -1,9 +1,9 @@
 //! Unit tests for MCTS simulation (random playout)
 
+use crate::common::{board_from_fen, positions};
 use kingfisher::board::Board;
 use kingfisher::mcts::simulation::simulate_random_playout;
 use kingfisher::move_generation::MoveGen;
-use crate::common::{board_from_fen, positions};
 
 #[test]
 fn test_playout_terminates_from_starting_position() {

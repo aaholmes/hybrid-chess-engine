@@ -4,10 +4,10 @@
 //! combining the mate-search-first innovation with modern neural network evaluation.
 
 use crate::board::Board;
+use crate::mcts::inference_server::InferenceServer;
+use crate::mcts::tactical_mcts::{tactical_mcts_search, TacticalMctsConfig};
 use crate::move_generation::MoveGen;
 use crate::move_types::Move;
-use crate::mcts::tactical_mcts::{tactical_mcts_search, TacticalMctsConfig};
-use crate::mcts::inference_server::InferenceServer;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -33,11 +33,7 @@ pub fn neural_mcts_search(
         ..Default::default()
     };
 
-    let (best_move, _stats, _root) = tactical_mcts_search(
-        root_state,
-        move_gen,
-        config
-    );
+    let (best_move, _stats, _root) = tactical_mcts_search(root_state, move_gen, config);
 
     best_move
 }

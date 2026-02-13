@@ -9,11 +9,11 @@ use std::io::Write;
 /// A single training sample: board state, MCTS policy, game outcome, and material balance.
 pub struct TrainingSample {
     pub board: Board,
-    pub policy: Vec<(u16, f32)>,       // (Move Index, Probability)
+    pub policy: Vec<(u16, f32)>,        // (Move Index, Probability)
     pub policy_moves: Vec<(Move, f32)>, // (Move, Probability) for display
     pub value_target: f32,              // +1 (Win), -1 (Loss), 0 (Draw)
     pub material_scalar: f32,
-    pub w_to_move: bool,                // Side to move when sample was taken
+    pub w_to_move: bool, // Side to move when sample was taken
 }
 
 /// Serialize training samples to a binary file compatible with the Python training script.

@@ -1,5 +1,5 @@
 //! Tactical-First MCTS Implementation
-//! 
+//!
 //! This module implements the main tactical-first MCTS search algorithm that combines:
 //! 1. Mate search for exact forced sequences
 //! 2. Tactical move prioritization (captures, checks, forks)
@@ -8,17 +8,17 @@
 
 use crate::board::Board;
 use crate::boardstack::BoardStack;
-use crate::mcts::node::{MctsNode, NodeOrigin};
-use crate::mcts::selection::select_child_with_tactical_priority;
 use crate::mcts::inference_server::InferenceServer;
-use crate::mcts::search_logger::{SearchLogger, GateReason};
+use crate::mcts::node::{MctsNode, NodeOrigin};
+use crate::mcts::search_logger::{GateReason, SearchLogger};
+use crate::mcts::selection::select_child_with_tactical_priority;
 use crate::move_generation::MoveGen;
 use crate::move_types::Move;
-use crate::search::mate_search;
-use crate::search::koth_center_in_3;
 use crate::search::forced_material_balance;
+use crate::search::koth_center_in_3;
+use crate::search::mate_search;
 use crate::transposition::TranspositionTable;
-use rand_distr::{Gamma, Distribution};
+use rand_distr::{Distribution, Gamma};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -35,7 +35,7 @@ pub struct TacticalMctsConfig {
     pub inference_server: Option<Arc<InferenceServer>>,
     /// Search logger for stream of consciousness output
     pub logger: Option<Arc<SearchLogger>>,
-    
+
     // Ablation flags for paper experiments
     /// Enable Tier 1 (Safety Gates: Mate Search + KOTH)
     pub enable_tier1_gate: bool,
@@ -84,7 +84,7 @@ pub struct TacticalMctsStats {
     pub nodes_expanded: u32,
     pub tt_mate_hits: u32,
     pub tt_mate_misses: u32,
-    
+
     // Paper-ready metrics
     /// Total NN evaluations (expensive operations)
     pub nn_evaluations: u32,
@@ -98,24 +98,43 @@ impl TacticalMctsStats {
     /// Calculate NN call reduction percentage
     pub fn nn_reduction_percentage(&self) -> f64 {
         let total_potential = self.nn_evaluations + self.nn_saved_by_tier1;
-        if total_potential == 0 { return 0.0; }
+        if total_potential == 0 {
+            return 0.0;
+        }
         100.0 * self.nn_saved_by_tier1 as f64 / total_potential as f64
     }
-    
+
     /// Generate LaTeX metrics table
     pub fn to_latex(&self) -> String {
         let mut s = String::new();
-        s.push_str(r"\begin{tabular}{lr}"); s.push_str("\n");
-        s.push_str(r"\toprule"); s.push_str("\n");
-        s.push_str(r"Metric & Value \\"); s.push_str("\n");
-        s.push_str(r"\midrule"); s.push_str("\n");
-        s.push_str(&format!(r"Iterations & {} \\", self.iterations)); s.push_str("\n");
-        s.push_str(&format!(r"Nodes Expanded & {} \\", self.nodes_expanded)); s.push_str("\n");
-        s.push_str(&format!(r"NN Evaluations & {} \\", self.nn_evaluations)); s.push_str("\n");
-        s.push_str(&format!(r"NN Saved (Tier 1) & {} \\", self.nn_saved_by_tier1)); s.push_str("\n");
-        s.push_str(&format!(r"Reduction & {:.1}\% \\", self.nn_reduction_percentage())); s.push_str("\n");
-        s.push_str(r"\bottomrule"); s.push_str("\n");
-        s.push_str(r"\end{tabular}"); s.push_str("\n");
+        s.push_str(r"\begin{tabular}{lr}");
+        s.push_str("\n");
+        s.push_str(r"\toprule");
+        s.push_str("\n");
+        s.push_str(r"Metric & Value \\");
+        s.push_str("\n");
+        s.push_str(r"\midrule");
+        s.push_str("\n");
+        s.push_str(&format!(r"Iterations & {} \\", self.iterations));
+        s.push_str("\n");
+        s.push_str(&format!(r"Nodes Expanded & {} \\", self.nodes_expanded));
+        s.push_str("\n");
+        s.push_str(&format!(r"NN Evaluations & {} \\", self.nn_evaluations));
+        s.push_str("\n");
+        s.push_str(&format!(
+            r"NN Saved (Tier 1) & {} \\",
+            self.nn_saved_by_tier1
+        ));
+        s.push_str("\n");
+        s.push_str(&format!(
+            r"Reduction & {:.1}\% \\",
+            self.nn_reduction_percentage()
+        ));
+        s.push_str("\n");
+        s.push_str(r"\bottomrule");
+        s.push_str("\n");
+        s.push_str(r"\end{tabular}");
+        s.push_str("\n");
         s
     }
 }
@@ -137,10 +156,10 @@ pub fn tactical_mcts_search_with_tt(
 ) -> (Option<Move>, TacticalMctsStats, Rc<RefCell<MctsNode>>) {
     let start_time = Instant::now();
     let mut stats = TacticalMctsStats::default();
-    
+
     // Get logger reference (or silent default)
     let logger = config.logger.as_ref();
-    
+
     if config.enable_koth && config.enable_tier1_gate {
         if let Some(dist) = koth_center_in_3(&board, move_gen) {
             let (captures, moves) = move_gen.gen_pseudo_legal_moves(&board);
@@ -167,19 +186,21 @@ pub fn tactical_mcts_search_with_tt(
     }
 
     let mate_move_result = if config.enable_tier1_gate && config.mate_search_depth > 0 {
-        if let Some((mate_depth, _mate_move)) = transposition_table.probe_mate(&board, config.mate_search_depth) {
+        if let Some((mate_depth, _mate_move)) =
+            transposition_table.probe_mate(&board, config.mate_search_depth)
+        {
             stats.tt_mate_hits += 1;
             if mate_depth != 0 && _mate_move != Move::null() {
                 // Verify move is actually pseudo-legal in this position to guard against collisions
                 let is_pseudo_legal = board.is_pseudo_legal(_mate_move, move_gen);
-                
+
                 if is_pseudo_legal {
                     let next = board.apply_move_to_board(_mate_move);
                     if next.is_legal(move_gen) {
                         if let Some(log) = logger {
                             log.log_tier1_gate(
                                 &GateReason::TtMateHit { depth: mate_depth },
-                                Some(_mate_move)
+                                Some(_mate_move),
                             );
                         }
                         stats.tier1_solutions += 1;
@@ -196,9 +217,14 @@ pub fn tactical_mcts_search_with_tt(
         if let Some(log) = logger {
             log.log_mate_search_start(config.mate_search_depth);
         }
-        
+
         let mut mate_search_stack = BoardStack::with_board(board.clone());
-        let (mate_score, mate_move, nodes) = mate_search(&mut mate_search_stack, move_gen, config.mate_search_depth, false);
+        let (mate_score, mate_move, nodes) = mate_search(
+            &mut mate_search_stack,
+            move_gen,
+            config.mate_search_depth,
+            false,
+        );
 
         if let Some(log) = logger {
             log.log_mate_search_result(mate_score, mate_move, nodes as u64);
@@ -207,13 +233,13 @@ pub fn tactical_mcts_search_with_tt(
         if mate_score >= 1_000_000 {
             stats.mates_found += 1;
             stats.tier1_solutions += 1;
-             if let Some(log) = logger {
+            if let Some(log) = logger {
                 log.log_tier1_gate(
-                    &GateReason::MateFound { 
-                        depth: config.mate_search_depth, 
-                        score: mate_score 
+                    &GateReason::MateFound {
+                        depth: config.mate_search_depth,
+                        score: mate_score,
                     },
-                    Some(mate_move)
+                    Some(mate_move),
                 );
             }
             Some(mate_move)
@@ -225,7 +251,7 @@ pub fn tactical_mcts_search_with_tt(
     } else {
         None
     };
-    
+
     if let Some(immediate_mate_move) = mate_move_result {
         stats.search_time = start_time.elapsed();
         let root_node = MctsNode::new_root(board, move_gen);
@@ -233,24 +259,33 @@ pub fn tactical_mcts_search_with_tt(
         root_node.borrow_mut().mate_move = Some(immediate_mate_move);
         return (Some(immediate_mate_move), stats, root_node);
     }
-    
+
     let root_node = MctsNode::new_root(board, move_gen);
-    
+
     if root_node.borrow().is_game_terminal() {
         return (None, stats, root_node);
     }
-    
+
     evaluate_and_expand_node(root_node.clone(), move_gen, &mut stats, &config, logger);
 
     for iteration in 0..config.max_iterations {
-        if start_time.elapsed() > config.time_limit { break; }
+        if start_time.elapsed() > config.time_limit {
+            break;
+        }
 
         if let Some(log) = logger {
             log.log_iteration_start(iteration + 1);
         }
 
         let leaf_node = select_leaf_node(root_node.clone(), move_gen, &config, &mut stats, logger);
-        let value = evaluate_leaf_node(leaf_node.clone(), move_gen, &config, transposition_table, &mut stats, logger);
+        let value = evaluate_leaf_node(
+            leaf_node.clone(),
+            move_gen,
+            &config,
+            transposition_table,
+            &mut stats,
+            logger,
+        );
 
         if !leaf_node.borrow().is_game_terminal()
             && leaf_node.borrow().visits == 0
@@ -267,13 +302,17 @@ pub fn tactical_mcts_search_with_tt(
             log.log_iteration_summary(iteration + 1, best, root_node.borrow().visits);
         }
 
-        if iteration % 100 == 0 && start_time.elapsed() > config.time_limit { break; }
+        if iteration % 100 == 0 && start_time.elapsed() > config.time_limit {
+            break;
+        }
 
         // Early termination on forced KOTH win
         if config.enable_koth {
             let root_ref = root_node.borrow();
             let has_win_in_1 = root_ref.children.iter().any(|c| {
-                c.borrow().terminal_or_mate_value.map_or(false, |v| v < -0.5)
+                c.borrow()
+                    .terminal_or_mate_value
+                    .map_or(false, |v| v < -0.5)
             });
             if has_win_in_1 {
                 drop(root_ref);
@@ -304,7 +343,7 @@ pub fn tactical_mcts_search_with_tt(
             stats.mates_found,
         );
     }
-    
+
     (best_move, stats, root_node)
 }
 
@@ -320,7 +359,7 @@ fn select_leaf_node(
         if let Some(log) = logger {
             log.log_enter_node(&current.borrow(), depth);
         }
-        
+
         let is_terminal = current.borrow().is_game_terminal()
             || current.borrow().terminal_or_mate_value.is_some();
         let has_children = !current.borrow().children.is_empty();
@@ -328,7 +367,7 @@ fn select_leaf_node(
         if is_terminal || !has_children {
             return current;
         }
-        
+
         if let Some(child) = select_child_with_tactical_priority(
             current.clone(),
             config,
@@ -358,11 +397,11 @@ fn evaluate_leaf_node(
 ) -> f64 {
     let mut node_ref = node.borrow_mut();
     let board = &node_ref.state;
-    
+
     if let Some(cached_value) = node_ref.terminal_or_mate_value {
-        if cached_value >= -1.0 { 
+        if cached_value >= -1.0 {
             stats.nn_saved_by_tier1 += 1;
-            return cached_value; 
+            return cached_value;
         }
     }
 
@@ -391,13 +430,16 @@ fn evaluate_leaf_node(
     }
 
     if config.enable_tier1_gate && config.mate_search_depth > 0 {
-        if let Some((mate_depth, _mate_move)) = transposition_table.probe_mate(board, config.mate_search_depth) {
+        if let Some((mate_depth, _mate_move)) =
+            transposition_table.probe_mate(board, config.mate_search_depth)
+        {
             stats.tt_mate_hits += 1;
             if mate_depth != 0 {
                 // Validate move legality if present to guard against collisions
                 let is_valid = if _mate_move != Move::null() {
                     let (captures, quiet) = move_gen.gen_pseudo_legal_moves(board);
-                    let is_pseudo_legal = captures.contains(&_mate_move) || quiet.contains(&_mate_move);
+                    let is_pseudo_legal =
+                        captures.contains(&_mate_move) || quiet.contains(&_mate_move);
                     is_pseudo_legal && board.is_legal_after_move(_mate_move, move_gen)
                 } else {
                     true
@@ -405,10 +447,7 @@ fn evaluate_leaf_node(
 
                 if is_valid {
                     if let Some(log) = logger {
-                        log.log_tier1_gate(
-                            &GateReason::TtMateHit { depth: mate_depth },
-                            None
-                        );
+                        log.log_tier1_gate(&GateReason::TtMateHit { depth: mate_depth }, None);
                     }
                     let mate_value = if mate_depth > 0 { 1.0 } else { -1.0 };
                     node_ref.terminal_or_mate_value = Some(mate_value);
@@ -420,13 +459,19 @@ fn evaluate_leaf_node(
         } else {
             stats.tt_mate_misses += 1;
             let mut board_stack = BoardStack::with_board(board.clone());
-            let mate_result = mate_search(&mut board_stack, move_gen, config.mate_search_depth, false);
-            transposition_table.store_mate_result(board, mate_result.0.abs(), mate_result.1, config.mate_search_depth);
-            
+            let mate_result =
+                mate_search(&mut board_stack, move_gen, config.mate_search_depth, false);
+            transposition_table.store_mate_result(
+                board,
+                mate_result.0.abs(),
+                mate_result.1,
+                config.mate_search_depth,
+            );
+
             if mate_result.0 != 0 {
                 if let Some(log) = logger {
                     log.log_mate_search_result(mate_result.0, mate_result.1, 0);
-                 }
+                }
                 let mate_value = if mate_result.0 > 0 { 1.0 } else { -1.0 };
                 node_ref.terminal_or_mate_value = Some(mate_value);
                 stats.nn_saved_by_tier1 += 1;
@@ -435,7 +480,7 @@ fn evaluate_leaf_node(
             }
         }
     }
-    
+
     if node_ref.nn_value.is_none() {
         let mut k_val: f32 = 0.5;
         let mut v_logit: f64 = f64::NEG_INFINITY; // sentinel: no NN result yet
@@ -518,7 +563,7 @@ fn evaluate_and_expand_node(
     _logger: Option<&Arc<SearchLogger>>,
 ) {
     let mut node_ref = node.borrow_mut();
-    
+
     if !node_ref.children.is_empty() || node_ref.is_game_terminal() {
         return;
     }
@@ -535,10 +580,7 @@ fn evaluate_and_expand_node(
     }
 }
 
-fn select_best_move_from_root(
-    root: Rc<RefCell<MctsNode>>,
-    move_gen: &MoveGen,
-) -> Option<Move> {
+fn select_best_move_from_root(root: Rc<RefCell<MctsNode>>, move_gen: &MoveGen) -> Option<Move> {
     let root_ref = root.borrow();
 
     // Prefer win-in-1: terminal child where child's STM loses (opponent just won)
@@ -590,21 +632,36 @@ pub fn tactical_mcts_search_for_training(
     let root_node = MctsNode::new_root(board, move_gen);
 
     if root_node.borrow().is_game_terminal() {
-        return MctsTrainingResult { best_move: None, root_policy: vec![], root_value_prediction: 0.0, stats, root_node };
+        return MctsTrainingResult {
+            best_move: None,
+            root_policy: vec![],
+            root_value_prediction: 0.0,
+            stats,
+            root_node,
+        };
     }
 
     let logger = config.logger.as_ref();
     evaluate_and_expand_node(root_node.clone(), move_gen, &mut stats, &config, logger);
     let mut transposition_table = TranspositionTable::new();
     for iteration in 0..config.max_iterations {
-        if start_time.elapsed() > config.time_limit { break; }
+        if start_time.elapsed() > config.time_limit {
+            break;
+        }
 
         if let Some(log) = logger {
             log.log_iteration_start(iteration + 1);
         }
 
         let leaf = select_leaf_node(root_node.clone(), move_gen, &config, &mut stats, logger);
-        let value = evaluate_leaf_node(leaf.clone(), move_gen, &config, &mut transposition_table, &mut stats, logger);
+        let value = evaluate_leaf_node(
+            leaf.clone(),
+            move_gen,
+            &config,
+            &mut transposition_table,
+            &mut stats,
+            logger,
+        );
         if !leaf.borrow().is_game_terminal()
             && leaf.borrow().visits == 0
             && leaf.borrow().terminal_or_mate_value.is_none()
@@ -623,7 +680,9 @@ pub fn tactical_mcts_search_for_training(
         if config.enable_koth {
             let root_ref = root_node.borrow();
             let has_win_in_1 = root_ref.children.iter().any(|c| {
-                c.borrow().terminal_or_mate_value.map_or(false, |v| v < -0.5)
+                c.borrow()
+                    .terminal_or_mate_value
+                    .map_or(false, |v| v < -0.5)
             });
             if has_win_in_1 {
                 drop(root_ref);
@@ -651,13 +710,23 @@ pub fn tactical_mcts_search_for_training(
                 policy.push((mv, child.borrow().visits));
             }
         }
-        let root_val = if root.visits > 0 { -(root.total_value / root.visits as f64) } else { 0.0 };
+        let root_val = if root.visits > 0 {
+            -(root.total_value / root.visits as f64)
+        } else {
+            0.0
+        };
         (policy, root_val)
     };
 
     let best_move = select_best_move_from_root(root_node.clone(), move_gen);
 
-    MctsTrainingResult { best_move, root_policy: policy, root_value_prediction: root_val, stats, root_node }
+    MctsTrainingResult {
+        best_move,
+        root_policy: policy,
+        root_value_prediction: root_val,
+        stats,
+        root_node,
+    }
 }
 
 /// Search for training with optional tree reuse and shared transposition table.
@@ -691,7 +760,13 @@ pub fn tactical_mcts_search_for_training_with_reuse(
     };
 
     if root_node.borrow().is_game_terminal() {
-        return MctsTrainingResult { best_move: None, root_policy: vec![], root_value_prediction: 0.0, stats, root_node };
+        return MctsTrainingResult {
+            best_move: None,
+            root_policy: vec![],
+            root_value_prediction: 0.0,
+            stats,
+            root_node,
+        };
     }
 
     let logger = config.logger.as_ref();
@@ -700,14 +775,23 @@ pub fn tactical_mcts_search_for_training_with_reuse(
     }
 
     for iteration in 0..config.max_iterations {
-        if start_time.elapsed() > config.time_limit { break; }
+        if start_time.elapsed() > config.time_limit {
+            break;
+        }
 
         if let Some(log) = logger {
             log.log_iteration_start(iteration + 1);
         }
 
         let leaf = select_leaf_node(root_node.clone(), move_gen, &config, &mut stats, logger);
-        let value = evaluate_leaf_node(leaf.clone(), move_gen, &config, transposition_table, &mut stats, logger);
+        let value = evaluate_leaf_node(
+            leaf.clone(),
+            move_gen,
+            &config,
+            transposition_table,
+            &mut stats,
+            logger,
+        );
         if !leaf.borrow().is_game_terminal()
             && leaf.borrow().visits == 0
             && leaf.borrow().terminal_or_mate_value.is_none()
@@ -726,7 +810,9 @@ pub fn tactical_mcts_search_for_training_with_reuse(
         if config.enable_koth {
             let root_ref = root_node.borrow();
             let has_win_in_1 = root_ref.children.iter().any(|c| {
-                c.borrow().terminal_or_mate_value.map_or(false, |v| v < -0.5)
+                c.borrow()
+                    .terminal_or_mate_value
+                    .map_or(false, |v| v < -0.5)
             });
             if has_win_in_1 {
                 drop(root_ref);
@@ -754,13 +840,23 @@ pub fn tactical_mcts_search_for_training_with_reuse(
                 policy.push((mv, child.borrow().visits));
             }
         }
-        let root_val = if root.visits > 0 { -(root.total_value / root.visits as f64) } else { 0.0 };
+        let root_val = if root.visits > 0 {
+            -(root.total_value / root.visits as f64)
+        } else {
+            0.0
+        };
         (policy, root_val)
     };
 
     let best_move = select_best_move_from_root(root_node.clone(), move_gen);
 
-    MctsTrainingResult { best_move, root_policy: policy, root_value_prediction: root_val, stats, root_node }
+    MctsTrainingResult {
+        best_move,
+        root_policy: policy,
+        root_value_prediction: root_val,
+        stats,
+        root_node,
+    }
 }
 
 /// Reuse a subtree from a previous MCTS search by finding the child
@@ -772,7 +868,9 @@ pub fn reuse_subtree(
     played_move: Move,
 ) -> Option<Rc<RefCell<MctsNode>>> {
     let root_ref = root.borrow();
-    let child = root_ref.children.iter()
+    let child = root_ref
+        .children
+        .iter()
         .find(|c| c.borrow().action == Some(played_move))?
         .clone();
     drop(root_ref);

@@ -6,18 +6,9 @@
 //!   cargo run --release --bin run_experiments -- --config single --name full_system
 
 use kingfisher::board::Board;
-use kingfisher::experiments::config::{
-    ExperimentConfig,
-    generate_ablation_configs,
-    TestSuite,
-};
+use kingfisher::experiments::config::{generate_ablation_configs, ExperimentConfig, TestSuite};
 use kingfisher::experiments::metrics::{
-    AggregatedMetrics,
-    ExperimentResults,
-    PositionResult,
-    SafetyMetrics,
-    SearchMetrics,
-    TierUsed,
+    AggregatedMetrics, ExperimentResults, PositionResult, SafetyMetrics, SearchMetrics, TierUsed,
 };
 use kingfisher::mcts::tactical_mcts::{tactical_mcts_search, TacticalMctsConfig};
 use kingfisher::move_generation::MoveGen;
@@ -27,17 +18,19 @@ use std::time::{Duration, Instant};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    
-    let mode = args.iter()
+
+    let mode = args
+        .iter()
         .position(|a| a == "--config")
         .and_then(|i| args.get(i + 1))
         .map(|s| s.as_str())
         .unwrap_or("ablation");
-    
+
     match mode {
         "ablation" => run_ablation_study(),
         "single" => {
-            let name = args.iter()
+            let name = args
+                .iter()
                 .position(|a| a == "--name")
                 .and_then(|i| args.get(i + 1))
                 .map(|s| s.as_str())
@@ -54,44 +47,49 @@ fn run_ablation_study() {
     println!("╔════════════════════════════════════════════════════════════╗");
     println!("║     CAISSAWARY ABLATION STUDY - Safe & Efficient RL       ║");
     println!("╚════════════════════════════════════════════════════════════╝\n");
-    
+
     let configs = generate_ablation_configs();
     let test_positions = load_test_suite(&TestSuite::TacticalSuite);
-    
-    println!("Running {} configurations on {} positions\n", configs.len(), test_positions.len());
-    
+
+    println!(
+        "Running {} configurations on {} positions\n",
+        configs.len(),
+        test_positions.len()
+    );
+
     let mut all_results: Vec<ExperimentResults> = Vec::new();
-    
+
     for config in &configs {
         println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
         println!("Configuration: {}", config.name);
         println!("Description: {}", config.description);
         println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
-        
+
         let results = run_experiment(config, &test_positions);
-        
+
         print_summary(&results);
         all_results.push(results);
     }
-    
+
     // Generate comparison table
     generate_latex_table(&all_results);
     save_results_json(&all_results);
-    
+
     println!("\n✅ Ablation study complete! Results saved to results/");
 }
 
 fn run_single_config(name: &str) {
     let configs = generate_ablation_configs();
-    let config = configs.iter()
+    let config = configs
+        .iter()
         .find(|c| c.name == name)
         .expect(&format!("Config '{}' not found", name));
-    
+
     let test_positions = load_test_suite(&TestSuite::TacticalSuite);
     let results = run_experiment(config, &test_positions);
-    
+
     print_summary(&results);
-    
+
     // Save individual result
     let json = serde_json::to_string_pretty(&results).unwrap();
     fs::create_dir_all("results").ok();
@@ -107,11 +105,11 @@ fn run_experiment(
     let mut search_metrics: Vec<SearchMetrics> = Vec::new();
     let mut position_results: Vec<PositionResult> = Vec::new();
     let mut safety = SafetyMetrics::default();
-    
+
     for (i, (name, board, expected_move, pos_type)) in test_positions.iter().enumerate() {
-        print!("  [{}/{}] {}... ", i + 1, test_positions.len(), name); 
+        print!("  [{}/{}] {}... ", i + 1, test_positions.len(), name);
         std::io::stdout().flush().ok();
-        
+
         // Build search config from experiment config
         let mcts_config = TacticalMctsConfig {
             max_iterations: config.search_config.max_iterations,
@@ -125,15 +123,11 @@ fn run_experiment(
             logger: None,
             ..Default::default()
         };
-        
+
         let start = Instant::now();
-        let (best_move, stats, _root) = tactical_mcts_search(
-            board.clone(),
-            &move_gen,
-            mcts_config,
-        );
+        let (best_move, stats, _root) = tactical_mcts_search(board.clone(), &move_gen, mcts_config);
         let elapsed = start.elapsed();
-        
+
         // Convert stats to SearchMetrics
         let metrics = SearchMetrics {
             total_iterations: stats.iterations,
@@ -150,12 +144,12 @@ fn run_experiment(
             nn_evaluations: stats.nn_evaluations,
             nn_policy_queries: stats.nn_policy_evaluations,
             avg_nn_inference_time_us: 0.0, // TODO
-            best_move_visits: 0, // TODO
+            best_move_visits: 0,           // TODO
             second_best_visits: 0,
             root_value: 0.0,
             value_confidence: 0.0,
         };
-        
+
         // Determine which tier was used
         let tier_used = if stats.tier1_solutions > 0 {
             TierUsed::Tier1Gate
@@ -164,13 +158,14 @@ fn run_experiment(
         } else {
             TierUsed::ClassicalEval
         };
-        
+
         // Check correctness
         let engine_move_str = best_move.map(|m| m.to_uci()).unwrap_or_default();
-        let correct = expected_move.as_ref()
+        let correct = expected_move
+            .as_ref()
             .map(|exp| engine_move_str == *exp)
             .unwrap_or(true);
-        
+
         // Update safety metrics
         safety.positions_analyzed += 1;
         if pos_type == "mate" {
@@ -179,7 +174,7 @@ fn run_experiment(
                 safety.forced_mates_found += 1;
             }
         }
-        
+
         let pos_result = PositionResult {
             fen: board.to_fen().unwrap_or_default(),
             position_type: pos_type.clone(),
@@ -189,19 +184,21 @@ fn run_experiment(
             time_ms: elapsed.as_millis() as u64,
             tier_used,
         };
-        
+
         let status = if correct { "✓" } else { "✗" };
-        println!("{} ({}ms, NN reduction: {:.1}%)", 
-                 status, 
-                 elapsed.as_millis(),
-                 metrics.nn_call_reduction_percent());
-        
+        println!(
+            "{} ({}ms, NN reduction: {:.1}%)",
+            status,
+            elapsed.as_millis(),
+            metrics.nn_call_reduction_percent()
+        );
+
         search_metrics.push(metrics);
         position_results.push(pos_result);
     }
-    
+
     let aggregated = AggregatedMetrics::from_search_metrics(&config.name, &search_metrics);
-    
+
     ExperimentResults {
         config_name: config.name.clone(),
         timestamp: chrono::Utc::now().to_rfc3339(),
@@ -218,50 +215,67 @@ fn load_test_suite(suite: &TestSuite) -> Vec<(String, Board, Option<String>, Str
         TestSuite::TacticalSuite => {
             vec![
                 // Mate in 1 positions
-                ("Back Rank Mate".to_string(),
-                 Board::new_from_fen("6k1/5ppp/8/8/8/8/8/4R1K1 w - - 0 1"),
-                 Some("e1e8".to_string()),
-                 "mate".to_string()),
-                
-                ("Queen Mate".to_string(),
-                 Board::new_from_fen("6k1/5ppp/8/8/8/5Q2/8/6K1 w - - 0 1"),
-                 Some("f3f8".to_string()),
-                 "mate".to_string()),
-                
+                (
+                    "Back Rank Mate".to_string(),
+                    Board::new_from_fen("6k1/5ppp/8/8/8/8/8/4R1K1 w - - 0 1"),
+                    Some("e1e8".to_string()),
+                    "mate".to_string(),
+                ),
+                (
+                    "Queen Mate".to_string(),
+                    Board::new_from_fen("6k1/5ppp/8/8/8/5Q2/8/6K1 w - - 0 1"),
+                    Some("f3f8".to_string()),
+                    "mate".to_string(),
+                ),
                 // Mate in 2
-                ("Anastasia's Mate Setup".to_string(),
-                 Board::new_from_fen("5rk1/4Nppp/8/8/8/8/5PPP/3R2K1 w - - 0 1"),
-                 Some("d1d8".to_string()),
-                 "mate".to_string()),
-                
+                (
+                    "Anastasia's Mate Setup".to_string(),
+                    Board::new_from_fen("5rk1/4Nppp/8/8/8/8/5PPP/3R2K1 w - - 0 1"),
+                    Some("d1d8".to_string()),
+                    "mate".to_string(),
+                ),
                 // Tactical - winning material
-                ("Fork Knight".to_string(),
-                 Board::new_from_fen("r1bqkb1r/pppp1ppp/2n5/4p3/2B1n3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 1"),
-                 Some("d2d4".to_string()),
-                 "tactical".to_string()),
-                
-                ("Pin Win Material".to_string(),
-                 Board::new_from_fen("r2qkbnr/ppp2ppp/2np4/4p3/2B1P1b1/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 1"),
-                 Some("f1e2".to_string()), // Or Qb3 type moves
-                 "tactical".to_string()),
-                
+                (
+                    "Fork Knight".to_string(),
+                    Board::new_from_fen(
+                        "r1bqkb1r/pppp1ppp/2n5/4p3/2B1n3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 1",
+                    ),
+                    Some("d2d4".to_string()),
+                    "tactical".to_string(),
+                ),
+                (
+                    "Pin Win Material".to_string(),
+                    Board::new_from_fen(
+                        "r2qkbnr/ppp2ppp/2np4/4p3/2B1P1b1/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 1",
+                    ),
+                    Some("f1e2".to_string()), // Or Qb3 type moves
+                    "tactical".to_string(),
+                ),
                 // Positional
-                ("Development".to_string(),
-                 Board::new_from_fen("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"),
-                 None, // Multiple good moves
-                 "positional".to_string()),
-                
+                (
+                    "Development".to_string(),
+                    Board::new_from_fen(
+                        "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
+                    ),
+                    None, // Multiple good moves
+                    "positional".to_string(),
+                ),
                 // Endgame
-                ("K+P vs K Opposition".to_string(),
-                 Board::new_from_fen("8/8/8/3k4/8/3K4/3P4/8 w - - 0 1"),
-                 Some("d3c3".to_string()), // Or d3e3 - gain opposition
-                 "endgame".to_string()),
-                
+                (
+                    "K+P vs K Opposition".to_string(),
+                    Board::new_from_fen("8/8/8/3k4/8/3K4/3P4/8 w - - 0 1"),
+                    Some("d3c3".to_string()), // Or d3e3 - gain opposition
+                    "endgame".to_string(),
+                ),
                 // Safety test - don't blunder
-                ("Don't Hang Queen".to_string(),
-                 Board::new_from_fen("r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 1"),
-                 None, // Many good moves, but not Qe2 or similar
-                 "safety".to_string()),
+                (
+                    "Don't Hang Queen".to_string(),
+                    Board::new_from_fen(
+                        "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 1",
+                    ),
+                    None, // Many good moves, but not Qe2 or similar
+                    "safety".to_string(),
+                ),
             ]
         }
         _ => Vec::new(),
@@ -271,16 +285,34 @@ fn load_test_suite(suite: &TestSuite) -> Vec<(String, Board, Option<String>, Str
 fn print_summary(results: &ExperimentResults) {
     println!("\n📊 Summary for '{}':", results.config_name);
     println!("   Positions: {}", results.aggregated.num_positions);
-    println!("   Mean iterations: {:.0}", results.aggregated.mean_iterations);
+    println!(
+        "   Mean iterations: {:.0}",
+        results.aggregated.mean_iterations
+    );
     println!("   Mean nodes: {:.0}", results.aggregated.mean_nodes);
     println!("   Mean time: {:.0}ms", results.aggregated.mean_time_ms);
-    println!("   NN call reduction: {:.1}% ± {:.1}%", 
-             results.aggregated.mean_nn_reduction_percent,
-             1.96 * results.aggregated.std_nn_reduction / (results.aggregated.num_positions as f64).sqrt());
-    println!("   Tier 1 activations: {}", results.aggregated.total_tier1_activations);
-    println!("   Tier 2 grafts: {}", results.aggregated.total_tier2_grafts);
-    println!("   NN evaluations: {}", results.aggregated.total_nn_evaluations);
-    println!("   Safety - Tactical accuracy: {:.1}%", results.safety.tactical_safety_rate() * 100.0);
+    println!(
+        "   NN call reduction: {:.1}% ± {:.1}%",
+        results.aggregated.mean_nn_reduction_percent,
+        1.96 * results.aggregated.std_nn_reduction
+            / (results.aggregated.num_positions as f64).sqrt()
+    );
+    println!(
+        "   Tier 1 activations: {}",
+        results.aggregated.total_tier1_activations
+    );
+    println!(
+        "   Tier 2 grafts: {}",
+        results.aggregated.total_tier2_grafts
+    );
+    println!(
+        "   NN evaluations: {}",
+        results.aggregated.total_nn_evaluations
+    );
+    println!(
+        "   Safety - Tactical accuracy: {:.1}%",
+        results.safety.tactical_safety_rate() * 100.0
+    );
     println!();
 }
 
@@ -298,23 +330,25 @@ fn generate_latex_table(results: &[ExperimentResults]) {
     latex.push_str("\n");
     latex.push_str(r"\toprule");
     latex.push_str("\n");
-    latex.push_str("Config & Iter & Nodes & NN Reduction & T1 & T2 & NN Calls \\\\
-");
+    latex.push_str(
+        "Config & Iter & Nodes & NN Reduction & T1 & T2 & NN Calls \\\\
+",
+    );
     latex.push_str(r"\midrule");
     latex.push_str("\n");
-    
+
     for result in results {
         latex.push_str(&result.aggregated.to_latex_row());
         latex.push_str("\n");
     }
-    
+
     latex.push_str(r"\bottomrule");
     latex.push_str("\n");
     latex.push_str(r"\end{tabular}");
     latex.push_str("\n");
     latex.push_str(r"\end{table}");
     latex.push_str("\n");
-    
+
     fs::create_dir_all("results").ok();
     fs::write("results/ablation_table.tex", latex).unwrap();
     println!("📄 LaTeX table saved to results/ablation_table.tex");

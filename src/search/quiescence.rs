@@ -138,8 +138,8 @@ pub fn quiescence_search(
 
     if let (Some(start), Some(limit)) = (start_time, time_limit) {
         if start.elapsed() >= limit {
-             let stand_pat = pesto.eval(&board.current_state(), move_gen);
-             return (stand_pat, nodes);
+            let stand_pat = pesto.eval(&board.current_state(), move_gen);
+            return (stand_pat, nodes);
         }
     }
 
@@ -213,7 +213,7 @@ pub fn quiescence_search_tactical(
     let mut best_pv = Vec::new();
 
     let captures = move_gen.gen_pseudo_legal_captures(&board.current_state());
-    
+
     for capture in captures {
         board.make_move(capture);
         if !board.current_state().is_legal(move_gen) {
@@ -223,15 +223,7 @@ pub fn quiescence_search_tactical(
 
         // Full search for the first level to find best tactical line
         let (score, _nodes) = quiescence_search(
-            board,
-            move_gen,
-            pesto,
-            -1000001,
-            1000001,
-            8,
-            false,
-            None,
-            None,
+            board, move_gen, pesto, -1000001, 1000001, 8, false, None, None,
         );
         let score = -score;
         board.undo_move();

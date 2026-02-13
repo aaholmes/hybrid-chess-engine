@@ -1,8 +1,8 @@
 //! Extended tests for tensor policy mapping (move_to_index)
 
-use kingfisher::tensor::move_to_index;
 use kingfisher::move_types::Move;
-use kingfisher::piece_types::{QUEEN, ROOK, KNIGHT, BISHOP};
+use kingfisher::piece_types::{BISHOP, KNIGHT, QUEEN, ROOK};
+use kingfisher::tensor::move_to_index;
 
 // === Slide Moves: All 8 Directions ===
 
@@ -75,23 +75,26 @@ fn test_slide_northwest() {
 fn test_knight_all_directions() {
     // From d4 (27), test all 8 knight jumps
     let cases = vec![
-        (27, 44, 0),  // (1, 2) -> idx 0
-        (27, 37, 1),  // (2, 1) -> idx 1
-        (27, 21, 2),  // (2, -1) -> idx 2
-        (27, 12, 3),  // (1, -2) -> idx 3
-        (27, 10, 4),  // (-1, -2) -> idx 4
-        (27, 17, 5),  // (-2, -1) -> idx 5
-        (27, 33, 6),  // (-2, 1) -> idx 6
-        (27, 42, 7),  // (-1, 2) -> idx 7
+        (27, 44, 0), // (1, 2) -> idx 0
+        (27, 37, 1), // (2, 1) -> idx 1
+        (27, 21, 2), // (2, -1) -> idx 2
+        (27, 12, 3), // (1, -2) -> idx 3
+        (27, 10, 4), // (-1, -2) -> idx 4
+        (27, 17, 5), // (-2, -1) -> idx 5
+        (27, 33, 6), // (-2, 1) -> idx 6
+        (27, 42, 7), // (-1, 2) -> idx 7
     ];
 
     for (from, to, knight_idx) in cases {
         let mv = Move::new(from, to, None);
         let expected = from * 73 + 56 + knight_idx;
         assert_eq!(
-            move_to_index(mv), expected,
+            move_to_index(mv),
+            expected,
             "Knight move from {} to {} should map to plane {}",
-            from, to, 56 + knight_idx
+            from,
+            to,
+            56 + knight_idx
         );
     }
 }
@@ -188,16 +191,22 @@ fn test_index_within_policy_range() {
 
     // Test various moves
     let test_moves = vec![
-        Move::new(0, 8, None),        // a1-a2 slide
-        Move::new(63, 55, None),       // h8-h7 slide
-        Move::new(28, 45, None),       // knight move
-        Move::new(48, 56, Some(ROOK)), // underpromotion
+        Move::new(0, 8, None),          // a1-a2 slide
+        Move::new(63, 55, None),        // h8-h7 slide
+        Move::new(28, 45, None),        // knight move
+        Move::new(48, 56, Some(ROOK)),  // underpromotion
         Move::new(55, 63, Some(QUEEN)), // queen promotion
     ];
 
     for mv in test_moves {
         let idx = move_to_index(mv);
-        assert!(idx < 4672, "Index {} for move {}->{} exceeds 4672", idx, mv.from, mv.to);
+        assert!(
+            idx < 4672,
+            "Index {} for move {}->{} exceeds 4672",
+            idx,
+            mv.from,
+            mv.to
+        );
     }
 }
 
@@ -208,9 +217,11 @@ fn test_slide_various_distances() {
         let mv = Move::new(0, dist * 8, None);
         let expected = 0 * 73 + (dist - 1); // Direction 0 (N), plane = 0*7 + (dist-1)
         assert_eq!(
-            move_to_index(mv), expected,
+            move_to_index(mv),
+            expected,
             "N slide dist {} from a1 should be plane {}",
-            dist, dist - 1
+            dist,
+            dist - 1
         );
     }
 }

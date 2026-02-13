@@ -4,32 +4,48 @@
 //! for the neural network. It outputs binary files compatible with the Python training script.
 
 use kingfisher::boardstack::BoardStack;
-use kingfisher::move_generation::MoveGen;
 use kingfisher::mcts::{
-    tactical_mcts_search_for_training_with_reuse, reuse_subtree,
-    TacticalMctsConfig, InferenceServer,
+    reuse_subtree, tactical_mcts_search_for_training_with_reuse, InferenceServer,
+    TacticalMctsConfig,
 };
+use kingfisher::move_generation::MoveGen;
 use kingfisher::move_types::Move;
 use kingfisher::neural_net::NeuralNetPolicy;
-use kingfisher::search::mate_search;
 use kingfisher::search::koth_center_in_3;
+use kingfisher::search::mate_search;
 use kingfisher::search::quiescence::forced_material_balance;
 use kingfisher::tensor::move_to_index;
-use kingfisher::training_data::{TrainingSample, save_binary_data};
+use kingfisher::training_data::{save_binary_data, TrainingSample};
 use kingfisher::transposition::TranspositionTable;
+use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
-use rand::rngs::StdRng;
+use rayon::prelude::*;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use rayon::prelude::*;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    let num_games = if args.len() > 1 { args[1].parse().unwrap_or(1) } else { 1 };
-    let simulations = if args.len() > 2 { args[2].parse().unwrap_or(800) } else { 800 };
-    let output_dir = if args.len() > 3 { &args[3] } else { "data/training" };
-    let model_path = if args.len() > 4 { Some(args[4].clone()) } else { None };
+    let num_games = if args.len() > 1 {
+        args[1].parse().unwrap_or(1)
+    } else {
+        1
+    };
+    let simulations = if args.len() > 2 {
+        args[2].parse().unwrap_or(800)
+    } else {
+        800
+    };
+    let output_dir = if args.len() > 3 {
+        &args[3]
+    } else {
+        "data/training"
+    };
+    let model_path = if args.len() > 4 {
+        Some(args[4].clone())
+    } else {
+        None
+    };
     let enable_koth = if args.len() > 5 {
         args[5].parse().unwrap_or(false)
     } else {
@@ -42,18 +58,21 @@ fn main() {
     let log_all = log_games == "all";
     let log_first = log_games == "first";
 
-    let inference_batch_size: usize = args.iter()
+    let inference_batch_size: usize = args
+        .iter()
         .position(|a| a == "--batch-size")
         .and_then(|i| args.get(i + 1))
         .and_then(|v| v.parse().ok())
         .unwrap_or(16);
 
-    let num_threads: Option<usize> = args.iter()
+    let num_threads: Option<usize> = args
+        .iter()
         .position(|a| a == "--threads")
         .and_then(|i| args.get(i + 1))
         .and_then(|v| v.parse().ok());
 
-    let seed_offset: u64 = args.iter()
+    let seed_offset: u64 = args
+        .iter()
         .position(|a| a == "--seed-offset")
         .and_then(|i| args.get(i + 1))
         .and_then(|v| v.parse().ok())
@@ -78,8 +97,10 @@ fn main() {
             .build_global()
             .ok(); // Fails silently if already initialized
     } else {
-        println!("   Game Threads: {} (from RAYON_NUM_THREADS or default)",
-                 rayon::current_num_threads());
+        println!(
+            "   Game Threads: {} (from RAYON_NUM_THREADS or default)",
+            rayon::current_num_threads()
+        );
     }
 
     std::fs::create_dir_all(output_dir).unwrap();
@@ -91,7 +112,10 @@ fn main() {
             eprintln!("Failed to load model from {}: {}", path, e);
             None
         } else {
-            println!("   Shared InferenceServer: batch_size={}", inference_batch_size);
+            println!(
+                "   Shared InferenceServer: batch_size={}",
+                inference_batch_size
+            );
             Some(Arc::new(InferenceServer::new(nn, inference_batch_size)))
         }
     } else {
@@ -104,24 +128,50 @@ fn main() {
     (0..num_games).into_par_iter().for_each(|i| {
         let verbose = log_all || (log_first && i == 0);
         let seed = seed_offset + i as u64;
-        let samples = play_game(i, simulations, seed, shared_server.clone(), enable_koth, enable_tier1, enable_material, verbose);
+        let samples = play_game(
+            i,
+            simulations,
+            seed,
+            shared_server.clone(),
+            enable_koth,
+            enable_tier1,
+            enable_material,
+            verbose,
+        );
 
         if !samples.is_empty() {
             // Save binary data
-            let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+            let timestamp = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
             let filename = format!("{}/game_{}_{}.bin", output_dir, timestamp, i);
             if let Err(e) = save_binary_data(&filename, &samples) {
                 eprintln!("Failed to save game data: {}", e);
             } else {
                 let mut count = completed_games.lock().unwrap();
                 *count += 1;
-                println!("Game {}/{} finished. Saved {} samples.", *count, num_games, samples.len());
+                println!(
+                    "Game {}/{} finished. Saved {} samples.",
+                    *count,
+                    num_games,
+                    samples.len()
+                );
             }
         }
     });
 }
 
-fn play_game(game_num: usize, simulations: u32, seed: u64, inference_server: Option<Arc<InferenceServer>>, enable_koth: bool, enable_tier1: bool, enable_material: bool, verbose: bool) -> Vec<TrainingSample> {
+fn play_game(
+    game_num: usize,
+    simulations: u32,
+    seed: u64,
+    inference_server: Option<Arc<InferenceServer>>,
+    enable_koth: bool,
+    enable_tier1: bool,
+    enable_material: bool,
+    verbose: bool,
+) -> Vec<TrainingSample> {
     let mut rng = StdRng::seed_from_u64(seed);
     let move_gen = MoveGen::new();
     let mut game_moves: Vec<String> = Vec::new();
@@ -162,7 +212,11 @@ fn play_game(game_num: usize, simulations: u32, seed: u64, inference_server: Opt
         if enable_koth && enable_tier1 {
             if koth_center_in_3(&board, &move_gen).is_some() {
                 early_outcome = Some(if board.w_to_move { 1.0 } else { -1.0 });
-                early_reason = if board.w_to_move { "White wins (Tier1 KOTH)" } else { "Black wins (Tier1 KOTH)" };
+                early_reason = if board.w_to_move {
+                    "White wins (Tier1 KOTH)"
+                } else {
+                    "Black wins (Tier1 KOTH)"
+                };
                 break;
             }
         }
@@ -172,11 +226,19 @@ fn play_game(game_num: usize, simulations: u32, seed: u64, inference_server: Opt
             let (score, _, _) = mate_search(&mut temp_stack, &move_gen, 5, false);
             if score >= 1_000_000 {
                 early_outcome = Some(if board.w_to_move { 1.0 } else { -1.0 });
-                early_reason = if board.w_to_move { "White wins (Tier1 mate)" } else { "Black wins (Tier1 mate)" };
+                early_reason = if board.w_to_move {
+                    "White wins (Tier1 mate)"
+                } else {
+                    "Black wins (Tier1 mate)"
+                };
                 break;
             } else if score <= -1_000_000 {
                 early_outcome = Some(if board.w_to_move { -1.0 } else { 1.0 });
-                early_reason = if board.w_to_move { "Black wins (Tier1 mate)" } else { "White wins (Tier1 mate)" };
+                early_reason = if board.w_to_move {
+                    "Black wins (Tier1 mate)"
+                } else {
+                    "White wins (Tier1 mate)"
+                };
                 break;
             }
         }
@@ -202,7 +264,11 @@ fn play_game(game_num: usize, simulations: u32, seed: u64, inference_server: Opt
         let mut policy_moves = Vec::new();
         if total_visits > 0 {
             for (mv, visits) in &result.root_policy {
-                let relative_mv = if board.w_to_move { *mv } else { mv.flip_vertical() };
+                let relative_mv = if board.w_to_move {
+                    *mv
+                } else {
+                    mv.flip_vertical()
+                };
                 let idx = move_to_index(relative_mv) as u16;
                 let prob = *visits as f32 / total_visits as f32;
                 policy_dist.push((idx, prob));
@@ -256,7 +322,9 @@ fn play_game(game_num: usize, simulations: u32, seed: u64, inference_server: Opt
             break;
         }
 
-        let (mate, stalemate) = board_stack.current_state().is_checkmate_or_stalemate(&move_gen);
+        let (mate, stalemate) = board_stack
+            .current_state()
+            .is_checkmate_or_stalemate(&move_gen);
         if mate || stalemate {
             break;
         }
@@ -310,7 +378,9 @@ fn play_game(game_num: usize, simulations: u32, seed: u64, inference_server: Opt
             for _ in 0..20 {
                 let board = temp_stack.current_state();
                 let (is_mate, is_stalemate) = board.is_checkmate_or_stalemate(&move_gen);
-                if is_mate || is_stalemate { break; }
+                if is_mate || is_stalemate {
+                    break;
+                }
 
                 let (score, mv, _) = mate_search(&mut temp_stack, &move_gen, 5, false);
                 if score >= 1_000_000 {
@@ -321,9 +391,12 @@ fn play_game(game_num: usize, simulations: u32, seed: u64, inference_server: Opt
                     // STM is the losing side (can't check) — pick first legal move
                     let board = temp_stack.current_state();
                     let (caps, quiets) = move_gen.gen_pseudo_legal_moves(board);
-                    let legal: Vec<Move> = caps.iter().chain(quiets.iter())
+                    let legal: Vec<Move> = caps
+                        .iter()
+                        .chain(quiets.iter())
                         .filter(|&&m| board.apply_move_to_board(m).is_legal(&move_gen))
-                        .cloned().collect();
+                        .cloned()
+                        .collect();
                     if let Some(&response) = legal.first() {
                         game_moves.push(response.to_san(temp_stack.current_state(), &move_gen));
                         temp_stack.make_move(response);
@@ -335,23 +408,36 @@ fn play_game(game_num: usize, simulations: u32, seed: u64, inference_server: Opt
         }
 
         // Print per-sample training data for auditability
-        eprintln!("\n=== Training samples for Game {} ({} samples) ===", game_num, samples.len());
+        eprintln!(
+            "\n=== Training samples for Game {} ({} samples) ===",
+            game_num,
+            samples.len()
+        );
         for (i, s) in samples.iter().enumerate() {
             let fen = s.board.to_fen().unwrap_or_default();
             let stm = if s.w_to_move { "W" } else { "B" };
             // Top 5 policy moves by probability (using move names)
-            let mut top_policy: Vec<(Move, f32)> = s.policy_moves.iter()
+            let mut top_policy: Vec<(Move, f32)> = s
+                .policy_moves
+                .iter()
                 .filter(|(_, p)| *p > 0.0)
                 .cloned()
                 .collect();
             top_policy.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
             top_policy.truncate(5);
-            let policy_str: Vec<String> = top_policy.iter()
+            let policy_str: Vec<String> = top_policy
+                .iter()
                 .map(|(mv, p)| format!("{}:{:.3}", mv.to_san(&s.board, &move_gen), p))
                 .collect();
-            eprintln!("  [{:3}] {} STM={} V={:+.1} M={:+.1} policy=[{}]",
-                i, fen, stm, s.value_target, s.material_scalar,
-                policy_str.join(", "));
+            eprintln!(
+                "  [{:3}] {} STM={} V={:+.1} M={:+.1} policy=[{}]",
+                i,
+                fen,
+                stm,
+                s.value_target,
+                s.material_scalar,
+                policy_str.join(", ")
+            );
         }
         eprintln!();
 
@@ -362,7 +448,11 @@ fn play_game(game_num: usize, simulations: u32, seed: u64, inference_server: Opt
         } else if koth_black {
             "Black wins (KOTH)"
         } else if mate {
-            if final_board.w_to_move { "Black wins (checkmate)" } else { "White wins (checkmate)" }
+            if final_board.w_to_move {
+                "Black wins (checkmate)"
+            } else {
+                "White wins (checkmate)"
+            }
         } else if is_repetition {
             "Draw (repetition)"
         } else if is_50_move {
@@ -377,13 +467,20 @@ fn play_game(game_num: usize, simulations: u32, seed: u64, inference_server: Opt
         let mut move_str = String::new();
         for (i, san) in game_moves.iter().enumerate() {
             if i % 2 == 0 {
-                if !move_str.is_empty() { move_str.push(' '); }
+                if !move_str.is_empty() {
+                    move_str.push(' ');
+                }
                 move_str.push_str(&format!("{}.", i / 2 + 1));
             }
             move_str.push(' ');
             move_str.push_str(san);
         }
-        println!("\n--- Game {} ({} moves) -> {} ---", game_num, game_moves.len(), result_str);
+        println!(
+            "\n--- Game {} ({} moves) -> {} ---",
+            game_num,
+            game_moves.len(),
+            result_str
+        );
         println!("{}", move_str);
         println!("Final FEN: {}", final_board.to_fen().unwrap_or_default());
         println!();
@@ -408,4 +505,3 @@ fn sample_proportional(policy: &[(Move, u32)], rng: &mut impl Rng) -> Option<Mov
     }
     policy.last().map(|(mv, _)| *mv)
 }
-

@@ -13,20 +13,20 @@ use kingfisher::move_generation::MoveGen;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    
+
     if args.len() < 2 {
         print_usage();
         return;
     }
-    
+
     let fen = &args[1];
     let depth_limit = parse_arg(&args, "--depth").unwrap_or(4);
     let min_visits = parse_arg(&args, "--min-visits").unwrap_or(1);
-    let output_file = parse_string_arg(&args, "--output")
-        .unwrap_or_else(|| "mcts_tree.dot".to_string());
+    let output_file =
+        parse_string_arg(&args, "--output").unwrap_or_else(|| "mcts_tree.dot".to_string());
     let iterations = parse_arg(&args, "--iterations").unwrap_or(500);
     let mate_depth = parse_arg(&args, "--mate-depth").unwrap_or(3);
-    
+
     println!("🔍 MCTS Inspector");
     println!("==================");
     println!("FEN: {}", fen);
@@ -35,7 +35,7 @@ fn main() {
     println!("Iterations: {}", iterations);
     println!("Mate search depth: {}", mate_depth);
     println!();
-    
+
     // Initialize components
     let board = Board::new_from_fen(fen);
     let move_gen = MoveGen::new();
@@ -50,14 +50,10 @@ fn main() {
         logger: None,
         ..Default::default()
     };
-    
+
     println!("🔄 Running MCTS search...");
-    let (best_move, stats, root_node) = tactical_mcts_search(
-        board,
-        &move_gen,
-        config,
-    );
-    
+    let (best_move, stats, root_node) = tactical_mcts_search(board, &move_gen, config);
+
     println!("✅ Search complete!");
     println!("   Iterations: {}", stats.iterations);
     println!("   Time: {:?}", stats.search_time);
@@ -66,15 +62,18 @@ fn main() {
         println!("   Best move: {}", mv.to_uci());
     }
     println!();
-    
+
     // Export DOT
     println!("📊 Generating Graphviz DOT...");
-    let dot_output = root_node.borrow().export_dot(depth_limit as usize, min_visits);
-    
+    let dot_output = root_node
+        .borrow()
+        .export_dot(depth_limit as usize, min_visits);
+
     // Write to file
     let mut file = File::create(&output_file).expect("Failed to create output file");
-    file.write_all(dot_output.as_bytes()).expect("Failed to write DOT file");
-    
+    file.write_all(dot_output.as_bytes())
+        .expect("Failed to write DOT file");
+
     println!("✅ DOT file written to: {}", output_file);
     println!();
     println!("To render PNG:");

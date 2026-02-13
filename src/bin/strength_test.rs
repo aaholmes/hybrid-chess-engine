@@ -3,17 +3,17 @@
 //! Runs extensive benchmarks comparing all engine variants to demonstrate
 //! the effectiveness of our mate-search-first + neural network approach.
 
-use kingfisher::benchmarks::strength_testing::{StrengthTester, StrengthTestConfig};
+use kingfisher::benchmarks::strength_testing::{StrengthTestConfig, StrengthTester};
 use std::env;
 
 fn main() {
     println!("🏆 Kingfisher Chess Engine - Comprehensive Strength Testing");
     println!("===========================================================");
-    
+
     // Parse command line arguments
     let args: Vec<String> = env::args().collect();
     let config = parse_args(&args);
-    
+
     println!("⚙️  Test Configuration:");
     println!("   Time per position: {}ms", config.time_limit_ms);
     println!("   MCTS iterations: {}", config.mcts_iterations);
@@ -24,16 +24,16 @@ fn main() {
     } else {
         println!("   Neural model: None (will skip neural variants)");
     }
-    
+
     // Create and run strength tester
     let mut tester = StrengthTester::new(config);
     let results = tester.run_comprehensive_test();
-    
+
     // Save detailed results
     if let Err(e) = results.save_to_csv("strength_test_results.csv") {
         println!("⚠️  Failed to save detailed results: {}", e);
     }
-    
+
     println!("\n🎉 Strength testing complete!");
     println!("📁 Detailed results saved to: strength_test_results.csv");
     println!("\nKey takeaways:");
@@ -44,7 +44,7 @@ fn main() {
 
 fn parse_args(args: &[String]) -> StrengthTestConfig {
     let mut config = StrengthTestConfig::default();
-    
+
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
@@ -101,7 +101,7 @@ fn parse_args(args: &[String]) -> StrengthTestConfig {
         }
         i += 1;
     }
-    
+
     config
 }
 

@@ -85,7 +85,11 @@ fn test_generate_from_game_too_short_no_positions() {
     game.moves.push(Move::new(52, 36, None)); // e7e5
 
     let positions = gen.generate_from_games(&[game]);
-    assert_eq!(positions.len(), 0, "Short game should produce no training positions");
+    assert_eq!(
+        positions.len(),
+        0,
+        "Short game should produce no training positions"
+    );
 }
 
 // === TrainingPosition edge cases ===
@@ -217,10 +221,7 @@ fn test_parsed_game_metadata() {
         .insert("Site".to_string(), "London".to_string());
 
     assert_eq!(game.metadata.len(), 2);
-    assert_eq!(
-        game.metadata.get("Event").unwrap(),
-        "World Championship"
-    );
+    assert_eq!(game.metadata.get("Event").unwrap(), "World Championship");
 }
 
 #[test]

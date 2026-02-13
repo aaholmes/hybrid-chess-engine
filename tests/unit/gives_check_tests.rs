@@ -1,5 +1,4 @@
 /// Tests for gives_check: determines if a move gives check without full board clone.
-
 use kingfisher::board::Board;
 use kingfisher::move_generation::MoveGen;
 use kingfisher::move_types::Move;
@@ -21,11 +20,17 @@ fn test_gives_check_queen_to_e7() {
 
     // Qd1-a4 gives check via the a4-e8 diagonal
     let qa4 = Move::new(3, 24, None); // d1 -> a4
-    assert!(board.gives_check(qa4, &move_gen), "Qa4 should give check via diagonal");
+    assert!(
+        board.gives_check(qa4, &move_gen),
+        "Qa4 should give check via diagonal"
+    );
 
     // Qd1-a1 should NOT give check (a1 doesn't attack e8)
     let qa1 = Move::new(3, 0, None); // d1 -> a1
-    assert!(!board.gives_check(qa1, &move_gen), "Qa1 should not give check");
+    assert!(
+        !board.gives_check(qa1, &move_gen),
+        "Qa1 should not give check"
+    );
 }
 
 /// Knight move that attacks king gives check.
@@ -54,11 +59,17 @@ fn test_gives_check_knight_fork() {
     // Nc3-b5 attacks a7,c7,a3,c3,d4,d6 — doesn't check e7
     // Nc3-d5 attacks b4,b6,c3,c7,e3,e7,f4,f6 — attacks e7! Check!
     let nd5 = Move::new(18, 35, None); // c3(18) -> d5(35)
-    assert!(board2.gives_check(nd5, &move_gen), "Nd5 should give check to Ke7");
+    assert!(
+        board2.gives_check(nd5, &move_gen),
+        "Nd5 should give check to Ke7"
+    );
 
     // Nc3-a4 should NOT give check
     let na4 = Move::new(18, 24, None); // c3 -> a4
-    assert!(!board2.gives_check(na4, &move_gen), "Na4 should not give check");
+    assert!(
+        !board2.gives_check(na4, &move_gen),
+        "Na4 should not give check"
+    );
 }
 
 /// Discovered check: moving a piece reveals check from behind.
@@ -71,7 +82,10 @@ fn test_gives_check_discovered_check() {
 
     // Be4-d5 (moves off e-file, discovers check from Re1)
     let bd5 = Move::new(28, 35, None); // e4(28) -> d5(35)
-    assert!(board.gives_check(bd5, &move_gen), "Bd5 should give discovered check");
+    assert!(
+        board.gives_check(bd5, &move_gen),
+        "Bd5 should give discovered check"
+    );
 }
 
 /// Non-checking move returns false.
@@ -82,11 +96,17 @@ fn test_gives_check_false_for_quiet_move() {
 
     // e2-e4 from starting position — definitely not check
     let e2e4 = Move::new(12, 28, None);
-    assert!(!board.gives_check(e2e4, &move_gen), "e4 should not give check in starting position");
+    assert!(
+        !board.gives_check(e2e4, &move_gen),
+        "e4 should not give check in starting position"
+    );
 
     // Nc3 from starting position
     let nc3 = Move::new(1, 18, None);
-    assert!(!board.gives_check(nc3, &move_gen), "Nc3 should not give check in starting position");
+    assert!(
+        !board.gives_check(nc3, &move_gen),
+        "Nc3 should not give check in starting position"
+    );
 }
 
 /// Pawn advance that gives check.
@@ -101,7 +121,10 @@ fn test_gives_check_pawn_check() {
     let move_gen = MoveGen::new();
 
     let f6 = Move::new(37, 45, None); // f5(37) -> f6(45)
-    assert!(board.gives_check(f6, &move_gen), "f6 should give check to Ke7");
+    assert!(
+        board.gives_check(f6, &move_gen),
+        "f6 should give check to Ke7"
+    );
 }
 
 /// Property test: for all legal moves in several positions, gives_check matches
@@ -111,10 +134,10 @@ fn test_gives_check_matches_apply_move() {
     let positions = [
         "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", // Starting
         "r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w KQkq - 0 1",       // Castling available
-        "8/P7/8/8/8/8/8/K6k w - - 0 1",                               // Promotion
-        "4k3/8/8/3q4/4N3/8/8/K7 w - - 0 1",                           // Tactical
+        "8/P7/8/8/8/8/8/K6k w - - 0 1",                             // Promotion
+        "4k3/8/8/3q4/4N3/8/8/K7 w - - 0 1",                         // Tactical
         "rnbqkb1r/pppp1ppp/5n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4", // Italian
-        "8/8/8/pP6/8/8/8/K6k w - a6 0 1",                             // En passant
+        "8/8/8/pP6/8/8/8/K6k w - a6 0 1",                           // En passant
         "r1bqkbnr/pppppppp/2n5/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 1 2", // After 1...Nc6
     ];
 
@@ -129,9 +152,15 @@ fn test_gives_check_matches_apply_move() {
             let new_board = board.apply_move_to_board(*mv);
             let gives_check_slow = new_board.is_check(&move_gen);
 
-            assert_eq!(gives_check_fast, gives_check_slow,
+            assert_eq!(
+                gives_check_fast,
+                gives_check_slow,
                 "gives_check mismatch for {} in position {}: fast={}, slow={}",
-                mv.to_uci(), fen, gives_check_fast, gives_check_slow);
+                mv.to_uci(),
+                fen,
+                gives_check_fast,
+                gives_check_slow
+            );
         }
     }
 }

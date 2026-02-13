@@ -303,8 +303,8 @@ pub fn init_bishop_moves(
             }
 
             // Generate the key using a multiplication and right shift
-            key = ((current_blockers.wrapping_mul(b_magics[from_sq_ind])) >> (64 - B_BITS[from_sq_ind]))
-                as usize;
+            key = ((current_blockers.wrapping_mul(b_magics[from_sq_ind]))
+                >> (64 - B_BITS[from_sq_ind])) as usize;
 
             // Assign the captures and moves for this blocker combination
             out1[from_sq_ind][key] = bishop_attacks(from_sq_ind, current_blockers);
@@ -356,8 +356,8 @@ pub fn init_rook_moves(r_magics: [u64; 64]) -> (Vec<Vec<(Vec<usize>, Vec<usize>)
             }
 
             // Generate the key using a multiplication and right shift
-            key = ((current_blockers.wrapping_mul(r_magics[from_sq_ind])) >> (64 - R_BITS[from_sq_ind]))
-                as usize;
+            key = ((current_blockers.wrapping_mul(r_magics[from_sq_ind]))
+                >> (64 - R_BITS[from_sq_ind])) as usize;
 
             // Assign the captures and moves for this blocker combination
             out1[from_sq_ind][key] = rook_attacks(from_sq_ind, current_blockers);

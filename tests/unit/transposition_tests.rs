@@ -45,7 +45,10 @@ fn test_tt_probe_lower_depth() {
 
     // Probe with lower depth should succeed
     let result = tt.probe(&board, 3);
-    assert!(result.is_some(), "Should find entry with lower depth request");
+    assert!(
+        result.is_some(),
+        "Should find entry with lower depth request"
+    );
 }
 
 #[test]
@@ -58,7 +61,10 @@ fn test_tt_probe_higher_depth_fails() {
 
     // Probe with higher depth should fail
     let result = tt.probe(&board, 5);
-    assert!(result.is_none(), "Should not find entry with higher depth request");
+    assert!(
+        result.is_none(),
+        "Should not find entry with higher depth request"
+    );
 }
 
 #[test]
@@ -94,7 +100,10 @@ fn test_tt_no_replacement_lower_depth() {
 
     // Should still be able to probe at depth 5
     let result = tt.probe(&board, 5);
-    assert!(result.is_some(), "Lower depth should not replace higher depth entry");
+    assert!(
+        result.is_some(),
+        "Lower depth should not replace higher depth entry"
+    );
 }
 
 #[test]
@@ -112,7 +121,10 @@ fn test_tt_different_positions() {
     let result1 = tt.probe(&board1, 3);
     let result2 = tt.probe(&board2, 3);
 
-    assert!(result1.is_some() && result2.is_some(), "Both positions should be found");
+    assert!(
+        result1.is_some() && result2.is_some(),
+        "Both positions should be found"
+    );
 }
 
 #[test]
@@ -143,7 +155,10 @@ fn test_tt_probe_mate_depth_check() {
 
     // Probe with higher depth should fail
     let result = tt.probe_mate(&board, 5);
-    assert!(result.is_none(), "Should not return mate result for higher depth");
+    assert!(
+        result.is_none(),
+        "Should not return mate result for higher depth"
+    );
 
     // Probe with same or lower depth should succeed
     let result = tt.probe_mate(&board, 3);

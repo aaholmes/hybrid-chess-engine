@@ -2,8 +2,8 @@
 
 use kingfisher::board::Board;
 use kingfisher::mcts::tactical::{
-    identify_tactical_moves, clear_tactical_cache, get_tactical_cache_stats,
-    TacticalMove, TacticalMoveCache,
+    clear_tactical_cache, get_tactical_cache_stats, identify_tactical_moves, TacticalMove,
+    TacticalMoveCache,
 };
 use kingfisher::move_generation::MoveGen;
 use kingfisher::move_types::Move;
@@ -18,20 +18,26 @@ fn test_cache_eviction() {
 
     // Insert more positions than cache size
     for i in 0..10 {
-        let fen = format!("4k3/8/8/8/{}/8/8/4K3 w - - 0 1",
+        let fen = format!(
+            "4k3/8/8/8/{}/8/8/4K3 w - - 0 1",
             match i % 4 {
                 0 => "8",
                 1 => "P7",
                 2 => "1P6",
                 _ => "2P5",
-            });
+            }
+        );
         let board = Board::new_from_fen(&fen);
         cache.get_or_compute(&board, &move_gen);
     }
 
     let (cache_size, max_size, _, _, _) = cache.stats();
-    assert!(cache_size <= max_size,
-        "Cache size {} should not exceed max {}", cache_size, max_size);
+    assert!(
+        cache_size <= max_size,
+        "Cache size {} should not exceed max {}",
+        cache_size,
+        max_size
+    );
 }
 
 #[test]
@@ -66,7 +72,11 @@ fn test_cache_hit_rate() {
     let (_, _, hits, misses, hit_rate) = get_tactical_cache_stats();
     assert_eq!(misses, 1);
     assert_eq!(hits, 2);
-    assert!((hit_rate - 2.0 / 3.0).abs() < 0.01, "Hit rate should be ~0.667, got {}", hit_rate);
+    assert!(
+        (hit_rate - 2.0 / 3.0).abs() < 0.01,
+        "Hit rate should be ~0.667, got {}",
+        hit_rate
+    );
 }
 
 // === MVV-LVA Scoring ===
@@ -81,15 +91,18 @@ fn test_captures_sorted_by_mvv_lva() {
     clear_tactical_cache();
     let tactical_moves = identify_tactical_moves(&board, &move_gen);
 
-    let captures: Vec<_> = tactical_moves.iter()
+    let captures: Vec<_> = tactical_moves
+        .iter()
         .filter(|t| matches!(t, TacticalMove::Capture(_, _)))
         .collect();
 
     if captures.len() >= 2 {
         // Should be sorted descending by score
         for window in captures.windows(2) {
-            assert!(window[0].score() >= window[1].score(),
-                "Captures should be sorted by MVV-LVA descending");
+            assert!(
+                window[0].score() >= window[1].score(),
+                "Captures should be sorted by MVV-LVA descending"
+            );
         }
     }
 }
@@ -116,9 +129,11 @@ fn test_starting_position_no_tactics() {
     clear_tactical_cache();
     let tactical_moves = identify_tactical_moves(&board, &move_gen);
 
-    assert!(tactical_moves.is_empty(),
+    assert!(
+        tactical_moves.is_empty(),
         "Starting position should have no tactical moves, got {}",
-        tactical_moves.len());
+        tactical_moves.len()
+    );
 }
 
 // === Position with many tactical moves ===
@@ -127,7 +142,8 @@ fn test_starting_position_no_tactics() {
 fn test_complex_tactical_position() {
     // Middlegame with captures available
     let move_gen = MoveGen::new();
-    let board = Board::new_from_fen("r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4");
+    let board =
+        Board::new_from_fen("r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4");
 
     clear_tactical_cache();
     let tactical_moves = identify_tactical_moves(&board, &move_gen);
@@ -155,17 +171,27 @@ fn test_promotion_detected_as_tactical() {
     let tactical_moves = identify_tactical_moves(&board, &move_gen);
 
     // Should detect promotions as tactical moves
-    assert!(!tactical_moves.is_empty(), "Promotions should be detected as tactical moves");
+    assert!(
+        !tactical_moves.is_empty(),
+        "Promotions should be detected as tactical moves"
+    );
 
     // Queen promotion should have the highest score
-    let queen_promo = tactical_moves.iter().find(|t| {
-        t.get_move().promotion == Some(QUEEN)
-    });
-    assert!(queen_promo.is_some(), "Queen promotion should be among tactical moves");
+    let queen_promo = tactical_moves
+        .iter()
+        .find(|t| t.get_move().promotion == Some(QUEEN));
+    assert!(
+        queen_promo.is_some(),
+        "Queen promotion should be among tactical moves"
+    );
 
     // Queen promotion score: victim=0, attacker=1(pawn), promo=9 → 0 - 1 + 9 = 8.0
     let score = queen_promo.unwrap().score();
-    assert!((score - 8.0).abs() < 0.1, "Queen promotion score should be 8.0, got {}", score);
+    assert!(
+        (score - 8.0).abs() < 0.1,
+        "Queen promotion score should be 8.0, got {}",
+        score
+    );
 }
 
 #[test]
@@ -182,7 +208,14 @@ fn test_capture_promotion_score() {
         let mv = t.get_move();
         mv.promotion == Some(QUEEN) && mv.to == 56 // a8
     });
-    assert!(capture_promo.is_some(), "Capture-promotion should be detected");
+    assert!(
+        capture_promo.is_some(),
+        "Capture-promotion should be detected"
+    );
     let score = capture_promo.unwrap().score();
-    assert!((score - 58.0).abs() < 0.1, "Capture-promotion PxR=Q score should be 58.0, got {}", score);
+    assert!(
+        (score - 58.0).abs() < 0.1,
+        "Capture-promotion PxR=Q score should be 58.0, got {}",
+        score
+    );
 }

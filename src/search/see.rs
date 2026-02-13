@@ -196,7 +196,8 @@ pub fn see(board: &Board, move_gen: &MoveGen, target_sq: usize, initial_attacker
             break;
         }
 
-        let next_attacker_sq = see_board.find_least_valuable_attacker_sq(attackers_bb, side_to_move);
+        let next_attacker_sq =
+            see_board.find_least_valuable_attacker_sq(attackers_bb, side_to_move);
         if next_attacker_sq == 64 {
             break;
         }

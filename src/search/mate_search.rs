@@ -50,9 +50,9 @@ use std::sync::Mutex;
 /// Result of a mate search
 #[derive(Clone, Debug)]
 struct MateResult {
-    score: i32,      // 1000000 for mate, -1000000 for mated
+    score: i32, // 1000000 for mate, -1000000 for mated
     best_move: Move,
-    depth: i32,      // Ply depth where mate was found
+    depth: i32, // Ply depth where mate was found
 }
 
 /// Shared context for all parallel searches
@@ -72,18 +72,19 @@ impl SearchContext {
     }
 
     fn should_stop(&self) -> bool {
-        self.stop_signal.load(Ordering::Relaxed) || self.nodes_remaining.load(Ordering::Relaxed) == 0
+        self.stop_signal.load(Ordering::Relaxed)
+            || self.nodes_remaining.load(Ordering::Relaxed) == 0
     }
 
     fn decrement_nodes(&self) {
         if self.nodes_remaining.load(Ordering::Relaxed) > 0 {
-             self.nodes_remaining.fetch_sub(1, Ordering::Relaxed);
+            self.nodes_remaining.fetch_sub(1, Ordering::Relaxed);
         }
     }
-    
+
     fn report_mate(&self, result: MateResult) {
         let mut best = self.best_result.lock().unwrap();
-        
+
         let is_improvement = match &*best {
             None => true,
             Some(old) => {
@@ -118,12 +119,7 @@ pub fn mate_search(
     let total_budget = 100_000;
     let context = SearchContext::new(total_budget);
 
-    iterative_deepening_wrapper(
-        &context,
-        board,
-        move_gen,
-        max_depth,
-    );
+    iterative_deepening_wrapper(&context, board, move_gen, max_depth);
 
     let final_res = context.best_result.lock().unwrap().clone();
     let nodes_searched = total_budget - context.nodes_remaining.load(Ordering::Relaxed);
@@ -131,7 +127,8 @@ pub fn mate_search(
     if let Some(res) = final_res {
         // Double check legality in the ACTUAL root position
         let (captures, quiet) = move_gen.gen_pseudo_legal_moves(&board.current_state());
-        let is_pseudo_legal = captures.iter().any(|m| *m == res.best_move) || quiet.iter().any(|m| *m == res.best_move);
+        let is_pseudo_legal = captures.iter().any(|m| *m == res.best_move)
+            || quiet.iter().any(|m| *m == res.best_move);
         if is_pseudo_legal {
             board.make_move(res.best_move);
             let is_legal = board.current_state().is_legal(move_gen);
@@ -152,11 +149,14 @@ fn iterative_deepening_wrapper(
     max_depth: i32,
 ) {
     for d in 1..=max_depth {
-        if ctx.should_stop() { break; }
+        if ctx.should_stop() {
+            break;
+        }
 
         let depth = 2 * d - 1; // Only check odd depths (mate for us)
 
-        let (score, best_move) = mate_search_recursive(ctx, board, move_gen, depth, -1_000_001, 1_000_001, true);
+        let (score, best_move) =
+            mate_search_recursive(ctx, board, move_gen, depth, -1_000_001, 1_000_001, true);
 
         // If we found a forced mate at the root, report it
         if score >= 1_000_000 && best_move != Move::null() {
@@ -191,7 +191,9 @@ fn mate_search_recursive(
     is_attackers_turn: bool,
 ) -> (i32, Move) {
     ctx.decrement_nodes();
-    if ctx.should_stop() { return (0, Move::null()); }
+    if ctx.should_stop() {
+        return (0, Move::null());
+    }
 
     // --- Base Case: Checkmate/Stalemate ---
     let (is_checkmate, is_stalemate) = board.current_state().is_checkmate_or_stalemate(move_gen);
@@ -248,13 +250,21 @@ fn mate_search_recursive(
         board.make_move(m);
 
         let (mut score, _) = mate_search_recursive(
-            ctx, board, move_gen, depth - 1, -beta, -alpha, !is_attackers_turn
+            ctx,
+            board,
+            move_gen,
+            depth - 1,
+            -beta,
+            -alpha,
+            !is_attackers_turn,
         );
 
         score = -score;
         board.undo_move();
 
-        if ctx.should_stop() { return (0, Move::null()); }
+        if ctx.should_stop() {
+            return (0, Move::null());
+        }
 
         if score > best_score {
             best_score = score;
@@ -264,7 +274,9 @@ fn mate_search_recursive(
         if score > alpha {
             alpha = score;
         }
-        if alpha >= beta { break; }
+        if alpha >= beta {
+            break;
+        }
     }
 
     (best_score, best_move)

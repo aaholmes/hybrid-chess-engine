@@ -11,14 +11,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use kingfisher::boardstack::BoardStack;
-use kingfisher::mcts::{
-    tactical_mcts_search_for_training, TacticalMctsConfig,
-};
 use kingfisher::mcts::search_logger::{SearchLogger, Verbosity};
+use kingfisher::mcts::{tactical_mcts_search_for_training, TacticalMctsConfig};
 use kingfisher::move_generation::MoveGen;
 use kingfisher::move_types::Move;
-use rand::Rng;
 use rand::rngs::StdRng;
+use rand::Rng;
 use rand::SeedableRng;
 
 fn main() {
@@ -54,9 +52,7 @@ fn main() {
         println!("════════════════════════════════════════════════════════════");
 
         // Create a fresh logger for each move search
-        let logger = Arc::new(
-            SearchLogger::new(Verbosity::Debug).with_emoji(!no_emoji),
-        );
+        let logger = Arc::new(SearchLogger::new(Verbosity::Debug).with_emoji(!no_emoji));
 
         let config = TacticalMctsConfig {
             max_iterations: iterations,
@@ -70,11 +66,7 @@ fn main() {
             ..Default::default()
         };
 
-        let result = tactical_mcts_search_for_training(
-            board.clone(),
-            &move_gen,
-            config,
-        );
+        let result = tactical_mcts_search_for_training(board.clone(), &move_gen, config);
 
         // Print root children summary
         println!();
@@ -121,7 +113,11 @@ fn main() {
         if mate {
             let winner = if current.w_to_move { "Black" } else { "White" };
             println!("========================================");
-            println!("CHECKMATE! {} wins after {} moves.", winner, (move_count + 1) / 2);
+            println!(
+                "CHECKMATE! {} wins after {} moves.",
+                winner,
+                (move_count + 1) / 2
+            );
             println!("Final FEN: {}", current.to_fen().unwrap_or_default());
             break;
         }
@@ -135,18 +131,27 @@ fn main() {
         let (w_koth, b_koth) = current.is_koth_win();
         if w_koth {
             println!("========================================");
-            println!("KOTH WIN! White reaches the center after {} moves.", (move_count + 1) / 2);
+            println!(
+                "KOTH WIN! White reaches the center after {} moves.",
+                (move_count + 1) / 2
+            );
             break;
         }
         if b_koth {
             println!("========================================");
-            println!("KOTH WIN! Black reaches the center after {} moves.", (move_count + 1) / 2);
+            println!(
+                "KOTH WIN! Black reaches the center after {} moves.",
+                (move_count + 1) / 2
+            );
             break;
         }
 
         if board_stack.is_draw_by_repetition() {
             println!("========================================");
-            println!("DRAW by threefold repetition after {} moves.", (move_count + 1) / 2);
+            println!(
+                "DRAW by threefold repetition after {} moves.",
+                (move_count + 1) / 2
+            );
             break;
         }
         if current.halfmove_clock() >= 100 {

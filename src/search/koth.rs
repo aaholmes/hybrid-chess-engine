@@ -16,7 +16,7 @@
 
 use crate::board::{Board, KOTH_CENTER};
 use crate::move_generation::MoveGen;
-use crate::piece_types::{KING, WHITE, BLACK};
+use crate::piece_types::{BLACK, KING, WHITE};
 
 /// Distance rings for KOTH-in-3 geometric pruning
 const RING_1: u64 = 0x00003C24243C0000 & !KOTH_CENTER; // Squares 1 distance from center
@@ -31,7 +31,9 @@ pub fn koth_center_in_3(board: &Board, move_gen: &MoveGen) -> Option<u8> {
     let side_to_move = if board.w_to_move { WHITE } else { BLACK };
     let king_bit = board.get_piece_bitboard(side_to_move, KING);
 
-    if king_bit == 0 { return None; }
+    if king_bit == 0 {
+        return None;
+    }
 
     // Check if already on center (0 moves)
     let (w_won, b_won) = board.is_koth_win();
@@ -55,18 +57,32 @@ fn solve_koth(board: &Board, move_gen: &MoveGen, ply: i32, max_ply: i32) -> bool
     // Determine who is the Root Side (the side that moved at ply 0)
     let am_i_root_side = ply % 2 == 0;
     let current_side_is_white = board.w_to_move;
-    let root_side_is_white = if am_i_root_side { current_side_is_white } else { !current_side_is_white };
+    let root_side_is_white = if am_i_root_side {
+        current_side_is_white
+    } else {
+        !current_side_is_white
+    };
 
     // Check for win/loss conditions
     if root_side_is_white {
-        if white_won { return true; }  // Root (White) won
-        if black_won { return false; } // Opponent (Black) won
+        if white_won {
+            return true;
+        } // Root (White) won
+        if black_won {
+            return false;
+        } // Opponent (Black) won
     } else {
-        if black_won { return true; }  // Root (Black) won
-        if white_won { return false; } // Opponent (White) won
+        if black_won {
+            return true;
+        } // Root (Black) won
+        if white_won {
+            return false;
+        } // Opponent (White) won
     }
 
-    if ply > max_ply { return false; }
+    if ply > max_ply {
+        return false;
+    }
 
     let is_root_turn = ply % 2 == 0;
     let (captures, moves) = move_gen.gen_pseudo_legal_moves(board);
@@ -74,19 +90,21 @@ fn solve_koth(board: &Board, move_gen: &MoveGen, ply: i32, max_ply: i32) -> bool
 
     for m in captures.iter().chain(moves.iter()) {
         let next_board = board.apply_move_to_board(*m);
-        if !next_board.is_legal(move_gen) { continue; }
-        
+        if !next_board.is_legal(move_gen) {
+            continue;
+        }
+
         legal_move_found = true;
 
         if is_root_turn {
             // After Root Side's move, their King MUST be close enough to win in remaining plies.
             let root_side = if root_side_is_white { WHITE } else { BLACK };
             let king_bit = next_board.get_piece_bitboard(root_side, KING);
-            
+
             let allowed = match ply {
                 0 => (king_bit & (KOTH_CENTER | RING_1 | RING_2)) != 0, // After Move 1: Dist <= 2
                 2 => (king_bit & (KOTH_CENTER | RING_1)) != 0,          // After Move 2: Dist <= 1
-                4 => (king_bit & KOTH_CENTER) != 0,                    // After Move 3: Dist == 0
+                4 => (king_bit & KOTH_CENTER) != 0,                     // After Move 3: Dist == 0
                 _ => unreachable!(),
             };
 

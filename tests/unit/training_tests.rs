@@ -1,8 +1,8 @@
 //! Tests for training data generation module
 
-use kingfisher::training::{TrainingDataGenerator, TrainingPosition, ParsedGame};
 use kingfisher::board::Board;
 use kingfisher::move_types::Move;
+use kingfisher::training::{ParsedGame, TrainingDataGenerator, TrainingPosition};
 use std::collections::HashMap;
 
 // === TrainingPosition Tests ===
@@ -37,7 +37,10 @@ fn test_training_position_csv_roundtrip() {
 
     let csv_line = pos.to_csv_line();
     assert!(csv_line.contains("0.6"), "CSV should contain game result");
-    assert!(csv_line.contains("Test position"), "CSV should contain description");
+    assert!(
+        csv_line.contains("Test position"),
+        "CSV should contain description"
+    );
     // The FEN should be present
     assert!(csv_line.contains("rnbqkbnr"), "CSV should contain the FEN");
 }
@@ -81,13 +84,22 @@ fn test_generate_tactical_positions() {
     let gen = TrainingDataGenerator::new();
     let positions = gen.generate_tactical_positions();
 
-    assert!(positions.len() >= 5, "Should generate at least 5 tactical positions");
+    assert!(
+        positions.len() >= 5,
+        "Should generate at least 5 tactical positions"
+    );
 
     // Verify each position has required fields
     for pos in &positions {
         assert!(!pos.fen.is_empty(), "FEN should not be empty");
-        assert!(!pos.description.is_empty(), "Description should not be empty");
-        assert!(pos.game_result >= 0.0 && pos.game_result <= 1.0, "Result should be in [0, 1]");
+        assert!(
+            !pos.description.is_empty(),
+            "Description should not be empty"
+        );
+        assert!(
+            pos.game_result >= 0.0 && pos.game_result <= 1.0,
+            "Result should be in [0, 1]"
+        );
     }
 }
 
@@ -95,7 +107,9 @@ fn test_generate_tactical_positions() {
 fn test_generate_tactical_positions_has_back_rank_mate() {
     let gen = TrainingDataGenerator::new();
     let positions = gen.generate_tactical_positions();
-    assert!(positions.iter().any(|p| p.description.contains("Back rank")));
+    assert!(positions
+        .iter()
+        .any(|p| p.description.contains("Back rank")));
 }
 
 #[test]
@@ -105,7 +119,10 @@ fn test_generate_tactical_positions_have_evals() {
 
     // All tactical positions should have engine evals
     for pos in &positions {
-        assert!(pos.engine_eval.is_some(), "Tactical positions should have engine eval");
+        assert!(
+            pos.engine_eval.is_some(),
+            "Tactical positions should have engine eval"
+        );
     }
 }
 
@@ -136,7 +153,8 @@ fn test_parsed_game_with_data() {
     game.result = 1.0;
     game.white_elo = Some(2000);
     game.black_elo = Some(1900);
-    game.metadata.insert("Event".to_string(), "Test".to_string());
+    game.metadata
+        .insert("Event".to_string(), "Test".to_string());
 
     assert_eq!(game.moves.len(), 2);
     assert_eq!(game.result, 1.0);
@@ -165,7 +183,11 @@ fn test_generate_from_short_game() {
 
     let positions = gen.generate_from_games(&[game]);
     // Short games are filtered out (need > 10 moves to start sampling)
-    assert_eq!(positions.len(), 0, "Very short games should produce no positions");
+    assert_eq!(
+        positions.len(),
+        0,
+        "Very short games should produce no positions"
+    );
 }
 
 // === CSV Save/Load Tests ===
@@ -179,11 +201,18 @@ fn test_save_and_load_csv() {
     gen.save_to_csv(&positions, path).expect("Should save CSV");
 
     let loaded = TrainingDataGenerator::load_from_csv(path).expect("Should load CSV");
-    assert_eq!(loaded.len(), positions.len(), "Should load same number of positions");
+    assert_eq!(
+        loaded.len(),
+        positions.len(),
+        "Should load same number of positions"
+    );
 
     // Verify fields roundtrip correctly
     for (orig, loaded) in positions.iter().zip(loaded.iter()) {
-        assert_eq!(orig.game_result, loaded.game_result, "Game result should match");
+        assert_eq!(
+            orig.game_result, loaded.game_result,
+            "Game result should match"
+        );
     }
 
     // Clean up

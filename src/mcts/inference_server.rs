@@ -6,9 +6,9 @@
 use crate::board::Board;
 use crate::neural_net::NeuralNetPolicy;
 use crossbeam_channel::{unbounded, Receiver, Sender};
+use rand::Rng;
 use std::thread;
 use std::time::Duration;
-use rand::Rng;
 
 /// Request for a single board evaluation
 pub struct PredictRequest {
@@ -29,7 +29,7 @@ impl InferenceServer {
 
         thread::spawn(move || {
             let mut requests = Vec::with_capacity(batch_size);
-            
+
             loop {
                 // 1. Wait for the first request (blocking)
                 let first_req = match request_receiver.recv() {
@@ -40,7 +40,9 @@ impl InferenceServer {
 
                 // 2. Collect more requests without blocking (up to batch_size or timeout)
                 let start_wait = std::time::Instant::now();
-                while requests.len() < batch_size && start_wait.elapsed() < Duration::from_micros(500) {
+                while requests.len() < batch_size
+                    && start_wait.elapsed() < Duration::from_micros(500)
+                {
                     if let Ok(req) = request_receiver.try_recv() {
                         requests.push(req);
                     } else {
@@ -95,16 +97,14 @@ impl InferenceServer {
     /// `v_logit` is the raw positional logit (unbounded, before material + tanh).
     pub fn new_mock_biased(v_logit: f32) -> Self {
         let (request_sender, request_receiver) = unbounded::<PredictRequest>();
-        thread::spawn(move || {
-            loop {
-                match request_receiver.recv() {
-                    Ok(req) => {
-                        let policy = vec![0.0; 4672];
-                        let k: f32 = 0.5;
-                        let _ = req.response_sender.send(Some((policy, v_logit, k)));
-                    }
-                    Err(_) => break,
+        thread::spawn(move || loop {
+            match request_receiver.recv() {
+                Ok(req) => {
+                    let policy = vec![0.0; 4672];
+                    let k: f32 = 0.5;
+                    let _ = req.response_sender.send(Some((policy, v_logit, k)));
                 }
+                Err(_) => break,
             }
         });
         InferenceServer { request_sender }

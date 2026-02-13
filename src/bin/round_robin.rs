@@ -10,14 +10,16 @@
 //!     [--output results.csv] [--batch-size 8] [--seed 42]
 
 use kingfisher::boardstack::BoardStack;
+use kingfisher::mcts::{
+    tactical_mcts_search_with_tt, InferenceServer, MctsNode, TacticalMctsConfig,
+};
 use kingfisher::move_generation::MoveGen;
 use kingfisher::move_types::Move;
-use kingfisher::mcts::{tactical_mcts_search_with_tt, MctsNode, TacticalMctsConfig, InferenceServer};
 use kingfisher::neural_net::NeuralNetPolicy;
 use kingfisher::transposition::TranspositionTable;
+use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
-use rand::rngs::StdRng;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -50,20 +52,28 @@ impl PairResult {
 
     fn a_score(&self) -> f64 {
         let total = self.total() as f64;
-        if total == 0.0 { return 0.5; }
+        if total == 0.0 {
+            return 0.5;
+        }
         (self.a_wins as f64 + 0.5 * self.draws as f64) / total
     }
 
     fn elo_difference(&self) -> f64 {
         let score = self.a_score();
-        if score <= 0.001 { return -800.0; }
-        if score >= 0.999 { return 800.0; }
+        if score <= 0.001 {
+            return -800.0;
+        }
+        if score >= 0.999 {
+            return 800.0;
+        }
         -400.0 * (1.0 / score - 1.0).log10()
     }
 
     fn elo_confidence_interval(&self) -> (f64, f64) {
         let n = self.total() as f64;
-        if n == 0.0 { return (-800.0, 800.0); }
+        if n == 0.0 {
+            return (-800.0, 800.0);
+        }
         let p = self.a_score();
         let z = 1.96; // 95% CI
         let denominator = 1.0 + z * z / n;
@@ -86,7 +96,11 @@ enum GameOutcome {
 
 /// Select a move for evaluation: deterministic for forced wins,
 /// proportional sampling for the first few moves, then greedy.
-fn select_eval_move(root: &Rc<RefCell<MctsNode>>, rng: &mut impl Rng, move_count: u32) -> Option<Move> {
+fn select_eval_move(
+    root: &Rc<RefCell<MctsNode>>,
+    rng: &mut impl Rng,
+    move_count: u32,
+) -> Option<Move> {
     let root_ref = root.borrow();
 
     // 1. Forced win detection
@@ -113,7 +127,9 @@ fn select_eval_move(root: &Rc<RefCell<MctsNode>>, rng: &mut impl Rng, move_count
     }
 
     // 3. Visit-count based selection
-    let visit_pairs: Vec<(Move, u32)> = root_ref.children.iter()
+    let visit_pairs: Vec<(Move, u32)> = root_ref
+        .children
+        .iter()
         .filter_map(|c| {
             let cr = c.borrow();
             cr.action.map(|mv| (mv, cr.visits))
@@ -123,7 +139,10 @@ fn select_eval_move(root: &Rc<RefCell<MctsNode>>, rng: &mut impl Rng, move_count
     if move_count < EVAL_EXPLORATION_PLIES {
         sample_proportional(&visit_pairs, rng)
     } else {
-        visit_pairs.iter().max_by_key(|(_, v)| *v).map(|(mv, _)| *mv)
+        visit_pairs
+            .iter()
+            .max_by_key(|(_, v)| *v)
+            .map(|(mv, _)| *mv)
     }
 }
 
@@ -163,12 +182,7 @@ fn build_config(model: &ModelEntry, simulations: u32) -> TacticalMctsConfig {
 }
 
 /// Play a single game between two models. Returns outcome from white's perspective.
-fn play_game(
-    white: &ModelEntry,
-    black: &ModelEntry,
-    simulations: u32,
-    seed: u64,
-) -> GameOutcome {
+fn play_game(white: &ModelEntry, black: &ModelEntry, simulations: u32, seed: u64) -> GameOutcome {
     let mut rng = StdRng::seed_from_u64(seed);
     let move_gen = MoveGen::new();
 
@@ -187,11 +201,17 @@ fn play_game(
 
         let (_best_move, _stats, root) = if board.w_to_move {
             tactical_mcts_search_with_tt(
-                board.clone(), &move_gen, config_white.clone(), &mut tt_white,
+                board.clone(),
+                &move_gen,
+                config_white.clone(),
+                &mut tt_white,
             )
         } else {
             tactical_mcts_search_with_tt(
-                board.clone(), &move_gen, config_black.clone(), &mut tt_black,
+                board.clone(),
+                &move_gen,
+                config_black.clone(),
+                &mut tt_black,
             )
         };
 
@@ -206,15 +226,27 @@ fn play_game(
 
         if enable_koth {
             let (white_won, black_won) = board_stack.current_state().is_koth_win();
-            if white_won || black_won { break; }
+            if white_won || black_won {
+                break;
+            }
         }
 
-        if board_stack.is_draw_by_repetition() { break; }
-        if board_stack.current_state().halfmove_clock() >= 100 { break; }
-        if move_count > 200 { break; }
+        if board_stack.is_draw_by_repetition() {
+            break;
+        }
+        if board_stack.current_state().halfmove_clock() >= 100 {
+            break;
+        }
+        if move_count > 200 {
+            break;
+        }
 
-        let (mate, stalemate) = board_stack.current_state().is_checkmate_or_stalemate(&move_gen);
-        if mate || stalemate { break; }
+        let (mate, stalemate) = board_stack
+            .current_state()
+            .is_checkmate_or_stalemate(&move_gen);
+        if mate || stalemate {
+            break;
+        }
     }
 
     // Determine result
@@ -306,10 +338,14 @@ fn play_pair(
 /// The mean rating is anchored at 1500 after each iteration (only differences matter).
 fn calculate_ratings(results: &[PairResult], model_names: &[String]) -> HashMap<String, f64> {
     let n = model_names.len();
-    let name_to_idx: HashMap<&String, usize> = model_names.iter().enumerate().map(|(i, n)| (n, i)).collect();
+    let name_to_idx: HashMap<&String, usize> = model_names
+        .iter()
+        .enumerate()
+        .map(|(i, n)| (n, i))
+        .collect();
     let mut ratings = vec![1500.0f64; n];
 
-    let lr = 10.0;  // learning rate (Elo units per step)
+    let lr = 10.0; // learning rate (Elo units per step)
     let iterations = 1000;
 
     for _ in 0..iterations {
@@ -319,8 +355,10 @@ fn calculate_ratings(results: &[PairResult], model_names: &[String]) -> HashMap<
             let i = name_to_idx[&r.model_a];
             let j = name_to_idx[&r.model_b];
             let n_games = r.total() as f64;
-            if n_games == 0.0 { continue; }
-            let s_ij = r.a_score() * n_games;  // score for model_a
+            if n_games == 0.0 {
+                continue;
+            }
+            let s_ij = r.a_score() * n_games; // score for model_a
 
             // Expected score: E_i = 1 / (1 + 10^((r_j - r_i) / 400))
             let expected = 1.0 / (1.0 + 10.0f64.powf((ratings[j] - ratings[i]) / 400.0));
@@ -380,10 +418,17 @@ fn parse_args() -> CliArgs {
                 let spec = &args[i];
                 let parts: Vec<&str> = spec.splitn(3, ':').collect();
                 if parts.len() != 3 {
-                    eprintln!("Error: --model format is 'name:path:preset' (got '{}')", spec);
+                    eprintln!(
+                        "Error: --model format is 'name:path:preset' (got '{}')",
+                        spec
+                    );
                     std::process::exit(1);
                 }
-                models.push((parts[0].to_string(), parts[1].to_string(), parts[2].to_string()));
+                models.push((
+                    parts[0].to_string(),
+                    parts[1].to_string(),
+                    parts[2].to_string(),
+                ));
             }
             "--games-per-pair" => {
                 i += 1;
@@ -421,8 +466,12 @@ fn parse_args() -> CliArgs {
                 eprintln!("  --output FILE             CSV output file");
                 eprintln!("  --batch-size N            Inference batch size (default: 8)");
                 eprintln!("  --seed N                  Base random seed (default: 42)");
-                eprintln!("  --only-involving NAME     Only play pairs involving this model (repeatable)");
-                eprintln!("  --import-csv FILE         Import prior results CSV to merge with new games");
+                eprintln!(
+                    "  --only-involving NAME     Only play pairs involving this model (repeatable)"
+                );
+                eprintln!(
+                    "  --import-csv FILE         Import prior results CSV to merge with new games"
+                );
                 std::process::exit(0);
             }
             other => {
@@ -438,7 +487,16 @@ fn parse_args() -> CliArgs {
         std::process::exit(1);
     }
 
-    CliArgs { models, games_per_pair, simulations, output, batch_size, seed, only_involving, import_csv }
+    CliArgs {
+        models,
+        games_per_pair,
+        simulations,
+        output,
+        batch_size,
+        seed,
+        only_involving,
+        import_csv,
+    }
 }
 
 /// Import pairwise results from a prior CSV file.
@@ -450,9 +508,13 @@ fn import_results(path: &str) -> Vec<PairResult> {
     let mut results = Vec::new();
     for line in content.lines().skip(1) {
         // Stop at blank line (ratings section follows)
-        if line.trim().is_empty() { break; }
+        if line.trim().is_empty() {
+            break;
+        }
         let fields: Vec<&str> = line.split(',').collect();
-        if fields.len() < 5 { continue; }
+        if fields.len() < 5 {
+            continue;
+        }
         results.push(PairResult {
             model_a: fields[0].to_string(),
             model_b: fields[1].to_string(),
@@ -517,7 +579,11 @@ fn main() {
     let mut results: Vec<PairResult> = Vec::new();
     if let Some(ref csv_path) = import_csv {
         let imported = import_results(csv_path);
-        eprintln!("Imported {} prior pair results from {}", imported.len(), csv_path);
+        eprintln!(
+            "Imported {} prior pair results from {}",
+            imported.len(),
+            csv_path
+        );
         results.extend(imported);
     }
 
@@ -531,32 +597,49 @@ fn main() {
             if !only_involving.is_empty() {
                 let a_match = only_involving.iter().any(|name| *name == models[i].name);
                 let b_match = only_involving.iter().any(|name| *name == models[j].name);
-                if !a_match && !b_match { continue; }
+                if !a_match && !b_match {
+                    continue;
+                }
             }
             pairs_to_play.push((i, j));
         }
     }
 
     let total_pairs = pairs_to_play.len();
-    eprintln!("\nPlaying {} pairs x {} games = {} total games\n",
-        total_pairs, games_per_pair, total_pairs as u32 * games_per_pair);
+    eprintln!(
+        "\nPlaying {} pairs x {} games = {} total games\n",
+        total_pairs,
+        games_per_pair,
+        total_pairs as u32 * games_per_pair
+    );
 
     // Play pairs
     let mut pair_idx = 0u32;
     for &(i, j) in &pairs_to_play {
         pair_idx += 1;
-        eprintln!("[Pair {}/{}] {} vs {}",
-            pair_idx, total_pairs, models[i].name, models[j].name);
+        eprintln!(
+            "[Pair {}/{}] {} vs {}",
+            pair_idx, total_pairs, models[i].name, models[j].name
+        );
 
         // Use distinct seed per pair based on model names for reproducibility
         let pair_seed = base_seed
             .wrapping_mul(1000)
             .wrapping_add(pair_idx as u64 * 10000);
-        let result = play_pair(&models[i], &models[j], games_per_pair, simulations, pair_seed);
+        let result = play_pair(
+            &models[i],
+            &models[j],
+            games_per_pair,
+            simulations,
+            pair_seed,
+        );
 
-        eprintln!("  Result: {} +{} ={} -{} (score {:.1}%, Elo {:+.0})",
+        eprintln!(
+            "  Result: {} +{} ={} -{} (score {:.1}%, Elo {:+.0})",
             models[i].name,
-            result.a_wins, result.draws, result.b_wins,
+            result.a_wins,
+            result.draws,
+            result.b_wins,
             result.a_score() * 100.0,
             result.elo_difference(),
         );
@@ -568,8 +651,12 @@ fn main() {
     // Compute Elo ratings — include all models from both loaded and imported results
     let mut all_names: Vec<String> = models.iter().map(|m| m.name.clone()).collect();
     for r in &results {
-        if !all_names.contains(&r.model_a) { all_names.push(r.model_a.clone()); }
-        if !all_names.contains(&r.model_b) { all_names.push(r.model_b.clone()); }
+        if !all_names.contains(&r.model_a) {
+            all_names.push(r.model_a.clone());
+        }
+        if !all_names.contains(&r.model_b) {
+            all_names.push(r.model_b.clone());
+        }
     }
     let ratings = calculate_ratings(&results, &all_names);
 
@@ -588,16 +675,23 @@ fn main() {
 
     // Print pairwise results table
     eprintln!("=== Pairwise Results ===");
-    eprintln!("{:<20} {:<20} {:>5} {:>5} {:>5} {:>7} {:>16}",
-        "Model A", "Model B", "+", "=", "-", "Elo", "95% CI");
+    eprintln!(
+        "{:<20} {:<20} {:>5} {:>5} {:>5} {:>7} {:>16}",
+        "Model A", "Model B", "+", "=", "-", "Elo", "95% CI"
+    );
     eprintln!("{:-<80}", "");
     for r in &results {
         let (ci_low, ci_high) = r.elo_confidence_interval();
-        eprintln!("{:<20} {:<20} {:>5} {:>5} {:>5} {:>+7.0} [{:>+.0}, {:>+.0}]",
-            r.model_a, r.model_b,
-            r.a_wins, r.draws, r.b_wins,
+        eprintln!(
+            "{:<20} {:<20} {:>5} {:>5} {:>5} {:>+7.0} [{:>+.0}, {:>+.0}]",
+            r.model_a,
+            r.model_b,
+            r.a_wins,
+            r.draws,
+            r.b_wins,
             r.elo_difference(),
-            ci_low, ci_high,
+            ci_low,
+            ci_high,
         );
     }
 
@@ -607,10 +701,16 @@ fn main() {
         csv.push_str("model_a,model_b,wins_a,draws,wins_b,elo_diff,ci_low,ci_high\n");
         for r in &results {
             let (ci_low, ci_high) = r.elo_confidence_interval();
-            csv.push_str(&format!("{},{},{},{},{},{:.1},{:.1},{:.1}\n",
-                r.model_a, r.model_b,
-                r.a_wins, r.draws, r.b_wins,
-                r.elo_difference(), ci_low, ci_high,
+            csv.push_str(&format!(
+                "{},{},{},{},{},{:.1},{:.1},{:.1}\n",
+                r.model_a,
+                r.model_b,
+                r.a_wins,
+                r.draws,
+                r.b_wins,
+                r.elo_difference(),
+                ci_low,
+                ci_high,
             ));
         }
 

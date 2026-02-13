@@ -3,10 +3,10 @@
 //! Verifies that is_legal_after_move produces the same result as
 //! apply_move_to_board followed by is_legal for all pseudo-legal moves.
 
+use crate::common::{board_from_fen, positions};
 use kingfisher::board::Board;
 use kingfisher::move_generation::MoveGen;
 use kingfisher::move_types::Move;
-use crate::common::{board_from_fen, positions};
 
 fn setup() -> MoveGen {
     MoveGen::new()
@@ -22,7 +22,8 @@ fn test_is_legal_after_move_starting_position() {
         let expected = board.apply_move_to_board(*mv).is_legal(&move_gen);
         let actual = board.is_legal_after_move(*mv, &move_gen);
         assert_eq!(
-            expected, actual,
+            expected,
+            actual,
             "is_legal_after_move mismatch for move {} in starting position",
             mv.print_algebraic()
         );
@@ -43,7 +44,8 @@ fn test_is_legal_after_move_pinned_piece() {
         let expected = board.apply_move_to_board(*mv).is_legal(&move_gen);
         let actual = board.is_legal_after_move(*mv, &move_gen);
         assert_eq!(
-            expected, actual,
+            expected,
+            actual,
             "is_legal_after_move mismatch for move {} in pinned piece position",
             mv.print_algebraic()
         );
@@ -65,14 +67,19 @@ fn test_is_legal_after_move_en_passant_discovered_check() {
         let expected = board.apply_move_to_board(*mv).is_legal(&move_gen);
         let actual = board.is_legal_after_move(*mv, &move_gen);
         assert_eq!(
-            expected, actual,
+            expected,
+            actual,
             "is_legal_after_move mismatch for move {} in EP discovered check position",
             mv.print_algebraic()
         );
-        if mv.to == 42 { // c6
+        if mv.to == 42 {
+            // c6
             found_ep = true;
             // This particular EP should be illegal due to discovered check
-            assert!(!actual, "dxc6 e.p. should be illegal due to discovered check");
+            assert!(
+                !actual,
+                "dxc6 e.p. should be illegal due to discovered check"
+            );
         }
     }
     assert!(found_ep, "Should have found the en passant move");
@@ -88,7 +95,8 @@ fn test_is_legal_after_move_castling() {
         let expected = board.apply_move_to_board(*mv).is_legal(&move_gen);
         let actual = board.is_legal_after_move(*mv, &move_gen);
         assert_eq!(
-            expected, actual,
+            expected,
+            actual,
             "is_legal_after_move mismatch for move {} in castling position",
             mv.print_algebraic()
         );
@@ -106,7 +114,8 @@ fn test_is_legal_after_move_in_check() {
         let expected = board.apply_move_to_board(*mv).is_legal(&move_gen);
         let actual = board.is_legal_after_move(*mv, &move_gen);
         assert_eq!(
-            expected, actual,
+            expected,
+            actual,
             "is_legal_after_move mismatch for move {} when in check",
             mv.print_algebraic()
         );
@@ -129,7 +138,9 @@ fn test_is_legal_after_move_perft2() {
         if expected != actual {
             mismatches += 1;
         }
-        if !expected { continue; }
+        if !expected {
+            continue;
+        }
 
         let next_board = board.apply_move_to_board(*mv);
         let (caps2, moves2) = move_gen.gen_pseudo_legal_moves(&next_board);
@@ -143,7 +154,11 @@ fn test_is_legal_after_move_perft2() {
         }
     }
 
-    assert_eq!(mismatches, 0, "All {} perft-2 legality checks should match", total);
+    assert_eq!(
+        mismatches, 0,
+        "All {} perft-2 legality checks should match",
+        total
+    );
     assert!(total > 0, "Should have checked some moves");
 }
 
@@ -168,9 +183,11 @@ fn test_is_legal_after_move_complex_positions() {
             let expected = board.apply_move_to_board(*mv).is_legal(&move_gen);
             let actual = board.is_legal_after_move(*mv, &move_gen);
             assert_eq!(
-                expected, actual,
+                expected,
+                actual,
                 "is_legal_after_move mismatch for move {} in position {}",
-                mv.print_algebraic(), fen
+                mv.print_algebraic(),
+                fen
             );
         }
     }
@@ -188,7 +205,8 @@ fn test_is_legal_after_move_promotion_positions() {
         let expected = board.apply_move_to_board(*mv).is_legal(&move_gen);
         let actual = board.is_legal_after_move(*mv, &move_gen);
         assert_eq!(
-            expected, actual,
+            expected,
+            actual,
             "is_legal_after_move mismatch for promotion move {}",
             mv.print_algebraic()
         );

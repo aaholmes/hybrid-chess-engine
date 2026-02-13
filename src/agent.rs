@@ -1,15 +1,15 @@
 //! This module specifies various agents, which can use any combination of search and eval routines.
 
 use crate::boardstack::BoardStack;
+use crate::egtb::EgtbProber;
 use crate::eval::PestoEval;
+use crate::mcts::node::MctsNode;
+use crate::mcts::tactical_mcts::{tactical_mcts_search, TacticalMctsConfig};
 use crate::move_generation::MoveGen;
 use crate::move_types::Move;
-use crate::mcts::tactical_mcts::{tactical_mcts_search, TacticalMctsConfig};
-use crate::mcts::node::MctsNode;
-use crate::search::mate_search;
 use crate::search::iterative_deepening_ab_search;
+use crate::search::mate_search;
 use crate::transposition::TranspositionTable;
-use crate::egtb::EgtbProber;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
@@ -111,11 +111,8 @@ impl Agent for HumanlikeAgent<'_> {
             ..Default::default()
         };
 
-        let (mcts_move, _stats, root) = tactical_mcts_search(
-            board.current_state().clone(),
-            self.move_gen,
-            config
-        );
+        let (mcts_move, _stats, root) =
+            tactical_mcts_search(board.current_state().clone(), self.move_gen, config);
 
         // Store the tree for inspection
         *self.last_tree.borrow_mut() = Some(root);
@@ -131,7 +128,8 @@ impl Agent for HumanlikeAgent<'_> {
 impl Agent for SimpleAgent<'_> {
     fn get_move(&mut self, board: &mut BoardStack) -> Move {
         // 1. Try mate search first
-        let (eval, m, _nodes) = mate_search(board, self.move_gen, self.mate_search_depth, self.verbose);
+        let (eval, m, _nodes) =
+            mate_search(board, self.move_gen, self.mate_search_depth, self.verbose);
         if eval >= 1000000 {
             return m;
         }

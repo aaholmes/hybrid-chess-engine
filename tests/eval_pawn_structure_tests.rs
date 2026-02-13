@@ -4,10 +4,11 @@ mod tests {
     use kingfisher::board_utils;
     use kingfisher::eval::PestoEval;
     use kingfisher::eval_constants::{
-        ISOLATED_PAWN_PENALTY, MOBILE_PAWN_DUO_BONUS_EG, MOBILE_PAWN_DUO_BONUS_MG,
-        PASSED_PAWN_BONUS_EG, PASSED_PAWN_BONUS_MG, PAWN_CHAIN_BONUS, PAWN_DUO_BONUS,
-        KING_SAFETY_PAWN_SHIELD_BONUS,
-    };    use kingfisher::piece_types::{BLACK, PAWN, WHITE};
+        ISOLATED_PAWN_PENALTY, KING_SAFETY_PAWN_SHIELD_BONUS, MOBILE_PAWN_DUO_BONUS_EG,
+        MOBILE_PAWN_DUO_BONUS_MG, PASSED_PAWN_BONUS_EG, PASSED_PAWN_BONUS_MG, PAWN_CHAIN_BONUS,
+        PAWN_DUO_BONUS,
+    };
+    use kingfisher::piece_types::{BLACK, PAWN, WHITE};
 
     use kingfisher::move_generation::MoveGen;
 
@@ -19,11 +20,11 @@ mod tests {
         // It returns (mg[0]-mg[1], eg[0]-eg[1], phase) but then flips sign if !w_to_move.
         // Wait, my recent edit to eval_plus_game_phase made it return (mg, eg, phase) but applied the sign flip at the end!
         // "if board.w_to_move { (mg_score, eg_score, game_phase) } else { (-mg_score, -eg_score, game_phase) }"
-        
+
         // The tests expect scores relative to White (mg[WHITE] - mg[BLACK]).
         // If board.w_to_move is true (default for new_from_fen), then it returns (W-B).
         // If board.w_to_move is false, it returns -(W-B) = (B-W).
-        
+
         // All test positions in this file start with "w - - 0 1" (White to move).
         // So the return value is exactly what we want: White - Black.
         (mg, eg)

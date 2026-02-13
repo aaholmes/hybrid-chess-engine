@@ -4,8 +4,8 @@
 //! since board_to_planes() returns a plain Vec<f32>.
 
 use kingfisher::board::Board;
-use kingfisher::tensor::{board_to_planes, move_to_index};
 use kingfisher::move_types::Move;
+use kingfisher::tensor::{board_to_planes, move_to_index};
 
 /// Get the value at (tensor_row, tensor_col) in a specific plane.
 fn plane_value(planes: &[f32], plane_idx: usize, row: usize, col: usize) -> f32 {
@@ -15,7 +15,10 @@ fn plane_value(planes: &[f32], plane_idx: usize, row: usize, col: usize) -> f32 
 /// Count the number of set (1.0) cells in a plane.
 fn plane_count(planes: &[f32], plane_idx: usize) -> usize {
     let start = plane_idx * 64;
-    planes[start..start + 64].iter().filter(|&&v| v == 1.0).count()
+    planes[start..start + 64]
+        .iter()
+        .filter(|&&v| v == 1.0)
+        .count()
 }
 
 /// Check if every cell in a plane is 1.0.
@@ -39,7 +42,11 @@ fn test_white_stm_pieces_in_planes_0_5() {
     let planes = board_to_planes(&board);
 
     // White pawns (plane 0): 8 pawns on rank 1 (a2-h2)
-    assert_eq!(plane_count(&planes, 0), 8, "Expected 8 white pawns in plane 0");
+    assert_eq!(
+        plane_count(&planes, 0),
+        8,
+        "Expected 8 white pawns in plane 0"
+    );
     // White knights (plane 1): 2 knights
     assert_eq!(plane_count(&planes, 1), 2);
     // White bishops (plane 2): 2 bishops
@@ -58,7 +65,11 @@ fn test_white_opponent_pieces_in_planes_6_11() {
     let board = Board::new();
     let planes = board_to_planes(&board);
 
-    assert_eq!(plane_count(&planes, 6), 8, "Expected 8 black pawns in plane 6");
+    assert_eq!(
+        plane_count(&planes, 6),
+        8,
+        "Expected 8 black pawns in plane 6"
+    );
     assert_eq!(plane_count(&planes, 7), 2);
     assert_eq!(plane_count(&planes, 8), 2);
     assert_eq!(plane_count(&planes, 9), 2);
@@ -73,7 +84,11 @@ fn test_black_stm_pieces_in_planes_0_5() {
     let planes = board_to_planes(&board);
 
     // Black pawns in plane 0 (STM pawns)
-    assert_eq!(plane_count(&planes, 0), 8, "Expected 8 black pawns in plane 0 when Black is STM");
+    assert_eq!(
+        plane_count(&planes, 0),
+        8,
+        "Expected 8 black pawns in plane 0 when Black is STM"
+    );
     // Black knights in plane 1
     assert_eq!(plane_count(&planes, 1), 2);
     // Black king in plane 5
@@ -87,7 +102,11 @@ fn test_black_opponent_pieces_in_planes_6_11() {
     let planes = board_to_planes(&board);
 
     // White pawns in plane 6 (opponent pawns): 7 pawns (e-pawn moved to e4) + 1 on e4 = 8
-    assert_eq!(plane_count(&planes, 6), 8, "Expected 8 white pawns in plane 6 when Black is STM");
+    assert_eq!(
+        plane_count(&planes, 6),
+        8,
+        "Expected 8 white pawns in plane 6 when Black is STM"
+    );
     assert_eq!(plane_count(&planes, 7), 2); // White knights
     assert_eq!(plane_count(&planes, 11), 1); // White king
 }
@@ -103,8 +122,11 @@ fn test_white_to_move_rank_mapping() {
     let board = Board::new_from_fen("4k3/8/8/8/8/8/P7/4K3 w - - 0 1");
     let planes = board_to_planes(&board);
 
-    assert_eq!(plane_value(&planes, 0, 6, 0), 1.0,
-        "White pawn on a2 should be at tensor row 6, col 0");
+    assert_eq!(
+        plane_value(&planes, 0, 6, 0),
+        1.0,
+        "White pawn on a2 should be at tensor row 6, col 0"
+    );
     assert_eq!(plane_count(&planes, 0), 1, "Should have exactly 1 pawn");
 }
 
@@ -117,8 +139,11 @@ fn test_black_to_move_rank_mapping() {
 
     // Black pawn is STM pawn → plane 0
     // rank 6, with Black flip: tensor_rank = 6
-    assert_eq!(plane_value(&planes, 0, 6, 0), 1.0,
-        "Black pawn on a7 should be at tensor row 6, col 0 (same as White's a2 pawn)");
+    assert_eq!(
+        plane_value(&planes, 0, 6, 0),
+        1.0,
+        "Black pawn on a7 should be at tensor row 6, col 0 (same as White's a2 pawn)"
+    );
     assert_eq!(plane_count(&planes, 0), 1);
 }
 
@@ -133,10 +158,16 @@ fn test_stm_symmetry_kings() {
     let planes_b = board_to_planes(&board_b);
 
     // STM king (plane 5) should be at tensor (7, 4) in both cases
-    assert_eq!(plane_value(&planes_w, 5, 7, 4), 1.0,
-        "White king on e1 → tensor (7, 4) when White to move");
-    assert_eq!(plane_value(&planes_b, 5, 7, 4), 1.0,
-        "Black king on e8 → tensor (7, 4) when Black to move (flipped)");
+    assert_eq!(
+        plane_value(&planes_w, 5, 7, 4),
+        1.0,
+        "White king on e1 → tensor (7, 4) when White to move"
+    );
+    assert_eq!(
+        plane_value(&planes_b, 5, 7, 4),
+        1.0,
+        "Black king on e8 → tensor (7, 4) when Black to move (flipped)"
+    );
 }
 
 #[test]
@@ -152,8 +183,13 @@ fn test_mirror_position_produces_identical_planes() {
     // Planes 0-11 should be identical (piece placement from STM perspective)
     for plane in 0..12 {
         for sq in 0..64 {
-            assert_eq!(planes_w[plane * 64 + sq], planes_b[plane * 64 + sq],
-                "Mirrored positions differ at plane {}, sq {}", plane, sq);
+            assert_eq!(
+                planes_w[plane * 64 + sq],
+                planes_b[plane * 64 + sq],
+                "Mirrored positions differ at plane {}, sq {}",
+                plane,
+                sq
+            );
         }
     }
 }
@@ -168,10 +204,22 @@ fn test_castling_white_stm_kingside_only() {
     let board = Board::new_from_fen("4k3/8/8/8/8/8/8/4K2R w K - 0 1");
     let planes = board_to_planes(&board);
 
-    assert!(plane_all_ones(&planes, 13), "Plane 13 (STM KS) should be all 1s");
-    assert!(plane_all_zeros(&planes, 14), "Plane 14 (STM QS) should be all 0s");
-    assert!(plane_all_zeros(&planes, 15), "Plane 15 (Opp KS) should be all 0s");
-    assert!(plane_all_zeros(&planes, 16), "Plane 16 (Opp QS) should be all 0s");
+    assert!(
+        plane_all_ones(&planes, 13),
+        "Plane 13 (STM KS) should be all 1s"
+    );
+    assert!(
+        plane_all_zeros(&planes, 14),
+        "Plane 14 (STM QS) should be all 0s"
+    );
+    assert!(
+        plane_all_zeros(&planes, 15),
+        "Plane 15 (Opp KS) should be all 0s"
+    );
+    assert!(
+        plane_all_zeros(&planes, 16),
+        "Plane 16 (Opp QS) should be all 0s"
+    );
 }
 
 #[test]
@@ -180,10 +228,22 @@ fn test_castling_black_stm_kingside_only() {
     let board = Board::new_from_fen("4k2r/8/8/8/8/8/8/4K3 b k - 0 1");
     let planes = board_to_planes(&board);
 
-    assert!(plane_all_ones(&planes, 13), "Plane 13 (STM KS) should be all 1s for Black KS");
-    assert!(plane_all_zeros(&planes, 14), "Plane 14 (STM QS) should be all 0s");
-    assert!(plane_all_zeros(&planes, 15), "Plane 15 (Opp KS) should be all 0s");
-    assert!(plane_all_zeros(&planes, 16), "Plane 16 (Opp QS) should be all 0s");
+    assert!(
+        plane_all_ones(&planes, 13),
+        "Plane 13 (STM KS) should be all 1s for Black KS"
+    );
+    assert!(
+        plane_all_zeros(&planes, 14),
+        "Plane 14 (STM QS) should be all 0s"
+    );
+    assert!(
+        plane_all_zeros(&planes, 15),
+        "Plane 15 (Opp KS) should be all 0s"
+    );
+    assert!(
+        plane_all_zeros(&planes, 16),
+        "Plane 16 (Opp QS) should be all 0s"
+    );
 }
 
 #[test]
@@ -192,10 +252,22 @@ fn test_castling_opponent_rights() {
     let board = Board::new_from_fen("r3k3/8/8/8/8/8/8/4K3 w q - 0 1");
     let planes = board_to_planes(&board);
 
-    assert!(plane_all_zeros(&planes, 13), "Plane 13 (STM KS) should be all 0s");
-    assert!(plane_all_zeros(&planes, 14), "Plane 14 (STM QS) should be all 0s");
-    assert!(plane_all_zeros(&planes, 15), "Plane 15 (Opp KS) should be all 0s");
-    assert!(plane_all_ones(&planes, 16), "Plane 16 (Opp QS) should be all 1s");
+    assert!(
+        plane_all_zeros(&planes, 13),
+        "Plane 13 (STM KS) should be all 0s"
+    );
+    assert!(
+        plane_all_zeros(&planes, 14),
+        "Plane 14 (STM QS) should be all 0s"
+    );
+    assert!(
+        plane_all_zeros(&planes, 15),
+        "Plane 15 (Opp KS) should be all 0s"
+    );
+    assert!(
+        plane_all_ones(&planes, 16),
+        "Plane 16 (Opp QS) should be all 1s"
+    );
 }
 
 #[test]
@@ -228,9 +300,16 @@ fn test_en_passant_white_to_move() {
 
     // EP square: d6 = sq 43, rank 5, file 3
     // White to move: tensor_rank = 7 - 5 = 2
-    assert_eq!(plane_value(&planes, 12, 2, 3), 1.0,
-        "EP square d6 should be at tensor (2, 3) when White to move");
-    assert_eq!(plane_count(&planes, 12), 1, "Should have exactly 1 EP square");
+    assert_eq!(
+        plane_value(&planes, 12, 2, 3),
+        1.0,
+        "EP square d6 should be at tensor (2, 3) when White to move"
+    );
+    assert_eq!(
+        plane_count(&planes, 12),
+        1,
+        "Should have exactly 1 EP square"
+    );
 }
 
 #[test]
@@ -241,8 +320,11 @@ fn test_en_passant_black_to_move() {
 
     // EP square: e3 = sq 20, rank 2, file 4
     // Black to move: tensor_rank = rank = 2
-    assert_eq!(plane_value(&planes, 12, 2, 4), 1.0,
-        "EP square e3 should be at tensor (2, 4) when Black to move");
+    assert_eq!(
+        plane_value(&planes, 12, 2, 4),
+        1.0,
+        "EP square e3 should be at tensor (2, 4) when Black to move"
+    );
     assert_eq!(plane_count(&planes, 12), 1);
 }
 
@@ -275,12 +357,12 @@ fn test_starting_position_plane_counts() {
     assert_eq!(planes.len(), 17 * 64);
 
     // STM pieces (White)
-    assert_eq!(plane_count(&planes, 0), 8);  // Pawns
-    assert_eq!(plane_count(&planes, 1), 2);  // Knights
-    assert_eq!(plane_count(&planes, 2), 2);  // Bishops
-    assert_eq!(plane_count(&planes, 3), 2);  // Rooks
-    assert_eq!(plane_count(&planes, 4), 1);  // Queen
-    assert_eq!(plane_count(&planes, 5), 1);  // King
+    assert_eq!(plane_count(&planes, 0), 8); // Pawns
+    assert_eq!(plane_count(&planes, 1), 2); // Knights
+    assert_eq!(plane_count(&planes, 2), 2); // Bishops
+    assert_eq!(plane_count(&planes, 3), 2); // Rooks
+    assert_eq!(plane_count(&planes, 4), 1); // Queen
+    assert_eq!(plane_count(&planes, 5), 1); // King
 
     // Opponent pieces (Black)
     assert_eq!(plane_count(&planes, 6), 8);
@@ -329,8 +411,11 @@ fn test_specific_piece_positions_white() {
     let planes = board_to_planes(&board);
 
     // Knight on g1: rank 0, file 6 → tensor_rank = 7 - 0 = 7
-    assert_eq!(plane_value(&planes, 1, 7, 6), 1.0,
-        "White knight on g1 should be at tensor (7, 6)");
+    assert_eq!(
+        plane_value(&planes, 1, 7, 6),
+        1.0,
+        "White knight on g1 should be at tensor (7, 6)"
+    );
 }
 
 #[test]
@@ -340,8 +425,11 @@ fn test_specific_piece_positions_black_flipped() {
     let planes = board_to_planes(&board);
 
     // Knight on g8: rank 7, file 6 → Black flip: tensor_rank = 7
-    assert_eq!(plane_value(&planes, 1, 7, 6), 1.0,
-        "Black knight on g8 should be at tensor (7, 6) when Black is STM (same as White g1)");
+    assert_eq!(
+        plane_value(&planes, 1, 7, 6),
+        1.0,
+        "Black knight on g8 should be at tensor (7, 6) when Black is STM (same as White g1)"
+    );
 }
 
 // =========================================================================
@@ -372,8 +460,10 @@ fn test_policy_move_flip_black() {
     // So the index should be the same as White's e2e4
     let idx_b = move_to_index(flipped);
     let idx_w = move_to_index(Move::new(12, 28, None));
-    assert_eq!(idx_b, idx_w,
-        "Black e7e5 flipped should produce same index as White e2e4");
+    assert_eq!(
+        idx_b, idx_w,
+        "Black e7e5 flipped should produce same index as White e2e4"
+    );
 }
 
 #[test]

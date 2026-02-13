@@ -1,10 +1,10 @@
 //! This module defines the Bitboard structure and associated functions for chess board representation.
 
+use crate::bits::popcnt;
 use crate::board_utils::{algebraic_to_sq_ind, bit_to_sq_ind, coords_to_sq_ind, sq_ind_to_bit};
 use crate::move_generation::MoveGen;
 use crate::move_types::{CastlingRights, Move};
 use crate::piece_types::{BISHOP, BLACK, KING, KNIGHT, PAWN, QUEEN, ROOK, WHITE};
-use crate::bits::popcnt;
 
 /// Represents the chess board using bitboards.
 ///
@@ -447,13 +447,16 @@ impl Board {
                             return true;
                         }
                         // Double push
-                        if from_rank == 1 && mv.to == mv.from + 16
+                        if from_rank == 1
+                            && mv.to == mv.from + 16
                             && all_occ & (1u64 << (mv.from + 8)) == 0
                             && all_occ & to_bit == 0
                         {
                             return true;
                         }
-                    } else if (to_file as i32 - from_file as i32).abs() == 1 && to_rank == from_rank + 1 {
+                    } else if (to_file as i32 - from_file as i32).abs() == 1
+                        && to_rank == from_rank + 1
+                    {
                         // Capture (including en passant)
                         if self.pieces_occ[opp] & to_bit != 0 {
                             return true;
@@ -468,7 +471,9 @@ impl Board {
                         if mv.from >= 8 && mv.to == mv.from - 8 && all_occ & to_bit == 0 {
                             return true;
                         }
-                        if from_rank == 6 && mv.from >= 16 && mv.to == mv.from - 16
+                        if from_rank == 6
+                            && mv.from >= 16
+                            && mv.to == mv.from - 16
                             && all_occ & (1u64 << (mv.from - 8)) == 0
                             && all_occ & to_bit == 0
                         {
@@ -488,9 +493,7 @@ impl Board {
                 }
                 false
             }
-            KNIGHT => {
-                move_gen.n_move_bitboard[mv.from] & to_bit != 0
-            }
+            KNIGHT => move_gen.n_move_bitboard[mv.from] & to_bit != 0,
             BISHOP => {
                 let attacks = move_gen.gen_bishop_attacks_occ(mv.from, all_occ);
                 attacks & to_bit != 0
@@ -565,14 +568,14 @@ impl Board {
     /// Convert board to FEN notation
     pub fn to_fen(&self) -> Option<String> {
         let mut fen = String::new();
-        
+
         // 1. Piece placement (from rank 8 to rank 1)
         for rank in (0..8).rev() {
             let mut empty_count = 0;
             for file in 0..8 {
                 let square = rank * 8 + file;
                 let square_bit = 1u64 << square;
-                
+
                 let mut piece_found = false;
                 for color in 0..2 {
                     for piece_type in 0..6 {
@@ -582,20 +585,28 @@ impl Board {
                                 empty_count = 0;
                             }
                             let piece_char = match (color, piece_type) {
-                                (WHITE, PAWN) => 'P', (BLACK, PAWN) => 'p',
-                                (WHITE, ROOK) => 'R', (BLACK, ROOK) => 'r',
-                                (WHITE, KNIGHT) => 'N', (BLACK, KNIGHT) => 'n',
-                                (WHITE, BISHOP) => 'B', (BLACK, BISHOP) => 'b',
-                                (WHITE, QUEEN) => 'Q', (BLACK, QUEEN) => 'q',
-                                (WHITE, KING) => 'K', (BLACK, KING) => 'k',
-                                _ => '?'
+                                (WHITE, PAWN) => 'P',
+                                (BLACK, PAWN) => 'p',
+                                (WHITE, ROOK) => 'R',
+                                (BLACK, ROOK) => 'r',
+                                (WHITE, KNIGHT) => 'N',
+                                (BLACK, KNIGHT) => 'n',
+                                (WHITE, BISHOP) => 'B',
+                                (BLACK, BISHOP) => 'b',
+                                (WHITE, QUEEN) => 'Q',
+                                (BLACK, QUEEN) => 'q',
+                                (WHITE, KING) => 'K',
+                                (BLACK, KING) => 'k',
+                                _ => '?',
                             };
                             fen.push(piece_char);
                             piece_found = true;
                             break;
                         }
                     }
-                    if piece_found { break; }
+                    if piece_found {
+                        break;
+                    }
                 }
                 if !piece_found {
                     empty_count += 1;
@@ -608,21 +619,31 @@ impl Board {
                 fen.push('/');
             }
         }
-        
+
         // 2. Active color
         fen.push(' ');
         fen.push(if self.w_to_move { 'w' } else { 'b' });
-        
+
         // 3. Castling availability
         fen.push(' ');
         let mut castling = String::new();
-        if self.castling_rights.white_kingside { castling.push('K'); }
-        if self.castling_rights.white_queenside { castling.push('Q'); }
-        if self.castling_rights.black_kingside { castling.push('k'); }
-        if self.castling_rights.black_queenside { castling.push('q'); }
-        if castling.is_empty() { castling.push('-'); }
+        if self.castling_rights.white_kingside {
+            castling.push('K');
+        }
+        if self.castling_rights.white_queenside {
+            castling.push('Q');
+        }
+        if self.castling_rights.black_kingside {
+            castling.push('k');
+        }
+        if self.castling_rights.black_queenside {
+            castling.push('q');
+        }
+        if castling.is_empty() {
+            castling.push('-');
+        }
         fen.push_str(&castling);
-        
+
         // 4. En passant target square
         fen.push(' ');
         match self.en_passant {
@@ -632,12 +653,15 @@ impl Board {
                 fen.push((b'a' + file) as char);
                 fen.push((b'1' + rank) as char);
             }
-            None => fen.push('-')
+            None => fen.push('-'),
         }
-        
+
         // 5. Halfmove clock and fullmove number
-        fen.push_str(&format!(" {} {}", self.halfmove_clock, self.fullmove_number));
-        
+        fen.push_str(&format!(
+            " {} {}",
+            self.halfmove_clock, self.fullmove_number
+        ));
+
         Some(fen)
     }
 
@@ -699,9 +723,7 @@ impl Board {
                     move_gen.bp_capture_bitboard[mv.to] & opp_king_bb != 0
                 }
             }
-            KNIGHT => {
-                move_gen.n_move_bitboard[mv.to] & opp_king_bb != 0
-            }
+            KNIGHT => move_gen.n_move_bitboard[mv.to] & opp_king_bb != 0,
             BISHOP => {
                 let bishop_attacks = move_gen.gen_bishop_attacks_occ(mv.to, all_occ);
                 bishop_attacks & opp_king_bb != 0
@@ -773,7 +795,9 @@ impl Board {
             king_sq = mv.to;
         } else {
             let king_bb = self.pieces[stm][KING];
-            if king_bb == 0 { return false; }
+            if king_bb == 0 {
+                return false;
+            }
             king_sq = king_bb.trailing_zeros() as usize;
         }
 
@@ -782,7 +806,8 @@ impl Board {
 
         // Handle en passant: also remove the captured pawn
         let mut ep_captured_sq: Option<usize> = None;
-        if piece_type == PAWN && self.en_passant.is_some()
+        if piece_type == PAWN
+            && self.en_passant.is_some()
             && mv.to == self.en_passant.unwrap() as usize
         {
             let cap_sq = if self.w_to_move { mv.to - 8 } else { mv.to + 8 };
@@ -797,13 +822,17 @@ impl Board {
         // final king position isn't attacked (which is what we do below).
         // The rook also moves, so update occupancy for castling.
         if piece_type == KING {
-            if mv.from == 4 && mv.to == 6 { // White O-O
+            if mv.from == 4 && mv.to == 6 {
+                // White O-O
                 all_occ = (all_occ & !(1u64 << 7)) | (1u64 << 5);
-            } else if mv.from == 4 && mv.to == 2 { // White O-O-O
+            } else if mv.from == 4 && mv.to == 2 {
+                // White O-O-O
                 all_occ = (all_occ & !(1u64 << 0)) | (1u64 << 3);
-            } else if mv.from == 60 && mv.to == 62 { // Black O-O
+            } else if mv.from == 60 && mv.to == 62 {
+                // Black O-O
                 all_occ = (all_occ & !(1u64 << 63)) | (1u64 << 61);
-            } else if mv.from == 60 && mv.to == 58 { // Black O-O-O
+            } else if mv.from == 60 && mv.to == 58 {
+                // Black O-O-O
                 all_occ = (all_occ & !(1u64 << 56)) | (1u64 << 59);
             }
         }
@@ -815,8 +844,13 @@ impl Board {
         // - For EP, the captured pawn is removed from its actual square
 
         // Build opponent piece bitboards accounting for captures
-        let opp_pawns = self.pieces[opp][PAWN] & !to_bit
-            & if let Some(ep_sq) = ep_captured_sq { !(1u64 << ep_sq) } else { !0u64 };
+        let opp_pawns = self.pieces[opp][PAWN]
+            & !to_bit
+            & if let Some(ep_sq) = ep_captured_sq {
+                !(1u64 << ep_sq)
+            } else {
+                !0u64
+            };
         let opp_knights = self.pieces[opp][KNIGHT] & !to_bit;
         let opp_bishops = self.pieces[opp][BISHOP] & !to_bit;
         let opp_rooks = self.pieces[opp][ROOK] & !to_bit;

@@ -46,13 +46,20 @@ fn test_alpha_beta_returns_legal_move() {
 
     // Apply the move and verify it's legal
     board.make_move(best_move);
-    assert!(board.current_state().is_legal(&move_gen), "Move should be legal");
+    assert!(
+        board.current_state().is_legal(&move_gen),
+        "Move should be legal"
+    );
 
     // Should have searched at least some nodes
     assert!(nodes > 0, "Should search at least one node");
 
     // Score should be reasonable
-    assert!(score.abs() < 1000000, "Score should be reasonable, got {}", score);
+    assert!(
+        score.abs() < 1000000,
+        "Score should be reasonable, got {}",
+        score
+    );
 }
 
 #[test]
@@ -82,7 +89,11 @@ fn test_alpha_beta_mate_in_1_white() {
     );
 
     // Should find the winning position (very high score)
-    assert!(score > 500, "Should evaluate winning position highly, got {}", score);
+    assert!(
+        score > 500,
+        "Should evaluate winning position highly, got {}",
+        score
+    );
 }
 
 #[test]
@@ -334,9 +345,11 @@ fn test_alpha_beta_history_heuristic() {
 
     // History table should have some non-zero entries
     // Check a few common squares
-    let has_history = (0..64).any(|from| {
-        (0..64).any(|to| history.get_score_from_squares(from, to) > 0)
-    });
+    let has_history =
+        (0..64).any(|from| (0..64).any(|to| history.get_score_from_squares(from, to) > 0));
 
-    assert!(has_history, "History table should have some entries after search");
+    assert!(
+        has_history,
+        "History table should have some entries after search"
+    );
 }

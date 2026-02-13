@@ -48,7 +48,13 @@ fn test_mate_search_checks_only() {
     );
 }
 
-fn run_mate_test_case(name: &str, fen: &str, move_gen: &MoveGen, expect_mate: bool, expected_move_uci: &str) {
+fn run_mate_test_case(
+    name: &str,
+    fen: &str,
+    move_gen: &MoveGen,
+    expect_mate: bool,
+    expected_move_uci: &str,
+) {
     println!("\n  Running test case: {}", name);
     let board = Board::new_from_fen(fen);
     let mut stack = BoardStack::with_board(board);
@@ -57,18 +63,24 @@ fn run_mate_test_case(name: &str, fen: &str, move_gen: &MoveGen, expect_mate: bo
     let (score, best_move, _nodes) = mate_search(&mut stack, move_gen, 5, false);
     let duration = start.elapsed();
 
-    println!("   Result: Score={}, Move={:?}, Time={:.2?}", score, best_move, duration);
+    println!(
+        "   Result: Score={}, Move={:?}, Time={:.2?}",
+        score, best_move, duration
+    );
 
     if expect_mate {
         assert!(score >= 1_000_000, "Expected mate not found in {}", name);
         println!("   Mate Found! Best move: {:?}", best_move);
         if !expected_move_uci.is_empty() {
-             let parsed_expected = kingfisher::move_types::Move::from_uci(expected_move_uci);
-             if let Some(expected) = parsed_expected {
-                 if best_move != expected {
-                     println!("   Note: Found move {:?} differs from expected {:?}, but mate was found.", best_move, expected);
-                 }
-             }
+            let parsed_expected = kingfisher::move_types::Move::from_uci(expected_move_uci);
+            if let Some(expected) = parsed_expected {
+                if best_move != expected {
+                    println!(
+                        "   Note: Found move {:?} differs from expected {:?}, but mate was found.",
+                        best_move, expected
+                    );
+                }
+            }
         }
     } else {
         assert!(score.abs() < 1_000_000, "Unexpected mate found in {}", name);

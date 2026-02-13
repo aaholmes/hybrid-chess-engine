@@ -4,7 +4,9 @@ use kingfisher::board::Board;
 use kingfisher::boardstack::BoardStack;
 use kingfisher::eval::PestoEval;
 use kingfisher::move_generation::MoveGen;
-use kingfisher::search::quiescence::{quiescence_search, quiescence_search_tactical, material_qsearch, forced_material_balance};
+use kingfisher::search::quiescence::{
+    forced_material_balance, material_qsearch, quiescence_search, quiescence_search_tactical,
+};
 use std::time::{Duration, Instant};
 
 /// Helper to create test components
@@ -18,19 +20,15 @@ fn test_quiescence_quiet_position() {
     let mut stack = BoardStack::new();
 
     let (score, nodes) = quiescence_search(
-        &mut stack,
-        &move_gen,
-        &pesto,
-        -100000,
-        100000,
-        8,
-        false,
-        None,
-        None,
+        &mut stack, &move_gen, &pesto, -100000, 100000, 8, false, None, None,
     );
 
     // Quiet starting position should return stand-pat evaluation
-    assert!(score.abs() < 1000, "Starting position should have reasonable eval: {}", score);
+    assert!(
+        score.abs() < 1000,
+        "Starting position should have reasonable eval: {}",
+        score
+    );
     assert!(nodes >= 1, "Should count at least the root node");
 }
 
@@ -38,19 +36,12 @@ fn test_quiescence_quiet_position() {
 fn test_quiescence_captures_position() {
     let (move_gen, pesto) = setup();
     // Position with mutual captures available: both sides can capture
-    let board = Board::new_from_fen("r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 3");
+    let board =
+        Board::new_from_fen("r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 3");
     let mut stack = BoardStack::with_board(board);
 
     let (score, nodes) = quiescence_search(
-        &mut stack,
-        &move_gen,
-        &pesto,
-        -100000,
-        100000,
-        8,
-        false,
-        None,
-        None,
+        &mut stack, &move_gen, &pesto, -100000, 100000, 8, false, None, None,
     );
 
     // Should search some nodes but position is relatively quiet
@@ -62,27 +53,23 @@ fn test_quiescence_captures_position() {
 fn test_quiescence_winning_capture() {
     let (move_gen, pesto) = setup();
     // White can capture a free queen with QxQ (queen on d3 can take queen on g4)
-    let board = Board::new_from_fen("r1b1kbnr/pppp1ppp/2n5/4p3/4P1q1/3Q1N2/PPPP1PPP/RNB1KB1R w KQkq - 0 3");
+    let board =
+        Board::new_from_fen("r1b1kbnr/pppp1ppp/2n5/4p3/4P1q1/3Q1N2/PPPP1PPP/RNB1KB1R w KQkq - 0 3");
     let mut stack = BoardStack::with_board(board);
 
     let stand_pat = pesto.eval(&stack.current_state(), &move_gen);
 
     let (score, nodes) = quiescence_search(
-        &mut stack,
-        &move_gen,
-        &pesto,
-        -100000,
-        100000,
-        8,
-        false,
-        None,
-        None,
+        &mut stack, &move_gen, &pesto, -100000, 100000, 8, false, None, None,
     );
 
     // QS should search Qxg4 and find it's winning
     assert!(nodes >= 1, "Should search at least root node");
     // Score should be better than stand_pat since we can capture the queen
-    assert!(score >= stand_pat, "Score should improve or stay same after searching captures");
+    assert!(
+        score >= stand_pat,
+        "Score should improve or stay same after searching captures"
+    );
 }
 
 #[test]
@@ -92,15 +79,9 @@ fn test_quiescence_beta_cutoff() {
 
     // With a very low beta, should get immediate cutoff
     let (score, nodes) = quiescence_search(
-        &mut stack,
-        &move_gen,
-        &pesto,
-        -100000,
+        &mut stack, &move_gen, &pesto, -100000,
         -50000, // Very low beta (opponent already has a winning line)
-        8,
-        false,
-        None,
-        None,
+        8, false, None, None,
     );
 
     // Should return beta immediately due to stand-pat cutoff
@@ -115,15 +96,8 @@ fn test_quiescence_alpha_improvement() {
 
     // With very low alpha, stand-pat should improve it
     let (score, _nodes) = quiescence_search(
-        &mut stack,
-        &move_gen,
-        &pesto,
-        -100000, // Very low alpha
-        100000,
-        8,
-        false,
-        None,
-        None,
+        &mut stack, &move_gen, &pesto, -100000, // Very low alpha
+        100000, 8, false, None, None,
     );
 
     // Score should be better than -100000
@@ -134,43 +108,32 @@ fn test_quiescence_alpha_improvement() {
 fn test_quiescence_depth_limit() {
     let (move_gen, pesto) = setup();
     // Position with many captures available
-    let board = Board::new_from_fen("r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4");
+    let board =
+        Board::new_from_fen("r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4");
     let mut stack = BoardStack::with_board(board);
 
     // With depth 0, should return immediately
     let (score_d0, nodes_d0) = quiescence_search(
-        &mut stack,
-        &move_gen,
-        &pesto,
-        -100000,
-        100000,
-        0,
-        false,
-        None,
-        None,
+        &mut stack, &move_gen, &pesto, -100000, 100000, 0, false, None, None,
     );
 
     // With higher depth, may search more
     let (score_d4, nodes_d4) = quiescence_search(
-        &mut stack,
-        &move_gen,
-        &pesto,
-        -100000,
-        100000,
-        4,
-        false,
-        None,
-        None,
+        &mut stack, &move_gen, &pesto, -100000, 100000, 4, false, None, None,
     );
 
     assert_eq!(nodes_d0, 1, "Depth 0 should only count root");
-    assert!(nodes_d4 >= nodes_d0, "Higher depth should search at least as many nodes");
+    assert!(
+        nodes_d4 >= nodes_d0,
+        "Higher depth should search at least as many nodes"
+    );
 }
 
 #[test]
 fn test_quiescence_time_limit() {
     let (move_gen, pesto) = setup();
-    let board = Board::new_from_fen("r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4");
+    let board =
+        Board::new_from_fen("r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4");
     let mut stack = BoardStack::with_board(board);
 
     let start = Instant::now();
@@ -190,8 +153,11 @@ fn test_quiescence_time_limit() {
 
     // Should return relatively quickly
     let elapsed = start.elapsed();
-    assert!(elapsed < Duration::from_millis(500),
-        "Should respect time limit, took {:?}", elapsed);
+    assert!(
+        elapsed < Duration::from_millis(500),
+        "Should respect time limit, took {:?}",
+        elapsed
+    );
 }
 
 #[test]
@@ -202,17 +168,24 @@ fn test_quiescence_tactical_returns_tree() {
     let tree = quiescence_search_tactical(&mut stack, &move_gen, &pesto);
 
     // Should return a valid TacticalTree
-    assert!(tree.leaf_score.abs() < 1000, "Starting position should have reasonable score");
+    assert!(
+        tree.leaf_score.abs() < 1000,
+        "Starting position should have reasonable score"
+    );
     // Starting position has no captures, so siblings should be empty
     assert!(tree.siblings.is_empty(), "No captures in starting position");
-    assert!(tree.principal_variation.is_empty(), "No tactical line in quiet position");
+    assert!(
+        tree.principal_variation.is_empty(),
+        "No tactical line in quiet position"
+    );
 }
 
 #[test]
 fn test_quiescence_tactical_finds_captures() {
     let (move_gen, pesto) = setup();
     // Position where white can capture pawn on e5
-    let board = Board::new_from_fen("r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 3");
+    let board =
+        Board::new_from_fen("r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 3");
     let mut stack = BoardStack::with_board(board);
 
     let tree = quiescence_search_tactical(&mut stack, &move_gen, &pesto);
@@ -225,7 +198,8 @@ fn test_quiescence_tactical_finds_captures() {
 fn test_quiescence_tactical_with_winning_capture() {
     let (move_gen, pesto) = setup();
     // White queen can capture undefended black queen
-    let board = Board::new_from_fen("r1b1kbnr/pppp1ppp/2n5/4p3/4P1q1/3Q1N2/PPPP1PPP/RNB1KB1R w KQkq - 0 3");
+    let board =
+        Board::new_from_fen("r1b1kbnr/pppp1ppp/2n5/4p3/4P1q1/3Q1N2/PPPP1PPP/RNB1KB1R w KQkq - 0 3");
     let mut stack = BoardStack::with_board(board);
 
     let tree = quiescence_search_tactical(&mut stack, &move_gen, &pesto);
@@ -233,49 +207,39 @@ fn test_quiescence_tactical_with_winning_capture() {
     // Should find Qxg4 as a winning capture
     // There should be at least one capture move evaluated
     let _has_qxg4 = tree.siblings.iter().any(|(mv, _)| mv.to == 30); // g4 = square 30
-    // Qxg4 may or may not be found depending on SEE
+                                                                     // Qxg4 may or may not be found depending on SEE
 }
 
 #[test]
 fn test_quiescence_see_pruning() {
     let (move_gen, pesto) = setup();
     // Position where capturing would lose material (e.g., QxP defended by bishop)
-    let board = Board::new_from_fen("r1bqkbnr/ppp2ppp/2np4/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 4");
+    let board =
+        Board::new_from_fen("r1bqkbnr/ppp2ppp/2np4/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 4");
     let mut stack = BoardStack::with_board(board);
 
     let (score, _nodes) = quiescence_search(
-        &mut stack,
-        &move_gen,
-        &pesto,
-        -100000,
-        100000,
-        8,
-        false,
-        None,
-        None,
+        &mut stack, &move_gen, &pesto, -100000, 100000, 8, false, None, None,
     );
 
     // Score should be reasonable (SEE should prune bad captures)
-    assert!(score.abs() < 1000, "Position should evaluate reasonably: {}", score);
+    assert!(
+        score.abs() < 1000,
+        "Position should evaluate reasonably: {}",
+        score
+    );
 }
 
 #[test]
 fn test_quiescence_checkmate_detection() {
     let (move_gen, pesto) = setup();
     // Position where white is checkmated
-    let board = Board::new_from_fen("rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3");
+    let board =
+        Board::new_from_fen("rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3");
     let mut stack = BoardStack::with_board(board);
 
     let (_score, nodes) = quiescence_search(
-        &mut stack,
-        &move_gen,
-        &pesto,
-        -100000,
-        100000,
-        8,
-        false,
-        None,
-        None,
+        &mut stack, &move_gen, &pesto, -100000, 100000, 8, false, None, None,
     );
 
     // The evaluation function handles checkmate
@@ -286,7 +250,9 @@ fn test_quiescence_checkmate_detection() {
 fn test_quiescence_tactical_siblings_scored() {
     let (move_gen, pesto) = setup();
     // Position with multiple captures for white
-    let board = Board::new_from_fen("r1b1k2r/ppppnppp/2n5/2b1p3/2B1P1q1/3P1N2/PPP2PPP/RNBQK2R w KQkq - 0 6");
+    let board = Board::new_from_fen(
+        "r1b1k2r/ppppnppp/2n5/2b1p3/2B1P1q1/3P1N2/PPP2PPP/RNBQK2R w KQkq - 0 6",
+    );
     let mut stack = BoardStack::with_board(board);
 
     let tree = quiescence_search_tactical(&mut stack, &move_gen, &pesto);
@@ -294,7 +260,12 @@ fn test_quiescence_tactical_siblings_scored() {
     // Each sibling should have a score
     for (mv, score) in &tree.siblings {
         // Scores should be within reasonable bounds
-        assert!(score.abs() < 1000001, "Score {} for move {:?} seems unreasonable", score, mv);
+        assert!(
+            score.abs() < 1000001,
+            "Score {} for move {:?} seems unreasonable",
+            score,
+            mv
+        );
     }
 }
 
@@ -308,7 +279,10 @@ fn test_material_qsearch_quiet_position() {
     let result = forced_material_balance(&mut stack, &move_gen);
 
     // Starting position: equal material, no captures improve balance
-    assert_eq!(result, 0, "Starting position material balance should be 0, got {result}");
+    assert_eq!(
+        result, 0,
+        "Starting position material balance should be 0, got {result}"
+    );
 }
 
 #[test]
@@ -330,8 +304,14 @@ fn test_material_qsearch_free_piece() {
     // After dxe4: white captures the knight (gaining 3), white now has pawn on e4
     // White material = 1, black material = 0, so balance = 1
     // Result should be 1 (better than stand pat of -2)
-    assert!(result > stand_pat, "Should find winning capture: result={result}, stand_pat={stand_pat}");
-    assert_eq!(result, 1, "After capturing free knight, balance should be +1 (pawn vs nothing)");
+    assert!(
+        result > stand_pat,
+        "Should find winning capture: result={result}, stand_pat={stand_pat}"
+    );
+    assert_eq!(
+        result, 1,
+        "After capturing free knight, balance should be +1 (pawn vs nothing)"
+    );
 }
 
 #[test]
@@ -380,7 +360,10 @@ fn test_material_qsearch_promotion() {
     // stand_pat: white P(1) vs nothing = 1
     // After e8=Q: white Q(9) vs nothing = 9
     // Gain of 8 pawn units
-    assert!(result > stand_pat, "Promotion should improve material: result={result}, stand_pat={stand_pat}");
+    assert!(
+        result > stand_pat,
+        "Promotion should improve material: result={result}, stand_pat={stand_pat}"
+    );
     assert_eq!(result, 9, "After promotion to queen, balance should be 9");
 }
 
@@ -417,6 +400,8 @@ fn test_material_qsearch_symmetry() {
     let result_b = forced_material_balance(&mut stack_b, &move_gen);
 
     // Both sides have same material ratio (P vs N) from STM perspective
-    assert_eq!(result_w, result_b,
-        "Mirrored positions should give same result: w={result_w}, b={result_b}");
+    assert_eq!(
+        result_w, result_b,
+        "Mirrored positions should give same result: w={result_w}, b={result_b}"
+    );
 }

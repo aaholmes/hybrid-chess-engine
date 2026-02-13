@@ -75,7 +75,7 @@ impl TranspositionTable {
     pub fn store(&mut self, board: &Board, depth: i32, score: i32, best_move: Move) {
         self.store_with_mate(board, depth, score, best_move, None);
     }
-    
+
     /// Adds a position with mate search results to the transposition table.
     ///
     /// # Arguments
@@ -86,12 +86,12 @@ impl TranspositionTable {
     /// * `best_move` - The best move found for this position.
     /// * `mate_result` - Mate search results: (mate_depth, mate_move, searched_depth)
     pub fn store_with_mate(
-        &mut self, 
-        board: &Board, 
-        depth: i32, 
-        score: i32, 
+        &mut self,
+        board: &Board,
+        depth: i32,
+        score: i32,
         best_move: Move,
-        mate_result: Option<(i32, Move, i32)>
+        mate_result: Option<(i32, Move, i32)>,
     ) {
         // Add a position to the table
         // If the position already exists, update it if the depth is greater
@@ -149,7 +149,7 @@ impl TranspositionTable {
         }
         None
     }
-    
+
     /// Store mate search results in the transposition table.
     ///
     /// # Arguments
@@ -166,7 +166,7 @@ impl TranspositionTable {
         searched_depth: i32,
     ) {
         let mate_result = Some((mate_depth, mate_move, searched_depth));
-        
+
         // Get existing entry or create a new one
         if let Some(existing_entry) = self.table.get(&board.zobrist_hash) {
             // Update existing entry with mate result
@@ -186,7 +186,7 @@ impl TranspositionTable {
             );
         }
     }
-    
+
     /// Get statistics about the transposition table.
     ///
     /// # Returns
@@ -194,7 +194,9 @@ impl TranspositionTable {
     /// A tuple containing (size, entries_with_mate_results, total_capacity)
     pub fn stats(&self) -> (usize, usize) {
         let size = self.table.len();
-        let entries_with_mate = self.table.values()
+        let entries_with_mate = self
+            .table
+            .values()
             .filter(|entry| entry.mate_result.is_some())
             .count();
         (size, entries_with_mate)

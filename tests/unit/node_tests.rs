@@ -1,12 +1,12 @@
 //! Tests for MCTS node logic and value handling
 
-use kingfisher::mcts::node::{MctsNode, MoveCategory, NodeOrigin};
+use crate::common::{assert_in_tanh_domain, board_from_fen, positions};
 use kingfisher::board::Board;
+use kingfisher::mcts::node::{MctsNode, MoveCategory, NodeOrigin};
 use kingfisher::move_generation::MoveGen;
 use kingfisher::move_types::Move;
 use std::cell::RefCell;
 use std::rc::Rc;
-use crate::common::{board_from_fen, assert_in_tanh_domain, positions};
 
 #[test]
 fn test_terminal_value_checkmate() {
@@ -63,8 +63,11 @@ fn test_values_in_tanh_domain() {
         }
         // MVV-LVA Q-init values are normalized to [-1, 1]
         for (_, &v) in &node.tactical_values {
-            assert!(v >= -1.0 && v <= 1.0,
-                "tactical_values entry {} outside [-1, 1]", v);
+            assert!(
+                v >= -1.0 && v <= 1.0,
+                "tactical_values entry {} outside [-1, 1]",
+                v
+            );
         }
     }
 
@@ -79,12 +82,21 @@ fn test_new_root_starting_position() {
     let root_ref = root.borrow();
 
     // Starting position is not terminal
-    assert!(!root_ref.is_terminal, "Starting position should not be terminal");
+    assert!(
+        !root_ref.is_terminal,
+        "Starting position should not be terminal"
+    );
     assert!(root_ref.action.is_none(), "Root should have no action");
     assert!(root_ref.parent.is_none(), "Root should have no parent");
     assert_eq!(root_ref.visits, 0, "New node should have 0 visits");
-    assert_eq!(root_ref.total_value, 0.0, "New node should have 0 total value");
-    assert!(root_ref.children.is_empty(), "New node should have no children");
+    assert_eq!(
+        root_ref.total_value, 0.0,
+        "New node should have 0 total value"
+    );
+    assert!(
+        root_ref.children.is_empty(),
+        "New node should have no children"
+    );
 }
 
 #[test]
@@ -96,17 +108,15 @@ fn test_new_child_creation() {
     // Create a child with e2e4
     let e2e4 = Move::from_uci("e2e4").unwrap();
     let new_state = board.apply_move_to_board(e2e4);
-    let child = MctsNode::new_child(
-        Rc::downgrade(&root),
-        e2e4,
-        new_state,
-        &move_gen,
-    );
+    let child = MctsNode::new_child(Rc::downgrade(&root), e2e4, new_state, &move_gen);
 
     let child_ref = child.borrow();
     assert_eq!(child_ref.action, Some(e2e4), "Child should have the action");
     assert!(child_ref.parent.is_some(), "Child should have a parent");
-    assert!(!child_ref.is_terminal, "e2e4 position should not be terminal");
+    assert!(
+        !child_ref.is_terminal,
+        "e2e4 position should not be terminal"
+    );
 }
 
 #[test]
@@ -152,7 +162,10 @@ fn test_uct_value_unvisited() {
     let uct = node.borrow().uct_value(100, 1.4);
 
     // Unvisited nodes should return infinity
-    assert!(uct.is_infinite() && uct > 0.0, "Unvisited node should have infinite UCT");
+    assert!(
+        uct.is_infinite() && uct > 0.0,
+        "Unvisited node should have infinite UCT"
+    );
 }
 
 #[test]
@@ -206,13 +219,20 @@ fn test_categorize_and_store_moves() {
 
     // Should have some legal moves
     assert!(node_ref.num_legal_moves.is_some());
-    assert_eq!(node_ref.num_legal_moves.unwrap(), 20, "Starting position has 20 legal moves");
+    assert_eq!(
+        node_ref.num_legal_moves.unwrap(),
+        20,
+        "Starting position has 20 legal moves"
+    );
 
     // Should have moves categorized
     assert!(!node_ref.unexplored_moves_by_cat.is_empty());
 
     // Starting position has no captures or checks
-    assert!(node_ref.unexplored_moves_by_cat.get(&MoveCategory::Quiet).is_some());
+    assert!(node_ref
+        .unexplored_moves_by_cat
+        .get(&MoveCategory::Quiet)
+        .is_some());
 }
 
 #[test]
@@ -248,7 +268,10 @@ fn test_is_fully_explored() {
 
     // After categorizing, should have moves
     node.borrow_mut().categorize_and_store_moves(&move_gen);
-    assert!(!node.borrow().is_fully_explored(), "Still has unexplored moves");
+    assert!(
+        !node.borrow().is_fully_explored(),
+        "Still has unexplored moves"
+    );
 
     // Clear unexplored moves
     node.borrow_mut().unexplored_moves_by_cat.clear();
@@ -268,11 +291,16 @@ fn test_categorize_moves_basic() {
 
     // Should have legal moves (king moves)
     assert!(node_ref.num_legal_moves.is_some());
-    assert!(node_ref.num_legal_moves.unwrap() > 0, "King should have moves");
+    assert!(
+        node_ref.num_legal_moves.unwrap() > 0,
+        "King should have moves"
+    );
 
     // Should have at least one category populated
-    assert!(!node_ref.unexplored_moves_by_cat.is_empty(),
-        "Should have categorized moves");
+    assert!(
+        !node_ref.unexplored_moves_by_cat.is_empty(),
+        "Should have categorized moves"
+    );
 }
 
 // --- Backpropagation Tests ---
@@ -296,8 +324,16 @@ fn test_backpropagate_updates_visits() {
     MctsNode::backpropagate(Rc::clone(&child), 0.7);
 
     // Both should now have 1 visit
-    assert_eq!(child.borrow().visits, 1, "Child visits should be 1 after backprop");
-    assert_eq!(root.borrow().visits, 1, "Root visits should be 1 after backprop");
+    assert_eq!(
+        child.borrow().visits,
+        1,
+        "Child visits should be 1 after backprop"
+    );
+    assert_eq!(
+        root.borrow().visits,
+        1,
+        "Root visits should be 1 after backprop"
+    );
 }
 
 #[test]

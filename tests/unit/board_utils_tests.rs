@@ -3,8 +3,9 @@
 use kingfisher::board_utils::{
     algebraic_to_bit, algebraic_to_sq_ind, bit_to_algebraic, bit_to_sq_ind, coords_to_sq_ind,
     flip_sq_ind_vertically, flip_vertically, get_adjacent_files_mask, get_file_mask,
-    get_front_span_mask, get_king_attack_zone_mask, get_king_shield_zone_mask, get_passed_pawn_mask,
-    get_rank_mask, sq_ind_to_algebraic, sq_ind_to_bit, sq_ind_to_coords, sq_to_file, sq_to_rank,
+    get_front_span_mask, get_king_attack_zone_mask, get_king_shield_zone_mask,
+    get_passed_pawn_mask, get_rank_mask, sq_ind_to_algebraic, sq_ind_to_bit, sq_ind_to_coords,
+    sq_to_file, sq_to_rank,
 };
 use kingfisher::piece_types::{BLACK, WHITE};
 
@@ -16,14 +17,25 @@ fn test_coords_sq_ind_roundtrip() {
         for rank in 0..8 {
             let sq = coords_to_sq_ind(file, rank);
             let (f, r) = sq_ind_to_coords(sq);
-            assert_eq!((f, r), (file, rank), "Roundtrip failed for file={file}, rank={rank}");
+            assert_eq!(
+                (f, r),
+                (file, rank),
+                "Roundtrip failed for file={file}, rank={rank}"
+            );
         }
     }
 }
 
 #[test]
 fn test_algebraic_sq_ind_roundtrip() {
-    let cases = [("a1", 0), ("h1", 7), ("a8", 56), ("h8", 63), ("e4", 28), ("d5", 35)];
+    let cases = [
+        ("a1", 0),
+        ("h1", 7),
+        ("a8", 56),
+        ("h8", 63),
+        ("e4", 28),
+        ("d5", 35),
+    ];
     for (alg, expected_sq) in cases {
         let sq = algebraic_to_sq_ind(alg);
         assert_eq!(sq, expected_sq, "algebraic_to_sq_ind({alg}) failed");
@@ -36,7 +48,11 @@ fn test_algebraic_sq_ind_roundtrip() {
 fn test_sq_ind_bit_roundtrip() {
     for sq in 0..64 {
         let bit = sq_ind_to_bit(sq);
-        assert_eq!(bit.count_ones(), 1, "sq_ind_to_bit({sq}) should have exactly one bit set");
+        assert_eq!(
+            bit.count_ones(),
+            1,
+            "sq_ind_to_bit({sq}) should have exactly one bit set"
+        );
         let back = bit_to_sq_ind(bit);
         assert_eq!(back, sq, "bit_to_sq_ind roundtrip failed for sq={sq}");
     }
@@ -137,28 +153,56 @@ fn test_get_passed_pawn_mask() {
 
     // Black pawn on e5 (36): mask should cover d4-d1, e4-e1, f4-f1
     let mask_b = get_passed_pawn_mask(BLACK, 36);
-    assert_ne!(mask_b & (1u64 << 28), 0, "e4 should be in black passed pawn mask");
+    assert_ne!(
+        mask_b & (1u64 << 28),
+        0,
+        "e4 should be in black passed pawn mask"
+    );
     // Must not include ranks at or above rank 4
-    assert_eq!(mask_b & (0xFFFF_FFFF_0000_0000u64), 0, "No bits on ranks 4-7");
+    assert_eq!(
+        mask_b & (0xFFFF_FFFF_0000_0000u64),
+        0,
+        "No bits on ranks 4-7"
+    );
 }
 
 #[test]
 fn test_get_adjacent_files_mask_edges() {
     // a-file square (sq=0): only b-file adjacent
     let adj_a = get_adjacent_files_mask(0);
-    assert_ne!(adj_a & get_file_mask(1), 0, "b-file should be adjacent to a-file");
-    assert_eq!(adj_a & get_file_mask(0), 0, "a-file itself should not be in adjacent mask");
+    assert_ne!(
+        adj_a & get_file_mask(1),
+        0,
+        "b-file should be adjacent to a-file"
+    );
+    assert_eq!(
+        adj_a & get_file_mask(0),
+        0,
+        "a-file itself should not be in adjacent mask"
+    );
 
     // h-file square (sq=7): only g-file adjacent
     let adj_h = get_adjacent_files_mask(7);
-    assert_ne!(adj_h & get_file_mask(6), 0, "g-file should be adjacent to h-file");
-    assert_eq!(adj_h & get_file_mask(7), 0, "h-file itself should not be in adjacent mask");
+    assert_ne!(
+        adj_h & get_file_mask(6),
+        0,
+        "g-file should be adjacent to h-file"
+    );
+    assert_eq!(
+        adj_h & get_file_mask(7),
+        0,
+        "h-file itself should not be in adjacent mask"
+    );
 
     // Middle file (e4 = 28): d-file and f-file adjacent
     let adj_e = get_adjacent_files_mask(28);
     assert_ne!(adj_e & get_file_mask(3), 0, "d-file should be adjacent");
     assert_ne!(adj_e & get_file_mask(5), 0, "f-file should be adjacent");
-    assert_eq!(adj_e & get_file_mask(4), 0, "e-file itself should not be in adjacent mask");
+    assert_eq!(
+        adj_e & get_file_mask(4),
+        0,
+        "e-file itself should not be in adjacent mask"
+    );
 }
 
 #[test]
@@ -166,7 +210,11 @@ fn test_get_front_span_mask() {
     // White pawn on e4 (28): front span should include same file + adjacent files, ranks <= 3
     let span = get_front_span_mask(WHITE, 28);
     // Should include squares on ranks 0-3 on files d, e, f
-    assert_ne!(span & (1u64 << 28), 0, "e4 should be in front span for white e4");
+    assert_ne!(
+        span & (1u64 << 28),
+        0,
+        "e4 should be in front span for white e4"
+    );
     // Should NOT include ranks above the pawn (ranks 4-7) — wait, front_span_mask
     // filters to keep only ranks <= current rank for white (behind the pawn, not front).
     // Actually, reading the code: for WHITE, it removes ranks higher than current rank.
@@ -182,10 +230,26 @@ fn test_get_front_span_mask() {
 fn test_get_king_shield_zone_mask() {
     // White king on e1 (4): shield zone should be d2, e2, f2
     let shield = get_king_shield_zone_mask(WHITE, 4);
-    assert_ne!(shield & (1u64 << 11), 0, "d2 should be in white king shield zone");
-    assert_ne!(shield & (1u64 << 12), 0, "e2 should be in white king shield zone");
-    assert_ne!(shield & (1u64 << 13), 0, "f2 should be in white king shield zone");
-    assert_eq!(shield.count_ones(), 3, "Shield zone from center should have 3 squares");
+    assert_ne!(
+        shield & (1u64 << 11),
+        0,
+        "d2 should be in white king shield zone"
+    );
+    assert_ne!(
+        shield & (1u64 << 12),
+        0,
+        "e2 should be in white king shield zone"
+    );
+    assert_ne!(
+        shield & (1u64 << 13),
+        0,
+        "f2 should be in white king shield zone"
+    );
+    assert_eq!(
+        shield.count_ones(),
+        3,
+        "Shield zone from center should have 3 squares"
+    );
 
     // Black king on e8 (60): shield zone should be d7, e7, f7
     let shield_b = get_king_shield_zone_mask(BLACK, 60);
@@ -202,11 +266,21 @@ fn test_get_king_shield_zone_mask() {
 fn test_get_king_attack_zone_mask() {
     // King on e4 (28): attack zone is 5x5 minus king square = 24 squares
     let zone = get_king_attack_zone_mask(WHITE, 28);
-    assert_eq!(zone & (1u64 << 28), 0, "King square itself should not be in attack zone");
-    assert!(zone.count_ones() >= 20, "Center king attack zone should be large");
+    assert_eq!(
+        zone & (1u64 << 28),
+        0,
+        "King square itself should not be in attack zone"
+    );
+    assert!(
+        zone.count_ones() >= 20,
+        "Center king attack zone should be large"
+    );
 
     // Corner king a1 (0): attack zone is smaller
     let zone_corner = get_king_attack_zone_mask(WHITE, 0);
     assert_eq!(zone_corner & (1u64 << 0), 0, "King square excluded");
-    assert!(zone_corner.count_ones() >= 5, "Corner king should have some attack zone squares");
+    assert!(
+        zone_corner.count_ones() >= 5,
+        "Corner king should have some attack zone squares"
+    );
 }

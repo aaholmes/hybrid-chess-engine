@@ -13,9 +13,9 @@
 mod real {
     use crate::board::Board;
     use crate::move_types::Move;
-    use crate::tensor::{move_to_index, board_to_planes, policy_to_move_priors};
-    use tch::{CModule, Tensor, Device, Kind, IValue};
+    use crate::tensor::{board_to_planes, move_to_index, policy_to_move_priors};
     use std::path::Path;
+    use tch::{CModule, Device, IValue, Kind, Tensor};
 
     /// Describe an IValue type for debugging (without printing full tensor data)
     fn describe_ivalue(iv: &IValue) -> String {
@@ -54,7 +54,10 @@ mod real {
                 if std::path::Path::new(&cuda_lib).exists() {
                     // dlopen with RTLD_NOW | RTLD_GLOBAL to register CUDA hooks
                     extern "C" {
-                        fn dlopen(filename: *const std::ffi::c_char, flags: i32) -> *mut std::ffi::c_void;
+                        fn dlopen(
+                            filename: *const std::ffi::c_char,
+                            flags: i32,
+                        ) -> *mut std::ffi::c_void;
                         fn dlerror() -> *const std::ffi::c_char;
                     }
                     const RTLD_NOW: i32 = 0x2;
@@ -88,7 +91,11 @@ mod real {
             ensure_cuda_loaded();
             NeuralNetPolicy {
                 model: None,
-                device: if tch::Cuda::is_available() { Device::Cuda(0) } else { Device::Cpu },
+                device: if tch::Cuda::is_available() {
+                    Device::Cuda(0)
+                } else {
+                    Device::Cpu
+                },
             }
         }
 
@@ -119,23 +126,33 @@ mod real {
 
         pub fn board_to_tensor(&self, board: &Board) -> Tensor {
             let planes = board_to_planes(board);
-            Tensor::from_slice(&planes).view([17, 8, 8]).to_device(self.device).to_kind(Kind::Float)
+            Tensor::from_slice(&planes)
+                .view([17, 8, 8])
+                .to_device(self.device)
+                .to_kind(Kind::Float)
         }
 
         /// Runs inference on the board. Returns (policy_probs, value, k).
         pub fn predict(&mut self, board: &Board) -> Option<(Vec<f32>, f32, f32)> {
             let model = self.model.as_ref()?;
             let input = self.board_to_tensor(board).unsqueeze(0);
-            
+
             // Material scalar is unused by the traced eval-mode model (it returns
             // raw v_logit; Rust combines with k * delta_M separately). Pass zero.
             let mat_tensor = Tensor::zeros(&[1, 1], (Kind::Float, self.device));
 
-            let ivalue = model.method_is("forward", &[tch::IValue::Tensor(input), tch::IValue::Tensor(mat_tensor)]).ok()?;
-            
+            let ivalue = model
+                .method_is(
+                    "forward",
+                    &[tch::IValue::Tensor(input), tch::IValue::Tensor(mat_tensor)],
+                )
+                .ok()?;
+
             if let tch::IValue::Tuple(elements) = ivalue {
-                if elements.len() != 3 { return None; }
-                
+                if elements.len() != 3 {
+                    return None;
+                }
+
                 let policy_tensor = match &elements[0] {
                     tch::IValue::Tensor(t) => t,
                     _ => return None,
@@ -151,8 +168,12 @@ mod real {
 
                 // Use copy_data to convert Tensor to Vec<f32>
                 let mut policy_probs = vec![0.0f32; 4672];
-                policy_tensor.exp().view([-1]).to_device(Device::Cpu).copy_data(&mut policy_probs, 4672);
-                
+                policy_tensor
+                    .exp()
+                    .view([-1])
+                    .to_device(Device::Cpu)
+                    .copy_data(&mut policy_probs, 4672);
+
                 let value = value_tensor.double_value(&[0, 0]) as f32;
                 let k_val = k_tensor.double_value(&[0, 0]) as f32;
 
@@ -181,7 +202,13 @@ mod real {
             // raw v_logit; Rust combines with k * delta_M separately). Pass zeros.
             let mat_batch = Tensor::zeros(&[boards.len() as i64, 1], (Kind::Float, self.device));
 
-            let ivalue = model.method_is("forward", &[tch::IValue::Tensor(input_batch), tch::IValue::Tensor(mat_batch)]);
+            let ivalue = model.method_is(
+                "forward",
+                &[
+                    tch::IValue::Tensor(input_batch),
+                    tch::IValue::Tensor(mat_batch),
+                ],
+            );
 
             match ivalue {
                 Ok(tch::IValue::Tuple(elements)) if elements.len() == 3 => {
@@ -206,7 +233,11 @@ mod real {
 
                     for i in 0..batch_size {
                         let mut policy_probs = vec![0.0f32; 4672];
-                        policy_batch.get(i as i64).exp().to_device(Device::Cpu).copy_data(&mut policy_probs, 4672);
+                        policy_batch
+                            .get(i as i64)
+                            .exp()
+                            .to_device(Device::Cpu)
+                            .copy_data(&mut policy_probs, 4672);
 
                         let value = value_batch.double_value(&[i as i64, 0]) as f32;
                         let k_val = k_batch.double_value(&[i as i64, 0]) as f32;
@@ -219,7 +250,10 @@ mod real {
                     use std::sync::Once;
                     static ONCE: Once = Once::new();
                     ONCE.call_once(|| {
-                        eprintln!("[NN-ERROR] predict_batch: unexpected output type: {:?}", describe_ivalue(other));
+                        eprintln!(
+                            "[NN-ERROR] predict_batch: unexpected output type: {:?}",
+                            describe_ivalue(other)
+                        );
                     });
                     vec![None; boards.len()]
                 }
@@ -234,7 +268,12 @@ mod real {
             }
         }
 
-        pub fn policy_to_move_priors(&self, policy: &[f32], moves: &[Move], board: &Board) -> Vec<(Move, f32)> {
+        pub fn policy_to_move_priors(
+            &self,
+            policy: &[f32],
+            moves: &[Move],
+            board: &Board,
+        ) -> Vec<(Move, f32)> {
             policy_to_move_priors(policy, moves, board)
         }
 
@@ -243,7 +282,9 @@ mod real {
             Some((value * 1000.0) as i32)
         }
 
-        pub fn cache_stats(&self) -> (usize, usize) { (0, 0) }
+        pub fn cache_stats(&self) -> (usize, usize) {
+            (0, 0)
+        }
     }
 }
 
@@ -256,21 +297,46 @@ mod stub {
     use crate::move_types::Move;
 
     #[derive(Debug, Clone)]
-    pub struct NeuralNetPolicy { _dummy: u8 }
+    pub struct NeuralNetPolicy {
+        _dummy: u8,
+    }
 
     impl NeuralNetPolicy {
-        pub fn new() -> Self { NeuralNetPolicy { _dummy: 0 } }
+        pub fn new() -> Self {
+            NeuralNetPolicy { _dummy: 0 }
+        }
         pub fn load(&mut self, _path: &str) -> Result<(), String> {
             Err("Neural network feature not enabled (compile with --features neural)".to_string())
         }
-        pub fn new_demo_enabled() -> Self { NeuralNetPolicy::new() }
-        pub fn is_available(&self) -> bool { false }
-        pub fn board_to_tensor(&self, _board: &Board) -> () { () }
-        pub fn predict(&mut self, _board: &Board) -> Option<(Vec<f32>, f32, f32)> { None }
-        pub fn predict_batch(&mut self, boards: &[Board]) -> Vec<Option<(Vec<f32>, f32, f32)>> { vec![None; boards.len()] }
-        pub fn policy_to_move_priors(&self, _policy: &[f32], _moves: &[Move], _board: &Board) -> Vec<(Move, f32)> { Vec::new() }
-        pub fn get_position_value(&mut self, _board: &Board) -> Option<i32> { None }
-        pub fn cache_stats(&self) -> (usize, usize) { (0, 0) }
+        pub fn new_demo_enabled() -> Self {
+            NeuralNetPolicy::new()
+        }
+        pub fn is_available(&self) -> bool {
+            false
+        }
+        pub fn board_to_tensor(&self, _board: &Board) -> () {
+            ()
+        }
+        pub fn predict(&mut self, _board: &Board) -> Option<(Vec<f32>, f32, f32)> {
+            None
+        }
+        pub fn predict_batch(&mut self, boards: &[Board]) -> Vec<Option<(Vec<f32>, f32, f32)>> {
+            vec![None; boards.len()]
+        }
+        pub fn policy_to_move_priors(
+            &self,
+            _policy: &[f32],
+            _moves: &[Move],
+            _board: &Board,
+        ) -> Vec<(Move, f32)> {
+            Vec::new()
+        }
+        pub fn get_position_value(&mut self, _board: &Board) -> Option<i32> {
+            None
+        }
+        pub fn cache_stats(&self) -> (usize, usize) {
+            (0, 0)
+        }
     }
 }
 

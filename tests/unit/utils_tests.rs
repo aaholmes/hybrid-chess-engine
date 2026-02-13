@@ -1,8 +1,8 @@
 //! Tests for utility functions (print_move, print_bits)
 
-use kingfisher::utils::{print_move, print_bits};
 use kingfisher::move_types::Move;
-use kingfisher::piece_types::{QUEEN, ROOK, KNIGHT, BISHOP};
+use kingfisher::piece_types::{BISHOP, KNIGHT, QUEEN, ROOK};
+use kingfisher::utils::{print_bits, print_move};
 
 #[test]
 fn test_print_move_standard() {

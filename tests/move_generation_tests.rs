@@ -338,12 +338,16 @@ fn assert_capture_classified(fen: &str, from: usize, to: usize, label: &str) {
     assert!(
         captures.contains(&expected),
         "{}: move {}->{} should be in captures list",
-        label, from, to
+        label,
+        from,
+        to
     );
     assert!(
         !quiet.contains(&expected),
         "{}: move {}->{} should NOT be in quiet moves list",
-        label, from, to
+        label,
+        from,
+        to
     );
 }
 
@@ -354,7 +358,9 @@ fn test_bishop_capture_corner_h8() {
     // White Bb2 captures black pawn on h8
     assert_capture_classified(
         "7p/8/8/8/8/8/1B6/K6k w - - 0 1",
-        9, 63, "bishop capture corner h8",
+        9,
+        63,
+        "bishop capture corner h8",
     );
 }
 
@@ -363,7 +369,9 @@ fn test_bishop_capture_corner_a8() {
     // White Bg2 captures black pawn on a8
     assert_capture_classified(
         "p7/8/8/8/8/8/6B1/K6k w - - 0 1",
-        14, 56, "bishop capture corner a8",
+        14,
+        56,
+        "bishop capture corner a8",
     );
 }
 
@@ -372,7 +380,9 @@ fn test_bishop_capture_corner_a1_black() {
     // Black Bg7 captures white pawn on a1
     assert_capture_classified(
         "K6k/6b1/8/8/8/8/8/P7 b - - 0 1",
-        54, 0, "bishop capture corner a1 (black)",
+        54,
+        0,
+        "bishop capture corner a1 (black)",
     );
 }
 
@@ -381,7 +391,9 @@ fn test_bishop_capture_corner_h1_black() {
     // Black Bb7 captures white pawn on h1
     assert_capture_classified(
         "K5k1/1b6/8/8/8/8/8/7P b - - 0 1",
-        49, 7, "bishop capture corner h1 (black)",
+        49,
+        7,
+        "bishop capture corner h1 (black)",
     );
 }
 
@@ -390,7 +402,9 @@ fn test_bishop_capture_rank8_edge() {
     // White Bc3 captures black pawn on h8
     assert_capture_classified(
         "7p/8/8/8/8/2B5/8/K6k w - - 0 1",
-        18, 63, "bishop capture rank 8 edge",
+        18,
+        63,
+        "bishop capture rank 8 edge",
     );
 }
 
@@ -399,7 +413,9 @@ fn test_bishop_capture_file_a_edge() {
     // White Be4 captures black pawn on a8
     assert_capture_classified(
         "p7/8/8/8/4B3/8/8/K6k w - - 0 1",
-        28, 56, "bishop capture file a edge",
+        28,
+        56,
+        "bishop capture file a edge",
     );
 }
 
@@ -408,7 +424,9 @@ fn test_bishop_capture_file_h_edge() {
     // White Bc1 captures black rook on h6
     assert_capture_classified(
         "K6k/8/7r/8/8/8/8/2B5 w - - 0 1",
-        2, 47, "bishop capture file h edge",
+        2,
+        47,
+        "bishop capture file h edge",
     );
 }
 
@@ -417,7 +435,9 @@ fn test_bishop_capture_rank8_black() {
     // Black Bc6 captures white knight on a8
     assert_capture_classified(
         "N6k/8/2b5/8/8/8/8/K7 b - - 0 1",
-        42, 56, "bishop capture rank 8 (black)",
+        42,
+        56,
+        "bishop capture rank 8 (black)",
     );
 }
 
@@ -426,7 +446,9 @@ fn test_bishop_capture_non_edge_control() {
     // White Bc1 captures black pawn on f4 — non-edge, should already work
     assert_capture_classified(
         "K6k/8/8/8/5p2/8/8/2B5 w - - 0 1",
-        2, 29, "bishop capture non-edge control",
+        2,
+        29,
+        "bishop capture non-edge control",
     );
 }
 
@@ -435,7 +457,9 @@ fn test_bishop_capture_a_file_mid_edge() {
     // White Bd4 captures black pawn on a7
     assert_capture_classified(
         "7k/p7/8/8/3B4/8/8/K7 w - - 0 1",
-        27, 48, "bishop capture a-file mid-edge",
+        27,
+        48,
+        "bishop capture a-file mid-edge",
     );
 }
 
@@ -444,7 +468,9 @@ fn test_bishop_capture_h_file_mid_edge() {
     // White Bd4 captures black pawn on h8
     assert_capture_classified(
         "6kp/8/8/8/3B4/8/8/K7 w - - 0 1",
-        27, 63, "bishop capture h-file mid-edge",
+        27,
+        63,
+        "bishop capture h-file mid-edge",
     );
 }
 
@@ -455,7 +481,9 @@ fn test_rook_capture_rank8() {
     // White Ra1 captures black rook on a8
     assert_capture_classified(
         "r6k/8/8/8/8/8/8/R6K w - - 0 1",
-        0, 56, "rook capture rank 8",
+        0,
+        56,
+        "rook capture rank 8",
     );
 }
 
@@ -464,7 +492,9 @@ fn test_rook_capture_rank1_black() {
     // Black Rh8 captures white rook on h1
     assert_capture_classified(
         "K6r/8/8/8/8/8/8/k6R b - - 0 1",
-        63, 7, "rook capture rank 1 (black)",
+        63,
+        7,
+        "rook capture rank 1 (black)",
     );
 }
 
@@ -473,17 +503,16 @@ fn test_rook_capture_file_a() {
     // White Rd1 captures black knight on a1
     assert_capture_classified(
         "K6k/8/8/8/8/8/8/n2R4 w - - 0 1",
-        3, 0, "rook capture file a",
+        3,
+        0,
+        "rook capture file a",
     );
 }
 
 #[test]
 fn test_rook_capture_file_h() {
     // White Ra1 captures black bishop on h1
-    assert_capture_classified(
-        "K6k/8/8/8/8/8/8/R6b w - - 0 1",
-        0, 7, "rook capture file h",
-    );
+    assert_capture_classified("K6k/8/8/8/8/8/8/R6b w - - 0 1", 0, 7, "rook capture file h");
 }
 
 #[test]
@@ -491,7 +520,9 @@ fn test_rook_capture_non_edge_control() {
     // White Ra1 captures black pawn on a4 — non-edge, should already work
     assert_capture_classified(
         "K6k/8/8/8/p7/8/8/R7 w - - 0 1",
-        0, 24, "rook capture non-edge control",
+        0,
+        24,
+        "rook capture non-edge control",
     );
 }
 
@@ -500,7 +531,9 @@ fn test_rook_capture_corner_h8() {
     // White Rh1 captures black pawn on h8
     assert_capture_classified(
         "K6p/8/8/8/8/8/8/k6R w - - 0 1",
-        7, 63, "rook capture corner h8",
+        7,
+        63,
+        "rook capture corner h8",
     );
 }
 
@@ -509,7 +542,9 @@ fn test_rook_capture_corner_a8() {
     // White Ra1 captures black pawn on a8
     assert_capture_classified(
         "p6k/8/8/8/8/8/8/R6K w - - 0 1",
-        0, 56, "rook capture corner a8",
+        0,
+        56,
+        "rook capture corner a8",
     );
 }
 
@@ -520,7 +555,9 @@ fn test_queen_capture_diagonal_corner() {
     // White Qa1 captures black pawn on h8
     assert_capture_classified(
         "K5kp/8/8/8/8/8/8/Q7 w - - 0 1",
-        0, 63, "queen capture diagonal corner",
+        0,
+        63,
+        "queen capture diagonal corner",
     );
 }
 
@@ -529,7 +566,9 @@ fn test_queen_capture_rank_edge() {
     // White Qa4 captures black rook on h4
     assert_capture_classified(
         "K6k/8/8/8/Q6r/8/8/8 w - - 0 1",
-        24, 31, "queen capture rank edge",
+        24,
+        31,
+        "queen capture rank edge",
     );
 }
 
@@ -538,7 +577,9 @@ fn test_queen_capture_file_edge() {
     // White Qd1 captures black knight on d8
     assert_capture_classified(
         "K2n3k/8/8/8/8/8/8/3Q4 w - - 0 1",
-        3, 59, "queen capture file edge",
+        3,
+        59,
+        "queen capture file edge",
     );
 }
 
@@ -547,7 +588,9 @@ fn test_queen_capture_diagonal_a_file() {
     // White Qd4 captures black pawn on a7
     assert_capture_classified(
         "K6k/p7/8/8/3Q4/8/8/8 w - - 0 1",
-        27, 48, "queen capture diagonal a-file",
+        27,
+        48,
+        "queen capture diagonal a-file",
     );
 }
 
@@ -556,6 +599,8 @@ fn test_queen_capture_non_edge_control() {
     // White Qd4 captures black pawn on f6 — non-edge, should already work
     assert_capture_classified(
         "K6k/8/5p2/8/3Q4/8/8/8 w - - 0 1",
-        27, 45, "queen capture non-edge control",
+        27,
+        45,
+        "queen capture non-edge control",
     );
 }

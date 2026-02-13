@@ -1,17 +1,20 @@
 //! Unit tests for the Pesto evaluation function
 
+use crate::common::{board_from_fen, positions};
 use kingfisher::board::Board;
 use kingfisher::eval::PestoEval;
 use kingfisher::move_generation::MoveGen;
 use kingfisher::piece_types::{KNIGHT, PAWN, WHITE};
-use crate::common::{board_from_fen, positions};
 
 #[test]
 fn test_pesto_eval_new_initializes() {
     let eval = PestoEval::new();
     // Verify tables are populated: white pawn on e2 should have nonzero mg score
     let mg = eval.get_mg_score(WHITE, PAWN, 12); // e2
-    assert_ne!(mg, 0, "Middlegame score for white pawn on e2 should be nonzero");
+    assert_ne!(
+        mg, 0,
+        "Middlegame score for white pawn on e2 should be nonzero"
+    );
 }
 
 #[test]
@@ -35,12 +38,18 @@ fn test_material_advantage_positive() {
     // White up a queen
     let board = board_from_fen(positions::WHITE_UP_QUEEN);
     let score = eval.eval(&board, &move_gen);
-    assert!(score > 0, "White up a queen should have positive eval, got {score}");
+    assert!(
+        score > 0,
+        "White up a queen should have positive eval, got {score}"
+    );
 
     // Black up a queen (white to move, so eval is from white's perspective)
     let board_b = board_from_fen(positions::BLACK_UP_QUEEN);
     let score_b = eval.eval(&board_b, &move_gen);
-    assert!(score_b < 0, "Black up a queen should have negative eval for white, got {score_b}");
+    assert!(
+        score_b < 0,
+        "Black up a queen should have negative eval for white, got {score_b}"
+    );
 }
 
 #[test]
@@ -51,7 +60,10 @@ fn test_tapered_eval_game_phase() {
     // Starting position has high game phase (many pieces)
     let board_start = Board::new();
     let (_, _, phase_start) = eval.eval_plus_game_phase(&board_start, &move_gen);
-    assert!(phase_start > 20, "Starting position should have high game phase, got {phase_start}");
+    assert!(
+        phase_start > 20,
+        "Starting position should have high game phase, got {phase_start}"
+    );
 
     // Kings-only endgame has zero game phase
     let board_end = board_from_fen(positions::EQUAL_MATERIAL);
@@ -125,4 +137,3 @@ fn test_symmetric_eval() {
         "Symmetric positions should have roughly opposite evals: w={score_w}, b={score_b}"
     );
 }
-

@@ -1,14 +1,14 @@
 use kingfisher::board::Board;
+use kingfisher::boardstack::BoardStack;
+use kingfisher::mcts::tactical_mcts::{tactical_mcts_search, TacticalMctsConfig};
 use kingfisher::move_generation::MoveGen;
 use kingfisher::search::koth_center_in_3;
-use kingfisher::mcts::tactical_mcts::{tactical_mcts_search, TacticalMctsConfig};
 use kingfisher::search::mate_search;
-use kingfisher::boardstack::BoardStack;
 use std::time::Instant;
 
 fn main() {
     let move_gen = MoveGen::new();
-    
+
     println!("🚀 Benchmarking Safety Gates & MCTS Inspector...");
 
     // --- 1. MCTS Search + Inspector Test ---
@@ -22,7 +22,7 @@ fn main() {
 
     let (_mv, _stats, root) = tactical_mcts_search(board, &move_gen, config);
     let dot = root.borrow().export_dot(3, 0);
-    
+
     match std::fs::write("test_tree.dot", dot) {
         Ok(_) => println!("✅ MCTS Inspector: test_tree.dot generated successfully."),
         Err(e) => println!("❌ MCTS Inspector: Failed to generate dot file: {}", e),
@@ -38,14 +38,19 @@ fn main() {
     for (fen, name) in mate_puzzles {
         let board = Board::new_from_fen(fen);
         let mut stack = BoardStack::with_board(board);
-        
+
         let start = Instant::now();
         let (score, mv, nodes) = mate_search(&mut stack, &move_gen, 3, false);
         let duration = start.elapsed();
-        
-        println!("{}: {} ({} nodes) in {:?}", 
-            name, 
-            if score >= 1_000_000 { format!("FOUND ({})", mv.to_uci()) } else { "NOT FOUND".to_string() },
+
+        println!(
+            "{}: {} ({} nodes) in {:?}",
+            name,
+            if score >= 1_000_000 {
+                format!("FOUND ({})", mv.to_uci())
+            } else {
+                "NOT FOUND".to_string()
+            },
             nodes,
             duration
         );
@@ -62,13 +67,14 @@ fn main() {
 
     for (fen, name, expected) in koth_puzzles {
         let board = Board::new_from_fen(fen);
-        
+
         let start = Instant::now();
         let found = koth_center_in_3(&board, &move_gen).is_some();
         let duration = start.elapsed();
-        
-        println!("{}: {} (Expected {}) in {:?}", 
-            name, 
+
+        println!(
+            "{}: {} (Expected {}) in {:?}",
+            name,
             if found { "FOUND" } else { "NOT FOUND" },
             if expected { "FOUND" } else { "NOT FOUND" },
             duration

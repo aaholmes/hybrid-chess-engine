@@ -1,24 +1,28 @@
 /// Tests for MCTS tree reuse between moves.
-
 use kingfisher::board::Board;
+use kingfisher::mcts::tactical_mcts::{reuse_subtree, TacticalMctsConfig};
 use kingfisher::move_generation::MoveGen;
 use kingfisher::move_types::Move;
-use kingfisher::mcts::tactical_mcts::{TacticalMctsConfig, reuse_subtree};
 
-fn run_search(iterations: u32) -> (Option<Move>, std::rc::Rc<std::cell::RefCell<kingfisher::mcts::node::MctsNode>>) {
+fn run_search(
+    iterations: u32,
+) -> (
+    Option<Move>,
+    std::rc::Rc<std::cell::RefCell<kingfisher::mcts::node::MctsNode>>,
+) {
     let board = Board::new();
     let move_gen = MoveGen::new();
     let config = TacticalMctsConfig {
         max_iterations: iterations,
         ..Default::default()
     };
-    let (best, _stats, root) = kingfisher::mcts::tactical_mcts_search(
-        board, &move_gen, config,
-    );
+    let (best, _stats, root) = kingfisher::mcts::tactical_mcts_search(board, &move_gen, config);
     (best, root)
 }
 
-fn get_first_child_move(root: &std::rc::Rc<std::cell::RefCell<kingfisher::mcts::node::MctsNode>>) -> Move {
+fn get_first_child_move(
+    root: &std::rc::Rc<std::cell::RefCell<kingfisher::mcts::node::MctsNode>>,
+) -> Move {
     let root_ref = root.borrow();
     let child = root_ref.children[0].clone();
     drop(root_ref);
@@ -36,8 +40,11 @@ fn test_reuse_subtree_finds_played_child() {
     assert!(reused.is_some(), "Should find subtree for played move");
 
     let reused = reused.unwrap();
-    assert_eq!(reused.borrow().action, Some(played_move),
-        "Reused subtree root should have the played move as its action");
+    assert_eq!(
+        reused.borrow().action,
+        Some(played_move),
+        "Reused subtree root should have the played move as its action"
+    );
 }
 
 /// Reused subtree's root should have parent set to None.
@@ -47,8 +54,10 @@ fn test_reuse_subtree_clears_parent() {
     let played_move = get_first_child_move(&root);
 
     let reused = reuse_subtree(root.clone(), played_move).unwrap();
-    assert!(reused.borrow().parent.is_none(),
-        "Reused subtree root should have no parent");
+    assert!(
+        reused.borrow().parent.is_none(),
+        "Reused subtree root should have no parent"
+    );
 }
 
 /// Reused subtree should preserve visit count and value.
@@ -59,7 +68,9 @@ fn test_reuse_subtree_preserves_visits() {
     // Find a child with some visits
     let (played_move, expected_visits, expected_value) = {
         let root_ref = root.borrow();
-        let child = root_ref.children.iter()
+        let child = root_ref
+            .children
+            .iter()
             .find(|c| c.borrow().visits > 0)
             .expect("Should have at least one visited child")
             .clone();
@@ -70,10 +81,14 @@ fn test_reuse_subtree_preserves_visits() {
 
     let reused = reuse_subtree(root.clone(), played_move).unwrap();
     let reused_ref = reused.borrow();
-    assert_eq!(reused_ref.visits, expected_visits,
-        "Visit count should be preserved");
-    assert!((reused_ref.total_value - expected_value).abs() < f64::EPSILON,
-        "Total value should be preserved");
+    assert_eq!(
+        reused_ref.visits, expected_visits,
+        "Visit count should be preserved"
+    );
+    assert!(
+        (reused_ref.total_value - expected_value).abs() < f64::EPSILON,
+        "Total value should be preserved"
+    );
 }
 
 /// Returns None if the played move is not found among children.
@@ -95,7 +110,9 @@ fn test_reuse_subtree_preserves_grandchildren() {
     // Find a child that has been expanded (has grandchildren)
     let played_move = {
         let root_ref = root.borrow();
-        let child = root_ref.children.iter()
+        let child = root_ref
+            .children
+            .iter()
             .find(|c| !c.borrow().children.is_empty())
             .expect("With 200 iterations, at least one child should be expanded")
             .clone();
@@ -106,7 +123,9 @@ fn test_reuse_subtree_preserves_grandchildren() {
 
     let grandchild_count_before = {
         let root_ref = root.borrow();
-        let child = root_ref.children.iter()
+        let child = root_ref
+            .children
+            .iter()
             .find(|c| c.borrow().action == Some(played_move))
             .unwrap()
             .clone();
@@ -116,8 +135,13 @@ fn test_reuse_subtree_preserves_grandchildren() {
     };
 
     let reused = reuse_subtree(root.clone(), played_move).unwrap();
-    assert_eq!(reused.borrow().children.len(), grandchild_count_before,
-        "Grandchildren should be preserved after reuse");
-    assert!(!reused.borrow().children.is_empty(),
-        "Reused node should still have children (grandchildren of original root)");
+    assert_eq!(
+        reused.borrow().children.len(),
+        grandchild_count_before,
+        "Grandchildren should be preserved after reuse"
+    );
+    assert!(
+        !reused.borrow().children.is_empty(),
+        "Reused node should still have children (grandchildren of original root)"
+    );
 }

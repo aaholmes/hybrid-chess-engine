@@ -12,9 +12,7 @@ use crate::board_utils::{
     sq_to_rank,
 };
 pub use crate::eval_constants::EvalWeights;
-use crate::eval_constants::{
-    EG_PESTO_TABLE, EG_VALUE, GAMEPHASE_INC, MG_PESTO_TABLE, MG_VALUE,
-};
+use crate::eval_constants::{EG_PESTO_TABLE, EG_VALUE, GAMEPHASE_INC, MG_PESTO_TABLE, MG_VALUE};
 use crate::move_generation::MoveGen;
 use crate::piece_types::{BISHOP, BLACK, KING, KNIGHT, PAWN, QUEEN, ROOK, WHITE};
 use std::cmp::min;
@@ -175,7 +173,11 @@ impl PestoEval {
             for sq in bits(&friendly_pawns) {
                 let adjacent_mask = get_adjacent_files_mask(sq);
                 let front_span = get_front_span_mask(color, sq);
-                let stop_sq = if color == WHITE { sq + 8 } else { sq.wrapping_sub(8) };
+                let stop_sq = if color == WHITE {
+                    sq + 8
+                } else {
+                    sq.wrapping_sub(8)
+                };
 
                 let no_adjacent_support = (friendly_pawns & adjacent_mask & front_span) == 0;
 
@@ -343,7 +345,11 @@ impl PestoEval {
         let eg_phase: i32 = 24 - mg_phase;
         let eg_phase_clamped = if eg_phase < 0 { 0 } else { eg_phase };
         let score = (mg * mg_phase + eg * eg_phase_clamped) / 24;
-        if board.w_to_move { score } else { -score }
+        if board.w_to_move {
+            score
+        } else {
+            -score
+        }
     }
 
     pub fn eval_update_board(&self, board: &mut Board, move_gen: &MoveGen) -> i32 {

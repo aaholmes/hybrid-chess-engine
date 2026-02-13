@@ -23,17 +23,17 @@
 
 use crate::board::Board;
 use crate::move_types::Move;
- // Needed for piece count calculation
+// Needed for piece count calculation
 
 // Use the Syzygy library
 use shakmaty::Board as ShakmatyBoard;
-use shakmaty_syzygy::{Wdl, Dtz};
+use shakmaty_syzygy::{Dtz, Wdl};
 
 // Define the error type for EGTB operations
 #[derive(Debug, Clone)]
 pub enum EgtbError {
-    LoadError(String), // Error loading tablebases
-    ProbeError(String), // Error during probing
+    LoadError(String),       // Error loading tablebases
+    ProbeError(String),      // Error during probing
     ConversionError(String), // Error converting board representation
 }
 
@@ -48,7 +48,6 @@ impl std::fmt::Display for EgtbError {
 }
 
 impl std::error::Error for EgtbError {}
-
 
 /// Information obtained from probing the endgame tablebases.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,9 +72,12 @@ impl EgtbProber {
     pub fn new(path_str: &str) -> Result<Self, EgtbError> {
         // Check if path exists and is valid for testing
         if !std::path::Path::new(path_str).exists() {
-            return Err(EgtbError::LoadError(format!("Path does not exist: {}", path_str)));
+            return Err(EgtbError::LoadError(format!(
+                "Path does not exist: {}",
+                path_str
+            )));
         }
-        
+
         // Temporarily simplified implementation to focus on MCTS
         let max_pieces = 7;
         Ok(EgtbProber { max_pieces })
@@ -93,7 +95,9 @@ impl EgtbProber {
     fn convert_board(&self, _board: &Board) -> Result<ShakmatyBoard, EgtbError> {
         // Temporarily disabled to focus on MCTS functionality
         // TODO: Implement proper board conversion after MCTS is working
-        Err(EgtbError::ConversionError("EGTB temporarily disabled".to_string()))
+        Err(EgtbError::ConversionError(
+            "EGTB temporarily disabled".to_string(),
+        ))
     }
 }
 
@@ -138,7 +142,6 @@ mod tests {
             _ => panic!("Expected LoadError for invalid path"),
         }
     }
-
 
     #[test]
     fn test_probe_piece_count_within_limit() {

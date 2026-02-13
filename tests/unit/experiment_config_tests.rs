@@ -1,7 +1,7 @@
 //! Tests for experiments::config module
 
 use kingfisher::experiments::config::{
-    AblationConfig, ExperimentConfig, generate_ablation_configs,
+    generate_ablation_configs, AblationConfig, ExperimentConfig,
 };
 
 // === AblationConfig Preset Tests ===
@@ -75,7 +75,11 @@ fn test_experiment_config_default_output() {
 #[test]
 fn test_generate_ablation_configs_count() {
     let configs = generate_ablation_configs();
-    assert_eq!(configs.len(), 5, "Should generate 5 ablation configurations");
+    assert_eq!(
+        configs.len(),
+        5,
+        "Should generate 5 ablation configurations"
+    );
 }
 
 #[test]
@@ -96,14 +100,22 @@ fn test_generate_ablation_configs_unique_names() {
     let mut unique_names = names.clone();
     unique_names.sort();
     unique_names.dedup();
-    assert_eq!(names.len(), unique_names.len(), "All config names should be unique");
+    assert_eq!(
+        names.len(),
+        unique_names.len(),
+        "All config names should be unique"
+    );
 }
 
 #[test]
 fn test_generate_ablation_configs_descriptions_nonempty() {
     let configs = generate_ablation_configs();
     for config in &configs {
-        assert!(!config.description.is_empty(), "Config '{}' should have a description", config.name);
+        assert!(
+            !config.description.is_empty(),
+            "Config '{}' should have a description",
+            config.name
+        );
     }
 }
 
@@ -131,7 +143,8 @@ fn test_generate_ablation_configs_share_search_settings() {
     for config in &configs {
         assert_eq!(
             config.search_config.max_iterations, base_iterations,
-            "Config '{}' should share the same search settings", config.name
+            "Config '{}' should share the same search settings",
+            config.name
         );
     }
 }

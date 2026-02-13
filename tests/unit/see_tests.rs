@@ -46,7 +46,10 @@ fn test_see_returns_integer() {
     // Try to evaluate a non-capture (should return 0 for empty square or handle gracefully)
     let see_value = see(&board, &move_gen, sq("e4"), sq("e2"));
     // We just verify it returns a number
-    assert!(see_value >= -10000 && see_value <= 10000, "SEE should return bounded value");
+    assert!(
+        see_value >= -10000 && see_value <= 10000,
+        "SEE should return bounded value"
+    );
 }
 
 #[test]
@@ -59,7 +62,11 @@ fn test_see_knight_capture() {
 
     // Note: Result depends on implementation details
     // Just verify it doesn't crash and returns something reasonable
-    assert!(see_value.abs() < 10000, "SEE should return reasonable value, got {}", see_value);
+    assert!(
+        see_value.abs() < 10000,
+        "SEE should return reasonable value, got {}",
+        see_value
+    );
 }
 
 #[test]

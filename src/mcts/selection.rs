@@ -4,12 +4,12 @@
 //! (captures, checks, forks) are prioritized before strategic moves using neural network
 //! policy guidance. This reduces neural network evaluations while maintaining tactical accuracy.
 
+use crate::mcts::node::MctsNode;
+use crate::mcts::search_logger::{SearchLogger, SelectionReason};
+use crate::mcts::tactical::identify_tactical_moves;
+use crate::mcts::tactical_mcts::{TacticalMctsConfig, TacticalMctsStats};
 use crate::move_generation::MoveGen;
 use crate::move_types::Move;
-use crate::mcts::node::MctsNode;
-use crate::mcts::tactical::identify_tactical_moves;
-use crate::mcts::tactical_mcts::{TacticalMctsStats, TacticalMctsConfig};
-use crate::mcts::search_logger::{SearchLogger, SelectionReason};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -25,35 +25,42 @@ pub fn select_child_with_tactical_priority(
 ) -> Option<Rc<RefCell<MctsNode>>> {
     // First, ensure the node has been expanded (children created)
     ensure_node_expanded(node.clone(), move_gen);
-    
+
     {
         let node_ref = node.borrow();
         if node_ref.children.is_empty() {
             return None; // No legal moves (terminal position)
         }
     }
-    
+
     // Phase 1: Check for unexplored tactical moves
     // Children are already legality-checked during expansion (ensure_node_expanded),
     // so no need to re-validate with gen_pseudo_legal_moves here.
-    if let Some(tactical_child) = select_unexplored_tactical_move(node.clone(), move_gen, stats, logger) {
+    if let Some(tactical_child) =
+        select_unexplored_tactical_move(node.clone(), move_gen, stats, logger)
+    {
         if let Some(log) = logger {
             let child_ref = tactical_child.borrow();
             if let Some(mv) = child_ref.action {
-                let score = node.borrow().tactical_values.get(&mv).copied().unwrap_or(0.0);
+                let score = node
+                    .borrow()
+                    .tactical_values
+                    .get(&mv)
+                    .copied()
+                    .unwrap_or(0.0);
                 log.log_selection(
                     mv,
                     &SelectionReason::TacticalPriority {
                         move_type: "tactical".to_string(),
-                        score
+                        score,
                     },
-                    depth
+                    depth,
                 );
             }
         }
         return Some(tactical_child);
     }
-    
+
     // Phase 1.5: Force root exploration — ensure every root child gets at least 1 visit
     if depth == 0 {
         let node_ref = node.borrow();
@@ -71,24 +78,19 @@ pub fn select_child_with_tactical_priority(
 /// Ensure the node has been expanded with all child nodes
 fn ensure_node_expanded(node: Rc<RefCell<MctsNode>>, move_gen: &MoveGen) {
     let mut node_ref = node.borrow_mut();
-    
+
     // If children already created, nothing to do
     if !node_ref.children.is_empty() {
         return;
     }
-    
+
     // Generate all legal moves and create child nodes
     let (captures, non_captures) = move_gen.gen_pseudo_legal_moves(&node_ref.state);
-    
+
     for mv in captures.iter().chain(non_captures.iter()) {
         let new_board = node_ref.state.apply_move_to_board(*mv);
         if new_board.is_legal(move_gen) {
-            let child_node = MctsNode::new_child(
-                Rc::downgrade(&node),
-                *mv,
-                new_board,
-                move_gen,
-            );
+            let child_node = MctsNode::new_child(Rc::downgrade(&node), *mv, new_board, move_gen);
             node_ref.children.push(child_node);
         }
     }
@@ -102,7 +104,7 @@ fn select_unexplored_tactical_move(
     logger: Option<&Arc<SearchLogger>>,
 ) -> Option<Rc<RefCell<MctsNode>>> {
     let mut node_ref = node.borrow_mut();
-    
+
     // Ensure tactical moves have been identified
     if node_ref.tactical_moves.is_none() {
         let tactical_moves = identify_tactical_moves(&node_ref.state, move_gen);
@@ -111,7 +113,7 @@ fn select_unexplored_tactical_move(
         }
         node_ref.tactical_moves = Some(tactical_moves);
     }
-    
+
     // Find first unexplored tactical move
     let mut move_to_explore = None;
     if let Some(ref tactical_moves) = node_ref.tactical_moves {
@@ -127,7 +129,7 @@ fn select_unexplored_tactical_move(
             }
         }
     }
-    
+
     // Mark move as explored and return child
     if let Some(mv) = move_to_explore {
         node_ref.tactical_moves_explored.insert(mv);
@@ -135,7 +137,7 @@ fn select_unexplored_tactical_move(
         let child = find_child_for_move(&node_ref.children, mv);
         return child.cloned();
     }
-    
+
     None // No unexplored tactical moves
 }
 
@@ -149,20 +151,20 @@ fn select_ucb_with_policy(
 ) -> Option<Rc<RefCell<MctsNode>>> {
     // Ensure policy has been evaluated
     ensure_policy_evaluated(node.clone(), config);
-    
+
     let node_ref = node.borrow();
     if node_ref.children.is_empty() {
         return None;
     }
-    
+
     let parent_visits = node_ref.visits;
     let num_legal_moves = node_ref.children.len();
-    
+
     // Calculate UCB values for all children
     let mut best_child = None;
     let mut best_ucb = f64::NEG_INFINITY;
     let mut best_details = (0.0, 0.0, 0.0); // Q, U, Total
-    
+
     for child in &node_ref.children {
         let child_ref = child.borrow();
 
@@ -174,11 +176,15 @@ fn select_ucb_with_policy(
         }
 
         let prior_prob = if let Some(mv) = child_ref.action {
-            node_ref.move_priorities.get(&mv).copied().unwrap_or(1.0 / num_legal_moves as f64)
+            node_ref
+                .move_priorities
+                .get(&mv)
+                .copied()
+                .unwrap_or(1.0 / num_legal_moves as f64)
         } else {
             1.0 / num_legal_moves as f64
         };
-        
+
         let ucb_value = calculate_ucb_value(
             &child_ref,
             parent_visits,
@@ -196,11 +202,12 @@ fn select_ucb_with_policy(
             } else {
                 child_ref.total_value / child_ref.visits as f64
             };
-            let u = config.exploration_constant * prior_prob * (parent_visits as f64).sqrt() / (1.0 + child_ref.visits as f64);
+            let u = config.exploration_constant * prior_prob * (parent_visits as f64).sqrt()
+                / (1.0 + child_ref.visits as f64);
             best_details = (q, u, ucb_value);
         }
     }
-    
+
     if let Some(log) = logger {
         if let Some(ref child) = best_child {
             if let Some(mv) = child.borrow().action {
@@ -211,12 +218,12 @@ fn select_ucb_with_policy(
                         u_value: best_details.1,
                         total: best_details.2,
                     },
-                    depth
+                    depth,
                 );
             }
         }
     }
-    
+
     // Children are already legality-checked during expansion, so no
     // redundant gen_pseudo_legal_moves validation needed here.
     best_child
@@ -235,13 +242,11 @@ pub fn calculate_ucb_value(
     } else {
         child.total_value / child.visits as f64
     };
-    
+
     // U Value (PUCT)
-    let u = exploration_constant 
-        * prior_prob 
-        * (parent_visits as f64).sqrt() 
+    let u = exploration_constant * prior_prob * (parent_visits as f64).sqrt()
         / (1.0 + child.visits as f64);
-    
+
     q + u
 }
 
@@ -251,10 +256,7 @@ pub fn calculate_ucb_value(
 /// from the InferenceServer). Falls back to a synchronous InferenceServer call
 /// if the node has no cached policy but a server is available. Otherwise uses
 /// uniform priors (classical fallback).
-fn ensure_policy_evaluated(
-    node: Rc<RefCell<MctsNode>>,
-    config: &TacticalMctsConfig,
-) {
+fn ensure_policy_evaluated(node: Rc<RefCell<MctsNode>>, config: &TacticalMctsConfig) {
     let mut node_ref = node.borrow_mut();
 
     if node_ref.policy_evaluated {
@@ -276,7 +278,8 @@ fn ensure_policy_evaluated(
 
     // 1. If we have a cached NN policy (from evaluate_leaf_node), use it
     if let Some(ref policy) = node_ref.raw_nn_policy {
-        let priors = crate::tensor::policy_to_move_priors(policy, &moves_to_prioritize, &node_ref.state);
+        let priors =
+            crate::tensor::policy_to_move_priors(policy, &moves_to_prioritize, &node_ref.state);
         for (mv, prob) in priors {
             node_ref.move_priorities.insert(mv, prob as f64);
         }
@@ -289,7 +292,11 @@ fn ensure_policy_evaluated(
         if let Some(ref server) = config.inference_server {
             let receiver = server.predict_async(node_ref.state.clone());
             if let Ok(Some((policy, _v_logit, k))) = receiver.recv() {
-                let priors = crate::tensor::policy_to_move_priors(&policy, &moves_to_prioritize, &node_ref.state);
+                let priors = crate::tensor::policy_to_move_priors(
+                    &policy,
+                    &moves_to_prioritize,
+                    &node_ref.state,
+                );
                 for (mv, prob) in &priors {
                     node_ref.move_priorities.insert(*mv, *prob as f64);
                 }
@@ -318,9 +325,9 @@ fn find_child_for_move(
     children: &[Rc<RefCell<MctsNode>>],
     mv: Move,
 ) -> Option<&Rc<RefCell<MctsNode>>> {
-    children.iter().find(|child| {
-        child.borrow().action == Some(mv)
-    })
+    children
+        .iter()
+        .find(|child| child.borrow().action == Some(mv))
 }
 
 /// Get statistics about tactical vs strategic exploration
@@ -328,7 +335,7 @@ pub fn get_tactical_statistics(node: &MctsNode) -> TacticalStatistics {
     let total_tactical_moves = node.tactical_moves.as_ref().map_or(0, |tm| tm.len());
     let explored_tactical_moves = node.tactical_moves_explored.len();
     let tactical_phase_complete = explored_tactical_moves == total_tactical_moves;
-    
+
     TacticalStatistics {
         total_tactical_moves,
         explored_tactical_moves,
@@ -350,39 +357,40 @@ pub struct TacticalStatistics {
 mod tests {
     use super::*;
     use crate::board::Board;
-    
+
     #[test]
     fn test_tactical_move_selection() {
         let board = Board::new();
         let move_gen = MoveGen::new();
         let root = MctsNode::new_root(board, &move_gen);
-        
+
         // In starting position, should have no tactical moves
         let mut stats = TacticalMctsStats::default();
-        let tactical_child = select_unexplored_tactical_move(root.clone(), &move_gen, &mut stats, None);
+        let tactical_child =
+            select_unexplored_tactical_move(root.clone(), &move_gen, &mut stats, None);
         assert!(tactical_child.is_none());
     }
-    
+
     #[test]
     fn test_node_expansion() {
         let board = Board::new();
         let move_gen = MoveGen::new();
         let root = MctsNode::new_root(board, &move_gen);
-        
+
         ensure_node_expanded(root.clone(), &move_gen);
-        
+
         // Starting position should have 20 legal moves
         let node_ref = root.borrow();
         assert_eq!(node_ref.children.len(), 20);
     }
-    
+
     #[test]
     fn test_ucb_calculation() {
         // Create a mock child node for testing
         let board = Board::new();
         let move_gen = MoveGen::new();
         let parent = MctsNode::new_root(board.clone(), &move_gen);
-        
+
         let child_board = board.apply_move_to_board(Move::new(12, 28, None)); // e2-e4
         let child = MctsNode::new_child(
             Rc::downgrade(&parent),
@@ -390,7 +398,7 @@ mod tests {
             child_board,
             &move_gen,
         );
-        
+
         // Test UCB calculation for unvisited node
         let child_ref = child.borrow();
         let ucb = calculate_ucb_value(&child_ref, 10, 0.1, 1.414);

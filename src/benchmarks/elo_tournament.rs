@@ -1,22 +1,22 @@
 //! Elo Tournament Framework for Statistical Validation
-//! 
+//!
 //! Runs statistically significant head-to-head matches between engine variants
 //! to produce confidence intervals on Elo differences.
 
 use crate::board::Board;
+use crate::boardstack::BoardStack;
 use crate::eval::PestoEval;
+use crate::mcts::inference_server::InferenceServer;
+use crate::mcts::tactical_mcts::{tactical_mcts_search, TacticalMctsConfig};
 use crate::move_generation::MoveGen;
 use crate::move_types::Move;
-use crate::mcts::tactical_mcts::{tactical_mcts_search, TacticalMctsConfig};
 use crate::search::iterative_deepening::iterative_deepening_ab_search;
 use crate::transposition::TranspositionTable;
-use crate::mcts::inference_server::InferenceServer;
-use crate::boardstack::BoardStack;
-use std::sync::Arc;
-use std::time::Duration;
-use std::collections::HashMap;
 use rand::prelude::*;
 use rand::rngs::StdRng;
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::Duration;
 
 /// Engine variant for tournament play
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -78,40 +78,48 @@ impl MatchResult {
     pub fn total_games(&self) -> u32 {
         self.a_wins + self.b_wins + self.draws
     }
-    
+
     pub fn a_score(&self) -> f64 {
         let total = self.total_games();
-        if total == 0 { return 0.5; }
+        if total == 0 {
+            return 0.5;
+        }
         (self.a_wins as f64 + 0.5 * self.draws as f64) / total as f64
     }
-    
+
     /// Calculate Elo difference using the standard formula
     /// Elo_diff = -400 * log10(1/score - 1)
     pub fn elo_difference(&self) -> f64 {
         let score = self.a_score();
-        if score <= 0.0 { return -800.0; }
-        if score >= 1.0 { return 800.0; }
+        if score <= 0.0 {
+            return -800.0;
+        }
+        if score >= 1.0 {
+            return 800.0;
+        }
         -400.0 * (1.0 / score - 1.0).log10()
     }
-    
+
     /// Calculate 95% confidence interval using Wilson score interval
     pub fn elo_confidence_interval(&self) -> (f64, f64) {
         let n = self.total_games() as f64;
-        if n == 0.0 { return (-800.0, 800.0); }
+        if n == 0.0 {
+            return (-800.0, 800.0);
+        }
         let p = self.a_score();
         let z = 1.96; // 95% CI
-        
+
         // Wilson score interval
         let denominator = 1.0 + z * z / n;
         let center = (p + z * z / (2.0 * n)) / denominator;
         let margin = z * (p * (1.0 - p) / n + z * z / (4.0 * n * n)).sqrt() / denominator;
-        
+
         let low_score = (center - margin).max(0.001);
         let high_score = (center + margin).min(0.999);
-        
+
         let elo_low = -400.0 * (1.0 / low_score - 1.0).log10();
         let elo_high = -400.0 * (1.0 / high_score - 1.0).log10();
-        
+
         (elo_low, elo_high)
     }
 }
@@ -172,17 +180,20 @@ impl EloTournament {
             rng,
         }
     }
-    
+
     /// Run a complete tournament between all engine pairs
     pub fn run_full_tournament(&mut self, engines: &[TournamentEngine]) -> TournamentResults {
         println!("🏆 Starting Elo Tournament");
         println!("   Engines: {}", engines.len());
         println!("   Games per pair: {}", self.config.games_per_pair);
-        println!("   Total games: {}", engines.len() * (engines.len() - 1) * self.config.games_per_pair as usize / 2);
+        println!(
+            "   Total games: {}",
+            engines.len() * (engines.len() - 1) * self.config.games_per_pair as usize / 2
+        );
         println!();
-        
+
         let mut results = TournamentResults::new();
-        
+
         for i in 0..engines.len() {
             for j in (i + 1)..engines.len() {
                 let match_result = self.run_match(engines[i], engines[j]);
@@ -200,11 +211,11 @@ impl EloTournament {
                 results.matches.push(match_result);
             }
         }
-        
+
         results.calculate_ratings();
         results
     }
-    
+
     /// Run a match between two engines
     fn run_match(&mut self, engine_a: TournamentEngine, engine_b: TournamentEngine) -> MatchResult {
         let mut result = MatchResult {
@@ -215,7 +226,7 @@ impl EloTournament {
             b_wins: 0,
             draws: 0,
         };
-        
+
         for game_num in 0..self.config.games_per_pair {
             // Alternate colors
             let (white, black) = if game_num % 2 == 0 {
@@ -223,13 +234,13 @@ impl EloTournament {
             } else {
                 (engine_b, engine_a)
             };
-            
+
             // Select opening position
             let opening_idx = self.rng.gen_range(0..self.config.opening_book.len());
             let opening_fen = self.config.opening_book[opening_idx].clone();
-            
+
             let (game_result, move_count) = self.play_game(white, black, &opening_fen);
-            
+
             // Translate result to engine_a's perspective
             let a_result = if game_num % 2 == 0 {
                 game_result
@@ -240,19 +251,19 @@ impl EloTournament {
                     GameResult::Draw => GameResult::Draw,
                 }
             };
-            
+
             match a_result {
                 GameResult::WhiteWin => result.a_wins += 1,
                 GameResult::BlackWin => result.b_wins += 1,
                 GameResult::Draw => result.draws += 1,
             }
-            
+
             result.games.push((a_result, move_count));
         }
-        
+
         result
     }
-    
+
     /// Play a single game between two engines
     fn play_game(
         &mut self,
@@ -262,11 +273,13 @@ impl EloTournament {
     ) -> (GameResult, u32) {
         let mut board_stack = BoardStack::with_board(Board::new_from_fen(opening_fen));
         let mut move_count = 0;
-        
+
         loop {
             // Check for game termination
-            let (is_checkmate, is_stalemate) = board_stack.current_state().is_checkmate_or_stalemate(&self.move_gen);
-            
+            let (is_checkmate, is_stalemate) = board_stack
+                .current_state()
+                .is_checkmate_or_stalemate(&self.move_gen);
+
             if is_checkmate {
                 // Side to move is checkmated
                 return if board_stack.current_state().w_to_move {
@@ -275,15 +288,22 @@ impl EloTournament {
                     (GameResult::WhiteWin, move_count)
                 };
             }
-            
-            if is_stalemate || board_stack.is_draw_by_repetition() || move_count >= self.config.max_moves {
+
+            if is_stalemate
+                || board_stack.is_draw_by_repetition()
+                || move_count >= self.config.max_moves
+            {
                 return (GameResult::Draw, move_count);
             }
-            
+
             // Get move from appropriate engine
-            let engine = if board_stack.current_state().w_to_move { white } else { black };
+            let engine = if board_stack.current_state().w_to_move {
+                white
+            } else {
+                black
+            };
             let best_move = self.get_engine_move(engine, &board_stack);
-            
+
             if let Some(mv) = best_move {
                 board_stack.make_move(mv);
                 move_count += 1;
@@ -293,7 +313,7 @@ impl EloTournament {
             }
         }
     }
-    
+
     /// Get a move from an engine variant
     fn get_engine_move(&self, engine: TournamentEngine, board_stack: &BoardStack) -> Option<Move> {
         match engine {
@@ -333,7 +353,10 @@ impl EloTournament {
                 );
                 best
             }
-            TournamentEngine::MctsTier1Only { iterations, mate_depth } => {
+            TournamentEngine::MctsTier1Only {
+                iterations,
+                mate_depth,
+            } => {
                 let config = TacticalMctsConfig {
                     max_iterations: iterations,
                     time_limit: Duration::from_millis(self.config.time_per_move_ms),
@@ -354,7 +377,10 @@ impl EloTournament {
                 );
                 best
             }
-            TournamentEngine::MctsTier1And2 { iterations, mate_depth } => {
+            TournamentEngine::MctsTier1And2 {
+                iterations,
+                mate_depth,
+            } => {
                 let config = TacticalMctsConfig {
                     max_iterations: iterations,
                     time_limit: Duration::from_millis(self.config.time_per_move_ms),
@@ -375,7 +401,10 @@ impl EloTournament {
                 );
                 best
             }
-            TournamentEngine::TacticalMctsFull { iterations, mate_depth } => {
+            TournamentEngine::TacticalMctsFull {
+                iterations,
+                mate_depth,
+            } => {
                 let server = InferenceServer::new_mock(); // Or real NN
                 let config = TacticalMctsConfig {
                     max_iterations: iterations,
@@ -415,36 +444,40 @@ impl TournamentResults {
             ratings: HashMap::new(),
         }
     }
-    
+
     /// Calculate Elo ratings using iterative anchoring
     pub fn calculate_ratings(&mut self) {
         // Simple approach: anchor AlphaBeta at 1500, derive others
         let base_rating = 1500.0;
-        
+
         // Find all unique engines
         let mut engines: Vec<String> = Vec::new();
         for m in &self.matches {
             let a_name = m.engine_a.name().to_string();
             let b_name = m.engine_b.name().to_string();
-            if !engines.contains(&a_name) { engines.push(a_name); }
-            if !engines.contains(&b_name) { engines.push(b_name); }
+            if !engines.contains(&a_name) {
+                engines.push(a_name);
+            }
+            if !engines.contains(&b_name) {
+                engines.push(b_name);
+            }
         }
-        
+
         // Initialize ratings
         for engine in &engines {
             self.ratings.insert(engine.clone(), base_rating);
         }
-        
+
         // Iteratively adjust ratings based on match results
         for _ in 0..10 {
             for m in &self.matches {
                 let a_name = m.engine_a.name().to_string();
                 let b_name = m.engine_b.name().to_string();
-                
+
                 let elo_diff = m.elo_difference();
                 let current_diff = self.ratings[&a_name] - self.ratings[&b_name];
                 let adjustment = (elo_diff - current_diff) * 0.1;
-                
+
                 if let Some(rating) = self.ratings.get_mut(&a_name) {
                     *rating += adjustment;
                 }
@@ -454,7 +487,7 @@ impl TournamentResults {
             }
         }
     }
-    
+
     /// Generate LaTeX table for paper
     pub fn to_latex_table(&self) -> String {
         let mut output = String::new();
@@ -470,7 +503,7 @@ impl TournamentResults {
         output.push_str("\n");
         output.push_str(r"\midrule");
         output.push_str("\n");
-        
+
         for m in &self.matches {
             let (lo, hi) = m.elo_confidence_interval();
             output.push_str(&format!(
@@ -486,7 +519,7 @@ impl TournamentResults {
             ));
             output.push_str("\n");
         }
-        
+
         output.push_str(r"\bottomrule");
         output.push_str("\n");
         output.push_str(r"\end{tabular}");
@@ -497,14 +530,15 @@ impl TournamentResults {
         output.push_str("\n");
         output.push_str(r"\end{table}");
         output.push_str("\n");
-        
+
         output
     }
-    
+
     /// Generate CSV for analysis
     pub fn to_csv(&self) -> String {
-        let mut output = String::from("engine_a,engine_b,wins_a,draws,wins_b,elo_diff,ci_low,ci_high\n");
-        
+        let mut output =
+            String::from("engine_a,engine_b,wins_a,draws,wins_b,elo_diff,ci_low,ci_high\n");
+
         for m in &self.matches {
             let (lo, hi) = m.elo_confidence_interval();
             output.push_str(&format!(
@@ -519,7 +553,7 @@ impl TournamentResults {
                 hi,
             ));
         }
-        
+
         output
     }
 }

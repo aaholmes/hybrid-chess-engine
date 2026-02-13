@@ -3,8 +3,8 @@
 use kingfisher::board::Board;
 use kingfisher::boardstack::BoardStack;
 use kingfisher::move_generation::MoveGen;
-use kingfisher::search::mate_search;
 use kingfisher::move_types::Move;
+use kingfisher::search::mate_search;
 
 /// Helper to run mate search and return results
 fn run_mate_search(fen: &str, depth: i32) -> (i32, Move, i32) {
@@ -17,10 +17,7 @@ fn run_mate_search(fen: &str, depth: i32) -> (i32, Move, i32) {
 #[test]
 fn test_mate_in_1_back_rank() {
     // White to move: Re8 is mate
-    let (score, best_move, nodes) = run_mate_search(
-        "6k1/5ppp/8/8/8/8/8/4R1K1 w - - 0 1",
-        2,
-    );
+    let (score, best_move, nodes) = run_mate_search("6k1/5ppp/8/8/8/8/8/4R1K1 w - - 0 1", 2);
 
     assert!(score >= 1_000_000, "Should find mate, got score {}", score);
     assert_eq!(best_move.to, 60, "Should find Re8# (to e8 = square 60)");
@@ -31,10 +28,7 @@ fn test_mate_in_1_back_rank() {
 fn test_mate_in_1_queen() {
     // White to move: Qh7 is mate (queen on f5, black king on h8, pawns block escape)
     // Position: Queen on f5, King on h8 with pawns on g7/h7
-    let (score, best_move, _) = run_mate_search(
-        "7k/5ppp/8/5Q2/8/8/8/6K1 w - - 0 1",
-        3,
-    );
+    let (score, best_move, _) = run_mate_search("7k/5ppp/8/5Q2/8/8/8/6K1 w - - 0 1", 3);
 
     // This should find Qf8# or similar
     assert!(score >= 1_000_000, "Should find mate, got score {}", score);
@@ -48,7 +42,10 @@ fn test_no_mate_starting_position() {
         4,
     );
 
-    assert!(score.abs() < 1_000_000, "Should not find mate in starting position");
+    assert!(
+        score.abs() < 1_000_000,
+        "Should not find mate in starting position"
+    );
 }
 
 #[test]
@@ -79,10 +76,7 @@ fn test_mate_in_2_scholars_mate() {
 #[test]
 fn test_mate_for_black() {
     // Black to move: Re1 is mate
-    let (score, best_move, _) = run_mate_search(
-        "4r1k1/8/8/8/8/8/5PPP/6K1 b - - 0 1",
-        2,
-    );
+    let (score, best_move, _) = run_mate_search("4r1k1/8/8/8/8/8/5PPP/6K1 b - - 0 1", 2);
 
     assert!(score >= 1_000_000, "Should find mate for black");
     // Re1# is e8 (60) to e1 (4)
@@ -93,13 +87,13 @@ fn test_mate_for_black() {
 #[test]
 fn test_stalemate_not_mate() {
     // Stalemate position - black to move, no legal moves but not in check
-    let (score, _, _) = run_mate_search(
-        "k7/1R6/K7/8/8/8/8/8 b - - 0 1",
-        2,
-    );
+    let (score, _, _) = run_mate_search("k7/1R6/K7/8/8/8/8/8 b - - 0 1", 2);
 
     // Should not be a mate score
-    assert!(score.abs() < 1_000_000, "Stalemate should not be reported as mate");
+    assert!(
+        score.abs() < 1_000_000,
+        "Stalemate should not be reported as mate"
+    );
 }
 
 #[test]
@@ -122,8 +116,11 @@ fn test_mate_search_returns_legal_move() {
         if best_move != Move::null() {
             // Verify the returned move is legal
             let next = board.apply_move_to_board(best_move);
-            assert!(next.is_legal(&move_gen),
-                "Mate search returned illegal move for FEN: {}", fen);
+            assert!(
+                next.is_legal(&move_gen),
+                "Mate search returned illegal move for FEN: {}",
+                fen
+            );
         }
     }
 }
@@ -144,7 +141,10 @@ fn test_depth_affects_search() {
     );
 
     // Deeper search should examine at least as many nodes
-    assert!(nodes_d3 >= nodes_d1, "Deeper search should examine at least as many nodes");
+    assert!(
+        nodes_d3 >= nodes_d1,
+        "Deeper search should examine at least as many nodes"
+    );
 
     // Also verify that the checks-only search correctly finds a back-rank mate-in-1
     // when given sufficient depth

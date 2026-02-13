@@ -5,7 +5,7 @@
 
 use kingfisher::board::Board;
 use kingfisher::neural_net::NeuralNetPolicy;
-use kingfisher::piece_types::{PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING};
+use kingfisher::piece_types::{BISHOP, KING, KNIGHT, PAWN, QUEEN, ROOK};
 // use tch::{Tensor, Device}; // NeuralNetPolicy handles tensor creation internals
 
 fn main() {
@@ -21,44 +21,60 @@ fn main() {
     let fen = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1";
     println!("Position: {}", fen);
     let board = Board::new_from_fen(fen);
-    
+
     // We need to access the tensor conversion logic.
     // Since board_to_tensor is an internal helper of NeuralNetPolicy (or part of its impl),
     // and might use `tch`, we rely on NeuralNetPolicy to expose it or we test via a public method if available.
     // `NeuralNetPolicy` has `board_to_tensor` but it returns a `Tensor`.
     // We need to convert that `Tensor` back to CPU data to visualize.
-    
+
     #[cfg(feature = "neural")]
     {
         use tch::{Device, Kind};
         let nn = NeuralNetPolicy::new(); // Don't need to load weights, just need structure
         let tensor = nn.board_to_tensor(&board);
-        
+
         println!("Tensor Shape: {:?}", tensor.size());
-        
+
         // Extract data
         // Shape: [17, 8, 8]
         let mut flat_data = vec![0.0f32; 17 * 8 * 8];
-        tensor.view([-1]).to_device(Device::Cpu).copy_data(&mut flat_data, 17 * 8 * 8);
-        
+        tensor
+            .view([-1])
+            .to_device(Device::Cpu)
+            .copy_data(&mut flat_data, 17 * 8 * 8);
+
         let plane_names = [
-            "Us Pawn", "Us Knight", "Us Bishop", "Us Rook", "Us Queen", "Us King",
-            "Them Pawn", "Them Knight", "Them Bishop", "Them Rook", "Them Queen", "Them King",
-            "En Passant", 
-            "Us King-side Castle", "Us Queen-side Castle", 
-            "Them King-side Castle", "Them Queen-side Castle"
+            "Us Pawn",
+            "Us Knight",
+            "Us Bishop",
+            "Us Rook",
+            "Us Queen",
+            "Us King",
+            "Them Pawn",
+            "Them Knight",
+            "Them Bishop",
+            "Them Rook",
+            "Them Queen",
+            "Them King",
+            "En Passant",
+            "Us King-side Castle",
+            "Us Queen-side Castle",
+            "Them King-side Castle",
+            "Them Queen-side Castle",
         ];
-        
+
         for (i, name) in plane_names.iter().enumerate() {
             println!("\nPlane {}: {}", i, name);
             println!("  +-----------------+");
-            for rank in (0..8).rev() { // Print rank 8 at top
+            for rank in (0..8).rev() {
+                // Print rank 8 at top
                 print!("{} | ", rank + 1);
                 for file in 0..8 {
                     // Index calculation matches neural_net.rs:
                     let tensor_row = 7 - rank;
                     let idx = (i * 64) + (tensor_row * 8) + file;
-                    
+
                     let val = flat_data[idx];
                     if val > 0.5 {
                         print!("1 ");
@@ -71,7 +87,7 @@ fn main() {
             println!("  +-----------------+");
             println!("    a b c d e f g h");
         }
-        
+
         println!("\n✅ Verification Complete: Check above planes against FEN.");
     }
 

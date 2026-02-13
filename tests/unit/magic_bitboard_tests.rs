@@ -1,12 +1,11 @@
 //! Tests for magic bitboard move initialization functions
 
 use kingfisher::magic_bitboard::{
-    init_king_moves, init_knight_moves, init_pawn_moves,
-    init_pawn_captures_promotions, bishop_attacks, rook_attacks,
-    append_promotions,
+    append_promotions, bishop_attacks, init_king_moves, init_knight_moves,
+    init_pawn_captures_promotions, init_pawn_moves, rook_attacks,
 };
 use kingfisher::move_types::Move;
-use kingfisher::piece_types::{QUEEN, ROOK, KNIGHT, BISHOP};
+use kingfisher::piece_types::{BISHOP, KNIGHT, QUEEN, ROOK};
 
 // === King Move Tests ===
 
@@ -27,9 +26,9 @@ fn test_king_moves_corner_a1() {
     // a1 (sq 0) - corner king has 3 moves
     let moves = init_king_moves(0);
     assert_eq!(moves.len(), 3, "King on a1 should have 3 moves");
-    assert!(moves.contains(&1));  // b1
-    assert!(moves.contains(&8));  // a2
-    assert!(moves.contains(&9));  // b2
+    assert!(moves.contains(&1)); // b1
+    assert!(moves.contains(&8)); // a2
+    assert!(moves.contains(&9)); // b2
 }
 
 #[test]
@@ -55,7 +54,7 @@ fn test_king_moves_corner_a8() {
 fn test_king_moves_corner_h1() {
     let moves = init_king_moves(7);
     assert_eq!(moves.len(), 3, "King on h1 should have 3 moves");
-    assert!(moves.contains(&6));  // g1
+    assert!(moves.contains(&6)); // g1
     assert!(moves.contains(&14)); // g2
     assert!(moves.contains(&15)); // h2
 }
@@ -123,7 +122,11 @@ fn test_knight_moves_edge() {
 fn test_pawn_moves_rank2_white() {
     // e2 (sq 12) - white pawn on rank 2 has single and double push
     let (white, _black) = init_pawn_moves(12);
-    assert_eq!(white.len(), 2, "White pawn on e2 should have 2 moves (single + double push)");
+    assert_eq!(
+        white.len(),
+        2,
+        "White pawn on e2 should have 2 moves (single + double push)"
+    );
     assert!(white.contains(&20)); // e3
     assert!(white.contains(&28)); // e4 (double push)
 }
@@ -216,7 +219,11 @@ fn test_rook_attacks_empty_board_center() {
     // Rook on e4 (28), no blockers
     let (captures, moves) = rook_attacks(28, 0);
     assert_eq!(captures.len(), 0, "No captures on empty board");
-    assert_eq!(moves.len(), 14, "Rook on e4 should reach 14 squares on empty board");
+    assert_eq!(
+        moves.len(),
+        14,
+        "Rook on e4 should reach 14 squares on empty board"
+    );
 }
 
 #[test]
@@ -224,7 +231,11 @@ fn test_rook_attacks_corner_empty() {
     // Rook on a1 (0), no blockers
     let (captures, moves) = rook_attacks(0, 0);
     assert_eq!(captures.len(), 0);
-    assert_eq!(moves.len(), 14, "Rook on a1 should reach 14 squares on empty board");
+    assert_eq!(
+        moves.len(),
+        14,
+        "Rook on a1 should reach 14 squares on empty board"
+    );
 }
 
 #[test]
@@ -235,7 +246,7 @@ fn test_rook_attacks_with_blocker() {
     // North: a2(8), a3(16) are moves, a4(24) is capture
     // East: b1(1)..h1(7) are moves
     assert!(captures.contains(&24), "Should capture blocker on a4");
-    assert!(moves.contains(&8));  // a2
+    assert!(moves.contains(&8)); // a2
     assert!(moves.contains(&16)); // a3
     assert!(!moves.contains(&32), "Should not pass through blocker");
 }
@@ -256,7 +267,11 @@ fn test_bishop_attacks_empty_board_center() {
     // Bishop on e4 (28), no blockers
     let (captures, moves) = bishop_attacks(28, 0);
     assert_eq!(captures.len(), 0);
-    assert_eq!(moves.len(), 13, "Bishop on e4 should reach 13 squares on empty board");
+    assert_eq!(
+        moves.len(),
+        13,
+        "Bishop on e4 should reach 13 squares on empty board"
+    );
 }
 
 #[test]
@@ -264,7 +279,11 @@ fn test_bishop_attacks_corner() {
     // Bishop on a1 (0), no blockers
     let (captures, moves) = bishop_attacks(0, 0);
     assert_eq!(captures.len(), 0);
-    assert_eq!(moves.len(), 7, "Bishop on a1 should reach 7 squares (a1-h8 diagonal)");
+    assert_eq!(
+        moves.len(),
+        7,
+        "Bishop on a1 should reach 7 squares (a1-h8 diagonal)"
+    );
 }
 
 #[test]
@@ -273,7 +292,7 @@ fn test_bishop_attacks_with_blocker() {
     let blockers = 1u64 << 18;
     let (captures, moves) = bishop_attacks(0, blockers);
     assert!(captures.contains(&18), "Should capture blocker on c3");
-    assert!(moves.contains(&9));  // b2
+    assert!(moves.contains(&9)); // b2
     assert!(!moves.contains(&27), "Should not pass through blocker");
 }
 
@@ -313,7 +332,12 @@ fn test_king_moves_all_squares_valid_range() {
     for sq in 0..64 {
         let moves = init_king_moves(sq);
         for &target in &moves {
-            assert!(target < 64, "King move target {} from sq {} is out of range", target, sq);
+            assert!(
+                target < 64,
+                "King move target {} from sq {} is out of range",
+                target,
+                sq
+            );
             // King moves should be adjacent (distance 1 in both rank and file)
             let from_rank = sq / 8;
             let from_file = sq % 8;
@@ -321,7 +345,12 @@ fn test_king_moves_all_squares_valid_range() {
             let to_file = target % 8;
             let rank_diff = (from_rank as i32 - to_rank as i32).abs();
             let file_diff = (from_file as i32 - to_file as i32).abs();
-            assert!(rank_diff <= 1 && file_diff <= 1, "King move from {} to {} is not adjacent", sq, target);
+            assert!(
+                rank_diff <= 1 && file_diff <= 1,
+                "King move from {} to {} is not adjacent",
+                sq,
+                target
+            );
         }
     }
 }
@@ -331,7 +360,12 @@ fn test_knight_moves_all_squares_valid_range() {
     for sq in 0..64 {
         let moves = init_knight_moves(sq);
         for &target in &moves {
-            assert!(target < 64, "Knight move target {} from sq {} is out of range", target, sq);
+            assert!(
+                target < 64,
+                "Knight move target {} from sq {} is out of range",
+                target,
+                sq
+            );
             let from_rank = sq / 8;
             let from_file = sq % 8;
             let to_rank = target / 8;
@@ -340,7 +374,9 @@ fn test_knight_moves_all_squares_valid_range() {
             let file_diff = (from_file as i32 - to_file as i32).abs();
             assert!(
                 (rank_diff == 2 && file_diff == 1) || (rank_diff == 1 && file_diff == 2),
-                "Knight move from {} to {} is not an L-shape", sq, target
+                "Knight move from {} to {} is not an L-shape",
+                sq,
+                target
             );
         }
     }
@@ -351,7 +387,12 @@ fn test_pawn_moves_all_squares_valid() {
     for sq in 0..64 {
         let (white, black) = init_pawn_moves(sq);
         for &target in white.iter().chain(black.iter()) {
-            assert!(target < 64, "Pawn move target {} from sq {} is out of range", target, sq);
+            assert!(
+                target < 64,
+                "Pawn move target {} from sq {} is out of range",
+                target,
+                sq
+            );
         }
     }
 }

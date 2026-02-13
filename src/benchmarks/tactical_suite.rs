@@ -43,7 +43,6 @@ pub fn get_tactical_test_suite() -> Vec<TacticalPosition> {
             best_move_uci: "g1g8".to_string(),
             description: "Queen mate on back rank".to_string(),
         },
-        
         // Mate in 2 positions
         TacticalPosition {
             name: "Légal's Mate Pattern".to_string(),
@@ -59,8 +58,7 @@ pub fn get_tactical_test_suite() -> Vec<TacticalPosition> {
             best_move_uci: "f6d5".to_string(),
             description: "Counter-attack leading to mate".to_string(),
         },
-        
-        // Mate in 3 positions  
+        // Mate in 3 positions
         TacticalPosition {
             name: "Anastasia's Mate".to_string(),
             fen: "2kr4/ppp5/8/8/8/8/8/4RR1K w - - 0 1".to_string(),
@@ -75,7 +73,6 @@ pub fn get_tactical_test_suite() -> Vec<TacticalPosition> {
             best_move_uci: "d1d8".to_string(),
             description: "Two bishops deliver mate".to_string(),
         },
-        
         // Complex tactical positions
         TacticalPosition {
             name: "WAC.001".to_string(),
@@ -109,11 +106,11 @@ pub fn benchmark_position<T: Agent>(
 ) -> BenchmarkResult {
     let start_time = Instant::now();
     let mut board_stack = BoardStack::new_from_fen(&position.fen);
-    
+
     // Get the move from the agent
     let found_move = agent.get_move(&mut board_stack);
     let time_taken = start_time.elapsed();
-    
+
     // Check if the move matches the expected best move
     let expected_move = position.get_best_move();
     let found_mate = if let Some(expected) = expected_move {
@@ -121,7 +118,7 @@ pub fn benchmark_position<T: Agent>(
     } else {
         false
     };
-    
+
     BenchmarkResult {
         position_name: position.name.clone(),
         engine_name: "Unknown".to_string(), // Will be set by caller
@@ -129,38 +126,54 @@ pub fn benchmark_position<T: Agent>(
         nodes_searched: 0, // TODO: Add node counting to agents
         best_move: Some(found_move),
         found_mate,
-        mate_depth: if found_mate { Some(position.mate_in) } else { None },
+        mate_depth: if found_mate {
+            Some(position.mate_in)
+        } else {
+            None
+        },
     }
 }
 
 /// Run the complete tactical benchmark suite
 pub fn run_tactical_benchmark<T: Agent>(
-    agent: &mut T, 
-    engine_name: &str, 
-    time_limit_per_position: Duration
+    agent: &mut T,
+    engine_name: &str,
+    time_limit_per_position: Duration,
 ) -> Vec<BenchmarkResult> {
     let _positions = get_tactical_test_suite();
     let mut results = Vec::new();
-    
+
     println!("\n🎯 Running Tactical Benchmark for {}", engine_name);
-    println!("Testing {} positions with {}ms time limit per position\n", 
-             _positions.len(), time_limit_per_position.as_millis());
-    
+    println!(
+        "Testing {} positions with {}ms time limit per position\n",
+        _positions.len(),
+        time_limit_per_position.as_millis()
+    );
+
     for (i, position) in _positions.iter().enumerate() {
-        print!("Position {}/{}: {} ... ", i + 1, _positions.len(), position.name);
-        
-        let mut result = benchmark_position(position, agent, time_limit_per_position);        result.engine_name = engine_name.to_string();
-        
+        print!(
+            "Position {}/{}: {} ... ",
+            i + 1,
+            _positions.len(),
+            position.name
+        );
+
+        let mut result = benchmark_position(position, agent, time_limit_per_position);
+        result.engine_name = engine_name.to_string();
+
         if result.found_mate {
             println!("✅ SOLVED in {:.1}ms", result.time_taken.as_millis());
         } else {
-            println!("❌ FAILED in {:.1}ms (found: {:?})", 
-                    result.time_taken.as_millis(), result.best_move);
+            println!(
+                "❌ FAILED in {:.1}ms (found: {:?})",
+                result.time_taken.as_millis(),
+                result.best_move
+            );
         }
-        
+
         results.push(result);
     }
-    
+
     results
 }
 
@@ -168,26 +181,29 @@ pub fn run_tactical_benchmark<T: Agent>(
 mod tests {
     use super::*;
     use crate::board::Board;
-    
+
     #[test]
     fn test_tactical_positions_load() {
         let positions = get_tactical_test_suite();
         assert!(!positions.is_empty());
-        
+
         // Verify all positions have valid FENs
         for position in &positions {
             let board = Board::new_from_fen(&position.fen);
             assert!(board.zobrist_hash != 0, "Invalid FEN: {}", position.fen);
         }
     }
-    
+
     #[test]
     fn test_best_move_parsing() {
         let positions = get_tactical_test_suite();
         for position in &positions {
             let best_move = position.get_best_move();
-            assert!(best_move.is_some(), 
-                   "Could not parse best move for position: {}", position.name);
+            assert!(
+                best_move.is_some(),
+                "Could not parse best move for position: {}",
+                position.name
+            );
         }
     }
 }

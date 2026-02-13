@@ -9,9 +9,9 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 
 // Constants for castling squares
-const C1: usize = 2;  // White queenside castle destination
-const E1: usize = 4;  // King starting square (white)
-const G1: usize = 6;  // White kingside castle destination
+const C1: usize = 2; // White queenside castle destination
+const E1: usize = 4; // King starting square (white)
+const G1: usize = 6; // White kingside castle destination
 const C8: usize = 58; // Black queenside castle destination
 const E8: usize = 60; // King starting square (black)
 const G8: usize = 62; // Black kingside castle destination
@@ -201,16 +201,20 @@ impl Move {
         // Check if moving diagonally (file difference of 1)
         let from_file = self.from % 8;
         let to_file = self.to % 8;
-        let file_diff = if from_file > to_file { from_file - to_file } else { to_file - from_file };
-        
+        let file_diff = if from_file > to_file {
+            from_file - to_file
+        } else {
+            to_file - from_file
+        };
+
         if file_diff != 1 {
             return false;
         }
-        
+
         // Check if it's a pawn move from rank 4 to 5 (white) or rank 3 to 2 (black)
         let from_rank = self.from / 8;
         let to_rank = self.to / 8;
-        
+
         (from_rank == 4 && to_rank == 5) || (from_rank == 3 && to_rank == 2)
     }
 
@@ -221,7 +225,7 @@ impl Move {
     /// True if the move is kingside castling, false otherwise.
     pub fn is_kingside_castle(&self) -> bool {
         (self.from == E1 && self.to == G1) || // White kingside (e1g1)
-        (self.from == E8 && self.to == G8)    // Black kingside (e8g8)
+        (self.from == E8 && self.to == G8) // Black kingside (e8g8)
     }
 
     /// Checks if the move is queenside castling.
@@ -231,7 +235,7 @@ impl Move {
     /// True if the move is queenside castling, false otherwise.
     pub fn is_queenside_castle(&self) -> bool {
         (self.from == E1 && self.to == C1) || // White queenside (e1c1)
-        (self.from == E8 && self.to == C8)    // Black queenside (e8c8)
+        (self.from == E8 && self.to == C8) // Black queenside (e8c8)
     }
 
     /// Checks if the move is any type of castling.
@@ -248,39 +252,51 @@ impl Move {
         let from = sq_ind_to_algebraic(self.from);
         let to = sq_ind_to_algebraic(self.to);
         let mut result = format!("{}{}", from, to);
-        
+
         if let Some(promotion) = self.promotion {
             let promotion_char = match promotion {
                 n if n == KNIGHT => 'n',
-                n if n == BISHOP => 'b', 
+                n if n == BISHOP => 'b',
                 n if n == ROOK => 'r',
                 n if n == QUEEN => 'q',
                 _ => 'q', // Default to queen
             };
             result.push(promotion_char);
         }
-        
+
         result
     }
 
     /// Convert move to Standard Algebraic Notation (e.g. Nf3, exd5, O-O, Qxe7+).
     /// Requires the board state before the move and a MoveGen for legality/check detection.
-    pub fn to_san(&self, board: &crate::board::Board, move_gen: &crate::move_generation::MoveGen) -> String {
+    pub fn to_san(
+        &self,
+        board: &crate::board::Board,
+        move_gen: &crate::move_generation::MoveGen,
+    ) -> String {
         // Castling
         if self.is_kingside_castle() {
             let after = board.apply_move_to_board(*self);
             let check = after.is_check(move_gen);
-            return if check { "O-O+".to_string() } else { "O-O".to_string() };
+            return if check {
+                "O-O+".to_string()
+            } else {
+                "O-O".to_string()
+            };
         }
         if self.is_queenside_castle() {
             let after = board.apply_move_to_board(*self);
             let check = after.is_check(move_gen);
-            return if check { "O-O-O+".to_string() } else { "O-O-O".to_string() };
+            return if check {
+                "O-O-O+".to_string()
+            } else {
+                "O-O-O".to_string()
+            };
         }
 
         let (_, piece) = board.get_piece(self.from).unwrap_or((0, PAWN));
-        let is_capture = board.get_piece(self.to).is_some()
-            || (piece == PAWN && self.is_en_passant());
+        let is_capture =
+            board.get_piece(self.to).is_some() || (piece == PAWN && self.is_en_passant());
 
         let to_str = sq_ind_to_algebraic(self.to);
         let mut result = String::new();

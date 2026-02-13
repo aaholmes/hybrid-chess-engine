@@ -7,8 +7,8 @@ use crate::boardstack::BoardStack;
 use crate::egtb::EgtbProber; // Import EGTB Prober
 use crate::eval::PestoEval;
 use crate::move_generation::MoveGen;
-use lazy_static::lazy_static;
 use crate::move_types::Move;
+use lazy_static::lazy_static;
 // Removed unused search imports, agent will handle search
 // use crate::search::iterative_deepening_ab_search;
 // use crate::transposition::TranspositionTable;
@@ -69,7 +69,14 @@ impl UCIEngine {
             movetime: None,
             agent_type, // Store default agent type string
             // Placeholder agent, will be replaced by update_agent
-            agent: Box::new(SimpleAgent::new(0, 0, 0, false, &*GLOBAL_MOVE_GEN, &*GLOBAL_PESTO_EVAL)), // Temporary dummy
+            agent: Box::new(SimpleAgent::new(
+                0,
+                0,
+                0,
+                false,
+                &*GLOBAL_MOVE_GEN,
+                &*GLOBAL_PESTO_EVAL,
+            )), // Temporary dummy
             mate_search_depth,
             ab_search_depth,
             q_search_max_depth,
@@ -90,9 +97,9 @@ impl UCIEngine {
                 self.mate_search_depth,
                 self.ab_search_depth,
                 self.q_search_max_depth,
-                false, // verbose - could be another UCI option
-                &*GLOBAL_MOVE_GEN, // Use static instance
-                &*GLOBAL_PESTO_EVAL,    // Use static instance
+                false,               // verbose - could be another UCI option
+                &*GLOBAL_MOVE_GEN,   // Use static instance
+                &*GLOBAL_PESTO_EVAL, // Use static instance
             )),
             "Humanlike" | _ => {
                 // Default to Humanlike if type is unknown
@@ -115,7 +122,6 @@ impl UCIEngine {
         self.agent = agent; // Assign the newly created agent
         println!("info string Agent set to {}", self.agent_type); // Debug info
     }
-
 
     pub fn run(&mut self) {
         let stdin = io::stdin();
@@ -142,7 +148,11 @@ impl UCIEngine {
                 "go" => self.handle_go(&tokens[1..]),
                 "debug" => {
                     if tokens.len() >= 2 && tokens[1] == "viz" {
-                        let filename = if tokens.len() >= 3 { tokens[2] } else { "debug.dot" };
+                        let filename = if tokens.len() >= 3 {
+                            tokens[2]
+                        } else {
+                            "debug.dot"
+                        };
                         if let Some(root) = self.agent.get_last_search_tree() {
                             let dot = root.borrow().export_dot(10, 0);
                             match std::fs::write(filename, dot) {
@@ -225,9 +235,8 @@ impl UCIEngine {
         // For now, just print the best move and time.
         // Agents might print their own info during search.
         println!(
-            "info time {}", // Basic info from UCI loop
-            elapsed.as_millis()
-            // Example if agent printed info: info depth 10 score cp 150 nodes 12345 time 1500 pv e2e4 e7e5 ...
+            "info time {}",      // Basic info from UCI loop
+            elapsed.as_millis() // Example if agent printed info: info depth 10 score cp 150 nodes 12345 time 1500 pv e2e4 e7e5 ...
         );
 
         println!("bestmove {}", &best_move.print_algebraic());
@@ -285,43 +294,47 @@ impl UCIEngine {
             }
         }
     }
-    
+
     // Renamed from direct assignment in the match arm to potentially handle agent re-initialization
     fn handle_ucinewgame(&mut self) {
-            self.board = BoardStack::new();
-            // Potentially re-initialize agent state here if needed based on self.agent_type
-        }
-    
+        self.board = BoardStack::new();
+        // Potentially re-initialize agent state here if needed based on self.agent_type
+    }
+
     fn handle_setoption(&mut self, args: &[&str]) {
-            if args.len() >= 4 && args[0] == "name" && args[2] == "value" {
-                let name = args[1];
-                let value = args[3];
-                match name {
-                    "AgentType" => {
-                        if value == "AlphaBeta" || value == "Humanlike" {
-                            if self.agent_type != value { // Only update if changed
-                                self.agent_type = value.to_string();
-                                self.update_agent(); // Re-create the agent instance
-                            }
-                        } else {
-                            println!("info string Invalid value for AgentType: {}", value);
+        if args.len() >= 4 && args[0] == "name" && args[2] == "value" {
+            let name = args[1];
+            let value = args[3];
+            match name {
+                "AgentType" => {
+                    if value == "AlphaBeta" || value == "Humanlike" {
+                        if self.agent_type != value {
+                            // Only update if changed
+                            self.agent_type = value.to_string();
+                            self.update_agent(); // Re-create the agent instance
                         }
-                    }
-                    "ModelPath" => {
-                        // This would need to be passed to the agent.
-                        // For now, let's just log it, as we need to thread this path 
-                        // through update_agent -> HumanlikeAgent -> NeuralNetPolicy
-                        println!("info string Setting ModelPath to {} (Not fully wired yet)", value);
-                        // TODO: Store this path in UCIEngine struct and pass to HumanlikeAgent::new
-                    }
-                    _ => {
-                        // println!("info string Unknown option: {}", name);
+                    } else {
+                        println!("info string Invalid value for AgentType: {}", value);
                     }
                 }
-            } else {
-                println!("info string Invalid setoption command format");
+                "ModelPath" => {
+                    // This would need to be passed to the agent.
+                    // For now, let's just log it, as we need to thread this path
+                    // through update_agent -> HumanlikeAgent -> NeuralNetPolicy
+                    println!(
+                        "info string Setting ModelPath to {} (Not fully wired yet)",
+                        value
+                    );
+                    // TODO: Store this path in UCIEngine struct and pass to HumanlikeAgent::new
+                }
+                _ => {
+                    // println!("info string Unknown option: {}", name);
+                }
             }
+        } else {
+            println!("info string Invalid setoption command format");
         }
+    }
 
     /// This function calculates the allocated time for a chess move based on the time control settings.
     ///
@@ -377,7 +390,10 @@ mod tests {
         let mut engine = UCIEngine::new();
         engine.handle_position(&["startpos"]);
         // Check if the board is in the initial state
-        assert_eq!(engine.get_board().current_state().to_fen(), Some("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1".to_string()));
+        assert_eq!(
+            engine.get_board().current_state().to_fen(),
+            Some("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1".to_string())
+        );
     }
 
     #[test]
@@ -385,16 +401,30 @@ mod tests {
         let mut engine = UCIEngine::new();
         engine.handle_position(&["startpos", "moves", "e2e4", "e7e5"]);
         // Check if the board is in the correct state after moves
-        assert_eq!(engine.get_board().current_state().to_fen(), Some("rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2".to_string()));
+        assert_eq!(
+            engine.get_board().current_state().to_fen(),
+            Some("rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2".to_string())
+        );
     }
 
     #[test]
     fn test_handle_position_fen() {
         let mut engine = UCIEngine::new();
         let fen = "r3k2r/p1ppqpbp/bnNppnp1/8/4P3/2N2Q2/PPP2PPP/R3K2R w KQkq - 0 1";
-        engine.handle_position(&["fen", "r3k2r/p1ppqpbp/bnNppnp1/8/4P3/2N2Q2/PPP2PPP/R3K2R", "w", "KkQq", "-", "0", "1"]);
+        engine.handle_position(&[
+            "fen",
+            "r3k2r/p1ppqpbp/bnNppnp1/8/4P3/2N2Q2/PPP2PPP/R3K2R",
+            "w",
+            "KkQq",
+            "-",
+            "0",
+            "1",
+        ]);
         // Check if the board is in the state specified by the FEN
-        assert_eq!(engine.get_board().current_state().to_fen(), Some(fen.to_string()));
+        assert_eq!(
+            engine.get_board().current_state().to_fen(),
+            Some(fen.to_string())
+        );
     }
 
     #[test]
@@ -403,7 +433,10 @@ mod tests {
         let fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
         engine.handle_position(&["fen", fen, "moves", "e2e4", "e7e5", "g1f3"]);
         // Check if the board is in the correct state after FEN and moves
-        assert_eq!(engine.get_board().current_state().to_fen(), Some("rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2".to_string()));
+        assert_eq!(
+            engine.get_board().current_state().to_fen(),
+            Some("rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2".to_string())
+        );
     }
 
     #[test]
@@ -421,7 +454,9 @@ mod tests {
         let mut engine = UCIEngine::new();
         // Test for white to move
         engine.handle_position(&["startpos"]); // White to move
-        engine.parse_go_command(&["go", "wtime", "60000", "btime", "50000", "winc", "1000", "binc", "500"]);
+        engine.parse_go_command(&[
+            "go", "wtime", "60000", "btime", "50000", "winc", "1000", "binc", "500",
+        ]);
         let (time_left, increment, movetime) = engine.get_time_limits();
         assert_eq!(time_left, Duration::from_millis(60000));
         assert_eq!(increment, Duration::from_millis(1000));
@@ -429,7 +464,9 @@ mod tests {
 
         // Test for black to move
         engine.handle_position(&["startpos", "moves", "e2e4"]); // Black to move
-        engine.parse_go_command(&["go", "wtime", "59000", "btime", "49000", "winc", "1000", "binc", "500"]);
+        engine.parse_go_command(&[
+            "go", "wtime", "59000", "btime", "49000", "winc", "1000", "binc", "500",
+        ]);
         let (time_left, increment, movetime) = engine.get_time_limits();
         assert_eq!(time_left, Duration::from_millis(49000));
         assert_eq!(increment, Duration::from_millis(500));

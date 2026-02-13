@@ -39,8 +39,11 @@ impl Board {
                 new_board.fullmove_number += 1;
             }
             new_board.zobrist_hash = hash;
-            debug_assert_eq!(new_board.zobrist_hash, new_board.compute_zobrist_hash(),
-                "Incremental hash mismatch for null move");
+            debug_assert_eq!(
+                new_board.zobrist_hash,
+                new_board.compute_zobrist_hash(),
+                "Incremental hash mismatch for null move"
+            );
             return new_board;
         }
 
@@ -51,7 +54,11 @@ impl Board {
 
         let from_piece = self.get_piece(the_move.from);
         if from_piece.is_none() {
-            panic!("No piece at from_sq_ind {} ({})", the_move.from, crate::board_utils::sq_ind_to_algebraic(the_move.from));
+            panic!(
+                "No piece at from_sq_ind {} ({})",
+                the_move.from,
+                crate::board_utils::sq_ind_to_algebraic(the_move.from)
+            );
         }
 
         let to_piece = self.get_piece(the_move.to);
@@ -208,10 +215,13 @@ impl Board {
         }
 
         new_board.zobrist_hash = hash;
-        debug_assert_eq!(new_board.zobrist_hash, new_board.compute_zobrist_hash(),
+        debug_assert_eq!(
+            new_board.zobrist_hash,
+            new_board.compute_zobrist_hash(),
             "Incremental hash mismatch for move {}{}",
             crate::board_utils::sq_ind_to_algebraic(the_move.from),
-            crate::board_utils::sq_ind_to_algebraic(the_move.to));
+            crate::board_utils::sq_ind_to_algebraic(the_move.to)
+        );
 
         new_board
     }

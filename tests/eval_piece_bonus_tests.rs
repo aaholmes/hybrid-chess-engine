@@ -42,8 +42,9 @@ mod tests {
 
         assert!(
             mg_w_2b - mg_base >= pst_added_mg + TWO_BISHOPS_BONUS[0],
-            "MG Two Bishops Bonus mismatch: Actual {} vs Expected >= {}", 
-            mg_w_2b - mg_base, pst_added_mg + TWO_BISHOPS_BONUS[0]
+            "MG Two Bishops Bonus mismatch: Actual {} vs Expected >= {}",
+            mg_w_2b - mg_base,
+            pst_added_mg + TWO_BISHOPS_BONUS[0]
         );
         assert!(
             eg_w_2b - eg_base >= pst_added_eg + TWO_BISHOPS_BONUS[1],
@@ -75,7 +76,8 @@ mod tests {
         assert!(
             mg_b_2b - mg_b_1b >= pst_added_b_mg + TWO_BISHOPS_BONUS[0] - 5,
             "MG Black Two Bishops Bonus mismatch: Actual {} vs Expected >= {}",
-            mg_b_2b - mg_b_1b, pst_added_b_mg + TWO_BISHOPS_BONUS[0] - 5
+            mg_b_2b - mg_b_1b,
+            pst_added_b_mg + TWO_BISHOPS_BONUS[0] - 5
         );
         assert!(
             eg_b_2b - eg_b_1b >= pst_added_b_eg + TWO_BISHOPS_BONUS[1] - 5,
@@ -112,12 +114,12 @@ mod tests {
 
         // Passed Pawn Bonus: f2 and f3 are both blocked by black pawns in start pos. Bonus = 0.
         // Mobility: Knight at g1 gains 1 move (f3) in Safe vs Less. Value = 1 * 3 = 3.
-        
+
         let expected_diff_mg = 1 * KING_SAFETY_PAWN_SHIELD_BONUS[0] // Lost 1 shield pawn (f2)
             + pst_diff_mg                                           // PST benefit of f2 vs f3
             + 8                                                     // Duo Bonus (f2-e2 AND f2-g2) lost in Less (2 * 4)
             - 20                                                    // Chain Bonus (g2-f3 AND e2-f3) gained in Less (2 * 10)
-            + 3;                                                    // Mobility gain for Knight (g1->f3) in Safe
+            + 3; // Mobility gain for Knight (g1->f3) in Safe
 
         // Need to account for the PST change of the moved pawn f2->f3
         assert_eq!(
@@ -125,6 +127,5 @@ mod tests {
             expected_diff_mg,
             "MG King Safety difference mismatch"
         );
-
     }
 }

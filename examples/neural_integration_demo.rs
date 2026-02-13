@@ -7,9 +7,9 @@
 //! 3. Neural-Enhanced MCTS (With NN)
 
 use kingfisher::board::Board;
-use kingfisher::move_generation::MoveGen;
-use kingfisher::mcts::{tactical_mcts_search, TacticalMctsConfig};
 use kingfisher::mcts::inference_server::InferenceServer;
+use kingfisher::mcts::{tactical_mcts_search, TacticalMctsConfig};
+use kingfisher::move_generation::MoveGen;
 use kingfisher::neural_net::NeuralNetPolicy;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -30,7 +30,7 @@ fn main() {
         Ok(_) => {
             println!("✅ Model loaded successfully from {}", model_path);
             true
-        },
+        }
         Err(e) => {
             println!("❌ Failed to load model: {}", e);
             println!("   Running in fallback mode (Tactical MCTS only)");
@@ -40,9 +40,18 @@ fn main() {
 
     // Test positions
     let positions = vec![
-        ("Starting Position", "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"),
-        ("Tactical Midgame", "r1bqkb1r/pppp1ppp/2n2n2/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4"),
-        ("Sharp Position", "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1"),
+        (
+            "Starting Position",
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+        ),
+        (
+            "Tactical Midgame",
+            "r1bqkb1r/pppp1ppp/2n2n2/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        ),
+        (
+            "Sharp Position",
+            "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+        ),
     ];
 
     for (name, fen) in &positions {
@@ -70,13 +79,14 @@ fn main() {
             };
 
             let start = Instant::now();
-            let (best_move, stats, _) = tactical_mcts_search(
-                board.clone(),
-                &move_gen,
-                server_config,
+            let (best_move, stats, _) =
+                tactical_mcts_search(board.clone(), &move_gen, server_config);
+            println!(
+                "   Server: {:?} ({} iter, {:?})",
+                best_move,
+                stats.iterations,
+                start.elapsed()
             );
-            println!("   Server: {:?} ({} iter, {:?})",
-                     best_move, stats.iterations, start.elapsed());
         }
 
         // Classical fallback (no NN)
@@ -94,13 +104,13 @@ fn main() {
             };
 
             let start = Instant::now();
-            let (best_move, stats, _) = tactical_mcts_search(
-                board.clone(),
-                &move_gen,
-                config,
+            let (best_move, stats, _) = tactical_mcts_search(board.clone(), &move_gen, config);
+            println!(
+                "   Classical: {:?} ({} iter, {:?})",
+                best_move,
+                stats.iterations,
+                start.elapsed()
             );
-            println!("   Classical: {:?} ({} iter, {:?})",
-                     best_move, stats.iterations, start.elapsed());
         }
     }
 
@@ -127,11 +137,11 @@ fn main() {
 
         println!("   Running Hybrid Search...");
         let start = Instant::now();
-        let (_, hybrid_stats, _) = tactical_mcts_search(
-            board.clone(), &move_gen, hybrid_config
+        let (_, hybrid_stats, _) = tactical_mcts_search(board.clone(), &move_gen, hybrid_config);
+        println!(
+            "   Hybrid: {} nodes/sec",
+            hybrid_stats.nodes_expanded as f64 / start.elapsed().as_secs_f64()
         );
-        println!("   Hybrid: {} nodes/sec",
-                 hybrid_stats.nodes_expanded as f64 / start.elapsed().as_secs_f64());
 
         let classical_config = TacticalMctsConfig {
             max_iterations: 200,
@@ -146,11 +156,12 @@ fn main() {
 
         println!("   Running Classical Search...");
         let start = Instant::now();
-        let (_, classical_stats, _) = tactical_mcts_search(
-            board.clone(), &move_gen, classical_config
+        let (_, classical_stats, _) =
+            tactical_mcts_search(board.clone(), &move_gen, classical_config);
+        println!(
+            "   Classical: {} nodes/sec",
+            classical_stats.nodes_expanded as f64 / start.elapsed().as_secs_f64()
         );
-        println!("   Classical: {} nodes/sec",
-                 classical_stats.nodes_expanded as f64 / start.elapsed().as_secs_f64());
 
         let neural_config = TacticalMctsConfig {
             max_iterations: 200,
@@ -166,10 +177,10 @@ fn main() {
 
         println!("   Running Pure Neural Search...");
         let start = Instant::now();
-        let (_, neural_stats, _) = tactical_mcts_search(
-            board.clone(), &move_gen, neural_config
+        let (_, neural_stats, _) = tactical_mcts_search(board.clone(), &move_gen, neural_config);
+        println!(
+            "   Neural: {} nodes/sec",
+            neural_stats.nodes_expanded as f64 / start.elapsed().as_secs_f64()
         );
-        println!("   Neural: {} nodes/sec",
-                 neural_stats.nodes_expanded as f64 / start.elapsed().as_secs_f64());
     }
 }

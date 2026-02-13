@@ -26,7 +26,11 @@ fn test_koth_king_one_move_away() {
     let board = Board::new_from_fen("8/8/8/8/8/2K5/8/k7 w - - 0 1");
 
     let result = koth_center_in_3(&board, &move_gen);
-    assert_eq!(result, Some(1), "King one move from center should report distance 1");
+    assert_eq!(
+        result,
+        Some(1),
+        "King one move from center should report distance 1"
+    );
 }
 
 #[test]
@@ -36,7 +40,11 @@ fn test_koth_king_two_moves_away() {
     let board = Board::new_from_fen("8/8/8/8/8/8/1K6/k7 w - - 0 1");
 
     let result = koth_center_in_3(&board, &move_gen);
-    assert_eq!(result, Some(2), "King two moves from center should report distance 2");
+    assert_eq!(
+        result,
+        Some(2),
+        "King two moves from center should report distance 2"
+    );
 }
 
 #[test]
@@ -102,7 +110,10 @@ fn test_koth_no_instant_win() {
     let board = Board::new_from_fen("8/8/8/8/8/8/8/K6k w - - 0 1");
 
     let (white_won, black_won) = board.is_koth_win();
-    assert!(!white_won && !black_won, "No king in center = no instant win");
+    assert!(
+        !white_won && !black_won,
+        "No king in center = no instant win"
+    );
 }
 
 #[test]
@@ -112,7 +123,10 @@ fn test_koth_starting_position() {
 
     let result = koth_center_in_3(&board, &move_gen);
     // In starting position, king is blocked by own pieces, can't reach center in 3 moves
-    assert!(result.is_none(), "Starting position king can't reach center in 3 moves");
+    assert!(
+        result.is_none(),
+        "Starting position king can't reach center in 3 moves"
+    );
 }
 
 #[test]
@@ -122,5 +136,9 @@ fn test_koth_ke2_after_f6_reports_distance_2() {
     let board = Board::new_from_fen("rnbqkbnr/pppp2pp/4pp2/8/8/4P3/PPPPKPPP/RNBQ1BNR w kq - 0 3");
 
     let result = koth_center_in_3(&board, &move_gen);
-    assert_eq!(result, Some(2), "White king on e2 should force KOTH in 2 moves after f6");
+    assert_eq!(
+        result,
+        Some(2),
+        "White king on e2 should force KOTH in 2 moves after f6"
+    );
 }

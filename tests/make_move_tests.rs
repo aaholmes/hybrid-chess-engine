@@ -36,7 +36,7 @@ mod make_move_tests {
             Some((WHITE, PAWN))
         );
         assert!(!next_board.w_to_move); // Side to move flipped
-        // Test that the resulting position has correct FEN (implicitly tests en passant, clocks, etc.)
+                                        // Test that the resulting position has correct FEN (implicitly tests en passant, clocks, etc.)
         assert_eq!(
             next_board.to_fen(),
             Some("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1".to_string())
@@ -168,7 +168,7 @@ mod make_move_tests {
             Some((BLACK, ROOK))
         );
         assert!(next_board.w_to_move); // White's turn
-        // Test that the resulting position has correct FEN (castling rights should be updated)
+                                       // Test that the resulting position has correct FEN (castling rights should be updated)
         assert_eq!(
             next_board.to_fen(),
             Some("2kr3r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w KQ - 1 2".to_string())

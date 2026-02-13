@@ -262,9 +262,10 @@ fn alpha_beta_recursive(
     beta: i32,
     q_search_max_depth: i32,
     verbose: bool,
-    start_time: Option<Instant>, // Added
+    start_time: Option<Instant>,  // Added
     time_limit: Option<Duration>, // Added
-) -> (i32, i32, bool) { // Added bool for termination flag
+) -> (i32, i32, bool) {
+    // Added bool for termination flag
     // --- Time Check (Periodic) ---
     // Check every N nodes (e.g., 2048) to balance overhead and responsiveness
     // Note: 'n' is the node count for *this* call, not total. Need total node count passed down or a shared counter.
@@ -289,8 +290,10 @@ fn alpha_beta_recursive(
         );
         // Check if quiescence search terminated due to time
         let terminated = if let (Some(start), Some(limit)) = (start_time, time_limit) {
-             start.elapsed() >= limit
-        } else { false };
+            start.elapsed() >= limit
+        } else {
+            false
+        };
         return (score, nodes, terminated);
     }
 

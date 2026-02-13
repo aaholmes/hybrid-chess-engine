@@ -9,9 +9,9 @@
 use crate::board::Board;
 use crate::move_generation::MoveGen;
 use crate::move_types::Move;
-use crate::piece_types::{PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING};
-use std::collections::HashMap;
+use crate::piece_types::{BISHOP, KING, KNIGHT, PAWN, QUEEN, ROOK};
 use std::cell::RefCell;
+use std::collections::HashMap;
 
 /// Represents a tactical move with its associated priority score
 #[derive(Debug, Clone)]
@@ -61,44 +61,44 @@ impl TacticalMoveCache {
             misses: 0,
         }
     }
-    
+
     /// Create a new cache with default size (1000 positions)
     pub fn new_default() -> Self {
         Self::new(1000)
     }
-    
+
     /// Get cached tactical moves or compute and cache them
     pub fn get_or_compute(&mut self, board: &Board, move_gen: &MoveGen) -> Vec<TacticalMove> {
         let zobrist = board.zobrist_hash;
-        
+
         if let Some(cached_moves) = self.cache.get(&zobrist) {
             self.hits += 1;
             cached_moves.clone()
         } else {
             self.misses += 1;
-            
+
             // Evict entries if cache is full
             if self.cache.len() >= self.max_size {
                 self.evict_oldest();
             }
-            
+
             // Compute tactical moves
             let tactical_moves = identify_tactical_moves_internal(board, move_gen);
-            
+
             // Cache the result
             self.cache.insert(zobrist, tactical_moves.clone());
-            
+
             tactical_moves
         }
     }
-    
+
     /// Clear the cache
     pub fn clear(&mut self) {
         self.cache.clear();
         self.hits = 0;
         self.misses = 0;
     }
-    
+
     /// Get cache statistics
     pub fn stats(&self) -> (usize, usize, u64, u64, f64) {
         let total_requests = self.hits + self.misses;
@@ -107,9 +107,15 @@ impl TacticalMoveCache {
         } else {
             0.0
         };
-        (self.cache.len(), self.max_size, self.hits, self.misses, hit_rate)
+        (
+            self.cache.len(),
+            self.max_size,
+            self.hits,
+            self.misses,
+            hit_rate,
+        )
     }
-    
+
     /// Evict the oldest entries (simple FIFO eviction)
     /// For better performance, consider implementing LRU in the future
     fn evict_oldest(&mut self) {
@@ -129,23 +135,17 @@ thread_local! {
 /// Identify all tactical moves from a given position (with caching)
 /// This is the main public interface that uses position-based caching
 pub fn identify_tactical_moves(board: &Board, move_gen: &MoveGen) -> Vec<TacticalMove> {
-    TACTICAL_CACHE.with(|cache| {
-        cache.borrow_mut().get_or_compute(board, move_gen)
-    })
+    TACTICAL_CACHE.with(|cache| cache.borrow_mut().get_or_compute(board, move_gen))
 }
 
 /// Get tactical move cache statistics for monitoring performance
 pub fn get_tactical_cache_stats() -> (usize, usize, u64, u64, f64) {
-    TACTICAL_CACHE.with(|cache| {
-        cache.borrow().stats()
-    })
+    TACTICAL_CACHE.with(|cache| cache.borrow().stats())
 }
 
 /// Clear the tactical move cache (useful for benchmarking or testing)
 pub fn clear_tactical_cache() {
-    TACTICAL_CACHE.with(|cache| {
-        cache.borrow_mut().clear()
-    })
+    TACTICAL_CACHE.with(|cache| cache.borrow_mut().clear())
 }
 
 /// Identify all tactical moves from a given position (without caching)
@@ -163,7 +163,11 @@ fn identify_tactical_moves_internal(board: &Board, move_gen: &MoveGen) -> Vec<Ta
     }
 
     // Sort by priority score (highest first)
-    tactical_moves.sort_by(|a, b| b.score().partial_cmp(&a.score()).unwrap_or(std::cmp::Ordering::Equal));
+    tactical_moves.sort_by(|a, b| {
+        b.score()
+            .partial_cmp(&a.score())
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     tactical_moves
 }
@@ -258,7 +262,8 @@ mod tests {
 
     #[test]
     fn test_mvv_lva_calculation() {
-        let board = Board::new_from_fen("rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2");
+        let board =
+            Board::new_from_fen("rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2");
 
         // Pawn takes pawn: (1.0 * 10) - 1.0 = 9.0
         let mv = Move::new(28, 36, None);
@@ -274,13 +279,21 @@ mod tests {
         let mv = Move::new(48, 56, Some(QUEEN)); // a7-a8=Q
         let score = calculate_mvv_lva(mv, &board);
         // victim=0, attacker=1.0(pawn), promo=9.0 → 0 - 1.0 + 9.0 = 8.0
-        assert!((score - 8.0).abs() < 0.1, "Quiet queen promotion score should be 8.0, got {}", score);
+        assert!(
+            (score - 8.0).abs() < 0.1,
+            "Quiet queen promotion score should be 8.0, got {}",
+            score
+        );
 
         // Underpromotion to knight
         let mv_knight = Move::new(48, 56, Some(KNIGHT));
         let score_knight = calculate_mvv_lva(mv_knight, &board);
         // 0 - 1.0 + 3.0 = 2.0
-        assert!((score_knight - 2.0).abs() < 0.1, "Knight underpromotion score should be 2.0, got {}", score_knight);
+        assert!(
+            (score_knight - 2.0).abs() < 0.1,
+            "Knight underpromotion score should be 2.0, got {}",
+            score_knight
+        );
     }
 
     #[test]

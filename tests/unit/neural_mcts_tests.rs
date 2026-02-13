@@ -18,7 +18,10 @@ fn test_neural_mcts_search_no_nn_returns_move() {
         Some(50),
         Some(Duration::from_secs(5)),
     );
-    assert!(result.is_some(), "Should return a move from starting position");
+    assert!(
+        result.is_some(),
+        "Should return a move from starting position"
+    );
 }
 
 #[test]
@@ -27,14 +30,7 @@ fn test_neural_mcts_search_mate_in_1() {
     // Back rank mate: Re8#
     let board = Board::new_from_fen("6k1/5ppp/8/8/8/8/8/4R1K1 w - - 0 1");
 
-    let result = neural_mcts_search(
-        board,
-        &move_gen,
-        None,
-        3,
-        Some(100),
-        None,
-    );
+    let result = neural_mcts_search(board, &move_gen, None, 3, Some(100), None);
     assert!(result.is_some());
     let mv = result.unwrap();
     assert_eq!(mv.to_uci(), "e1e8", "Should find Re8# mate");
@@ -46,15 +42,11 @@ fn test_neural_mcts_search_defaults() {
     let board = Board::new();
 
     // Use None for both iterations and time_limit to test defaults
-    let result = neural_mcts_search(
-        board,
-        &move_gen,
-        None,
-        3,
-        None,
-        None,
+    let result = neural_mcts_search(board, &move_gen, None, 3, None, None);
+    assert!(
+        result.is_some(),
+        "Should return a move with default settings"
     );
-    assert!(result.is_some(), "Should return a move with default settings");
 }
 
 #[test]
@@ -70,5 +62,8 @@ fn test_neural_mcts_search_few_iterations() {
         Some(10),
         Some(Duration::from_secs(10)),
     );
-    assert!(result.is_some(), "Should return a move even with few iterations");
+    assert!(
+        result.is_some(),
+        "Should return a move even with few iterations"
+    );
 }

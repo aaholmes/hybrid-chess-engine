@@ -72,8 +72,10 @@ fn test_zobrist_castling_rights_matter() {
 #[test]
 fn test_zobrist_en_passant_matters() {
     // Same position, different en passant square
-    let board_ep = Board::new_from_fen("rnbqkbnr/pppp1ppp/8/4pP2/8/8/PPPPP1PP/RNBQKBNR w KQkq e6 0 1");
-    let board_no_ep = Board::new_from_fen("rnbqkbnr/pppp1ppp/8/4pP2/8/8/PPPPP1PP/RNBQKBNR w KQkq - 0 1");
+    let board_ep =
+        Board::new_from_fen("rnbqkbnr/pppp1ppp/8/4pP2/8/8/PPPPP1PP/RNBQKBNR w KQkq e6 0 1");
+    let board_no_ep =
+        Board::new_from_fen("rnbqkbnr/pppp1ppp/8/4pP2/8/8/PPPPP1PP/RNBQKBNR w KQkq - 0 1");
 
     assert_ne!(
         get_hash(&board_ep),
@@ -100,8 +102,7 @@ fn test_zobrist_move_and_undo() {
 
             // Hash should change after move
             assert_ne!(
-                hash_before,
-                hash_after_move,
+                hash_before, hash_after_move,
                 "Hash should change after move"
             );
 
@@ -130,8 +131,10 @@ fn test_zobrist_transposition() {
     // 1. Nf3 Nc6 2. e4 e5
     // Both should result in same hash
 
-    let board1 = Board::new_from_fen("r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3");
-    let board2 = Board::new_from_fen("r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3");
+    let board1 =
+        Board::new_from_fen("r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3");
+    let board2 =
+        Board::new_from_fen("r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3");
 
     assert_eq!(
         get_hash(&board1),
@@ -207,7 +210,8 @@ fn test_incremental_hash_matches_full_recompute() {
             get_hash(board),
             incremental,
             "Incremental hash should match full recompute after move from {} to {}",
-            from, to
+            from,
+            to
         );
     }
 }
@@ -231,11 +235,7 @@ fn test_hash_unique_across_many_positions() {
     for fen in &fens {
         let board = Board::new_from_fen(fen);
         let hash = get_hash(&board);
-        assert!(
-            hashes.insert(hash),
-            "Hash collision for FEN: {}",
-            fen
-        );
+        assert!(hashes.insert(hash), "Hash collision for FEN: {}", fen);
     }
 }
 
@@ -275,7 +275,10 @@ fn test_hash_after_en_passant() {
     let board_after = board.apply_move_to_board(mv);
     let hash_after = get_hash(&board_after);
 
-    assert_ne!(hash_before, hash_after, "Hash should change after en passant");
+    assert_ne!(
+        hash_before, hash_after,
+        "Hash should change after en passant"
+    );
 }
 
 #[test]
@@ -287,5 +290,8 @@ fn test_hash_after_promotion() {
     let board_after = board.apply_move_to_board(mv);
     let hash_after = get_hash(&board_after);
 
-    assert_ne!(hash_before, hash_after, "Hash should change after promotion");
+    assert_ne!(
+        hash_before, hash_after,
+        "Hash should change after promotion"
+    );
 }

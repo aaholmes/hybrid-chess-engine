@@ -1,17 +1,17 @@
 //! Stream of Consciousness Logger for MCTS Search
-//! 
+//!
 //! Provides real-time narration of search decisions, tier overrides,
 //! and selection logic for debugging and educational purposes.
 
 use crate::board::Board;
-use crate::move_types::Move;
 use crate::mcts::node::MctsNode;
 use crate::mcts::tactical::TacticalMove;
+use crate::move_types::Move;
 use std::cell::RefCell;
 use std::fmt::Write as FmtWrite;
 use std::fs::File;
 use std::io::{self, Write};
-use std::sync::atomic::{AtomicBool, AtomicUsize, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::Mutex;
 use std::time::Instant;
 
@@ -73,7 +73,7 @@ impl LogSink {
             }
         }
     }
-    
+
     pub fn writeln(&self, msg: &str) {
         self.write(msg);
         self.write("\n");
@@ -103,7 +103,11 @@ impl GateReason {
                     format!("Getting mated in {} (losing)", depth.abs())
                 }
             }
-            GateReason::KothWin { distance } => format!("King of the Hill center reachable in {} move{}", distance, if *distance == 1 { "" } else { "s" }),
+            GateReason::KothWin { distance } => format!(
+                "King of the Hill center reachable in {} move{}",
+                distance,
+                if *distance == 1 { "" } else { "s" }
+            ),
             GateReason::Terminal { is_checkmate } => {
                 if *is_checkmate {
                     "Position is checkmate".to_string()
@@ -124,7 +128,11 @@ pub enum SelectionReason {
     /// Chose unexplored tactical move (Tier 2 priority)
     TacticalPriority { move_type: String, score: f64 },
     /// Chose via UCB/PUCT formula
-    UcbSelection { q_value: f64, u_value: f64, total: f64 },
+    UcbSelection {
+        q_value: f64,
+        u_value: f64,
+        total: f64,
+    },
     /// Random exploration
     Exploration,
     /// Forced (only one legal move)
@@ -163,7 +171,7 @@ impl SearchLogger {
             enabled: AtomicBool::new(true),
         }
     }
-    
+
     /// Create a silent logger (no output)
     pub fn silent() -> Self {
         SearchLogger {
@@ -176,7 +184,7 @@ impl SearchLogger {
             enabled: AtomicBool::new(false),
         }
     }
-    
+
     /// Create a logger that writes to a buffer (for testing)
     pub fn buffered(verbosity: Verbosity) -> Self {
         SearchLogger {
@@ -189,7 +197,7 @@ impl SearchLogger {
             enabled: AtomicBool::new(true),
         }
     }
-    
+
     /// Get the buffered output (panics if not a buffer sink)
     pub fn get_buffer(&self) -> String {
         match &self.sink {
@@ -197,19 +205,19 @@ impl SearchLogger {
             _ => panic!("get_buffer called on non-buffer sink"),
         }
     }
-    
+
     /// Set the output sink
     pub fn with_sink(mut self, sink: LogSink) -> Self {
         self.sink = sink;
         self
     }
-    
+
     /// Set whether to use emoji
     pub fn with_emoji(mut self, use_emoji: bool) -> Self {
         self.use_emoji = use_emoji;
         self
     }
-    
+
     /// Reset the start time
     pub fn reset_timer(&self) {
         if let Ok(mut start) = self.start_time.lock() {
@@ -217,54 +225,54 @@ impl SearchLogger {
         }
         self.iteration.store(0, Ordering::SeqCst);
     }
-    
+
     /// Enable or disable logging
     pub fn set_enabled(&self, enabled: bool) {
         self.enabled.store(enabled, Ordering::SeqCst);
     }
-    
+
     /// Check if logging is enabled at the given verbosity
     fn should_log(&self, required: Verbosity) -> bool {
         self.enabled.load(Ordering::SeqCst) && self.verbosity >= required
     }
-    
+
     /// Get elapsed time as a formatted string
     fn elapsed(&self) -> String {
         let elapsed = self.start_time.lock().unwrap().elapsed();
         format!("{:>6.1}ms", elapsed.as_secs_f64() * 1000.0)
     }
-    
+
     /// Get indentation for current depth
     fn indent(&self) -> String {
         "  ".repeat(self.current_depth.load(Ordering::SeqCst))
     }
-    
+
     /// Format a move for display
     fn fmt_move(&self, mv: Move) -> String {
         mv.to_uci()
     }
-    
+
     /// Format a board position summary
     fn fmt_board_summary(&self, board: &Board) -> String {
         let stm = if board.w_to_move { "White" } else { "Black" };
         format!("{} to move", stm)
     }
-    
+
     // ═══════════════════════════════════════════════════════════════
     // Tier 1: Gate Events
     // ═══════════════════════════════════════════════════════════════
-    
+
     /// Log a Tier 1 gate activation
     pub fn log_tier1_gate(&self, reason: &GateReason, chosen_move: Option<Move>) {
         if !self.should_log(Verbosity::Minimal) {
             return;
         }
-        
+
         let emoji = if self.use_emoji { "🚨 " } else { "[GATE] " };
         let move_str = chosen_move
             .map(|m| format!(" → {}", self.fmt_move(m)))
             .unwrap_or_default();
-        
+
         self.sink.writeln(&format!(
             "{}{}TIER 1 GATE: {}{}",
             self.elapsed(),
@@ -273,13 +281,13 @@ impl SearchLogger {
             move_str
         ));
     }
-    
+
     /// Log KOTH detection
     pub fn log_koth_check(&self, reachable: bool, distance: Option<u32>) {
         if !self.should_log(Verbosity::Verbose) {
             return;
         }
-        
+
         let emoji = if self.use_emoji { "👑 " } else { "[KOTH] " };
         if reachable {
             self.sink.writeln(&format!(
@@ -290,13 +298,13 @@ impl SearchLogger {
             ));
         }
     }
-    
+
     /// Log mate search initiation
     pub fn log_mate_search_start(&self, depth: i32) {
         if !self.should_log(Verbosity::Verbose) {
             return;
         }
-        
+
         let emoji = if self.use_emoji { "🔍 " } else { "[MATE] " };
         self.sink.writeln(&format!(
             "{}{}Starting mate search at depth {}",
@@ -305,22 +313,34 @@ impl SearchLogger {
             depth
         ));
     }
-    
+
     /// Log mate search result
     pub fn log_mate_search_result(&self, score: i32, best_move: Move, nodes: u64) {
         if !self.should_log(Verbosity::Normal) {
             return;
         }
-        
+
         let emoji = if self.use_emoji { "🔍 " } else { "[MATE] " };
         let result = if score >= 1_000_000 {
-            format!("MATE FOUND: {} (score: {})", self.fmt_move(best_move), score)
+            format!(
+                "MATE FOUND: {} (score: {})",
+                self.fmt_move(best_move),
+                score
+            )
         } else if score <= -1_000_000 {
-            format!("GETTING MATED: {} (score: {})", self.fmt_move(best_move), score)
+            format!(
+                "GETTING MATED: {} (score: {})",
+                self.fmt_move(best_move),
+                score
+            )
         } else {
-            format!("No mate (best: {}, nodes: {})", self.fmt_move(best_move), nodes)
+            format!(
+                "No mate (best: {}, nodes: {})",
+                self.fmt_move(best_move),
+                nodes
+            )
         };
-        
+
         self.sink.writeln(&format!(
             "{}{}Mate search: {}",
             self.indent(),
@@ -328,17 +348,17 @@ impl SearchLogger {
             result
         ));
     }
-    
+
     // ═══════════════════════════════════════════════════════════════
     // Tier 2: Tactical Grafting Events
     // ═══════════════════════════════════════════════════════════════
-    
+
     /// Log start of quiescence search
     pub fn log_qs_start(&self, board: &Board) {
         if !self.should_log(Verbosity::Verbose) {
             return;
         }
-        
+
         let emoji = if self.use_emoji { "⚔️ " } else { "[QS] " };
         self.sink.writeln(&format!(
             "{}{}Starting quiescence search ({})",
@@ -347,24 +367,26 @@ impl SearchLogger {
             self.fmt_board_summary(board)
         ));
     }
-    
+
     /// Log tactical moves identified
     pub fn log_tactical_moves_found(&self, moves: &[TacticalMove]) {
         if !self.should_log(Verbosity::Normal) {
             return;
         }
-        
+
         if moves.is_empty() {
             return;
         }
-        
+
         let emoji = if self.use_emoji { "⚔️ " } else { "[TACT] " };
-        
+
         let mut summary = String::new();
         let captures = moves.len();
 
-        if captures > 0 { write!(summary, "{} captures", captures).ok(); }
-        
+        if captures > 0 {
+            write!(summary, "{} captures", captures).ok();
+        }
+
         self.sink.writeln(&format!(
             "{}{}Tactical moves: {}",
             self.indent(),
@@ -372,13 +394,13 @@ impl SearchLogger {
             summary.trim()
         ));
     }
-    
+
     /// Log a tactical graft
     pub fn log_tier2_graft(&self, move_: Move, extrapolated_value: f64, k_val: f32) {
         if !self.should_log(Verbosity::Normal) {
             return;
         }
-        
+
         let emoji = if self.use_emoji { "🌿 " } else { "[GRAFT] " };
         self.sink.writeln(&format!(
             "{}{}TIER 2 GRAFT: {} extrapolated to {:.3} (k={:.2})",
@@ -389,19 +411,20 @@ impl SearchLogger {
             k_val
         ));
     }
-    
+
     /// Log principal variation from QS
     pub fn log_qs_pv(&self, pv: &[Move], terminal_eval: i32) {
         if !self.should_log(Verbosity::Verbose) {
             return;
         }
-        
+
         let emoji = if self.use_emoji { "📍 " } else { "[PV] " };
-        let pv_str: String = pv.iter() 
+        let pv_str: String = pv
+            .iter()
             .map(|m| self.fmt_move(*m))
             .collect::<Vec<_>>()
             .join(" ");
-        
+
         self.sink.writeln(&format!(
             "{}{}QS PV: {} (eval: {}cp)",
             self.indent(),
@@ -410,17 +433,17 @@ impl SearchLogger {
             terminal_eval
         ));
     }
-    
+
     // ═══════════════════════════════════════════════════════════════
     // Tier 3: Neural Network Events
     // ═══════════════════════════════════════════════════════════════
-    
+
     /// Log neural network evaluation
     pub fn log_tier3_neural(&self, value: f64, k_val: f32) {
         if !self.should_log(Verbosity::Normal) {
             return;
         }
-        
+
         let emoji = if self.use_emoji { "🧠 " } else { "[NN] " };
         self.sink.writeln(&format!(
             "{}{}TIER 3 NEURAL: value={:.3}, k={:.2}",
@@ -430,20 +453,21 @@ impl SearchLogger {
             k_val
         ));
     }
-    
+
     /// Log top policy moves from neural network
     pub fn log_nn_policy(&self, top_moves: &[(Move, f32)]) {
         if !self.should_log(Verbosity::Verbose) {
             return;
         }
-        
+
         let emoji = if self.use_emoji { "🧠 " } else { "[POLICY] " };
-        let moves_str: String = top_moves.iter() 
+        let moves_str: String = top_moves
+            .iter()
             .take(5)
             .map(|(m, p)| format!("{}:{:.1}%", self.fmt_move(*m), p * 100.0))
             .collect::<Vec<_>>()
             .join(", ");
-        
+
         self.sink.writeln(&format!(
             "{}{}Policy priors: {}",
             self.indent(),
@@ -451,13 +475,13 @@ impl SearchLogger {
             moves_str
         ));
     }
-    
+
     /// Log classical (Pesto) evaluation fallback
     pub fn log_classical_eval(&self, eval_cp: i32, tanh_value: f64) {
         if !self.should_log(Verbosity::Verbose) {
             return;
         }
-        
+
         let emoji = if self.use_emoji { "📊 " } else { "[EVAL] " };
         self.sink.writeln(&format!(
             "{}{}Classical eval: {}cp → tanh={:.3}",
@@ -467,19 +491,19 @@ impl SearchLogger {
             tanh_value
         ));
     }
-    
+
     // ═══════════════════════════════════════════════════════════════
     // Selection & Tree Traversal Events
     // ═══════════════════════════════════════════════════════════════
-    
+
     /// Log iteration start
     pub fn log_iteration_start(&self, iteration: u32) {
         self.iteration.store(iteration, Ordering::SeqCst);
-        
+
         if !self.should_log(Verbosity::Debug) {
             return;
         }
-        
+
         let emoji = if self.use_emoji { "🔄 " } else { "[ITER] " };
         self.sink.writeln(&format!(
             "{}{}Iteration {}",
@@ -488,25 +512,29 @@ impl SearchLogger {
             iteration
         ));
     }
-    
+
     /// Log node selection
     pub fn log_selection(&self, chosen_move: Move, reason: &SelectionReason, depth: usize) {
         if !self.should_log(Verbosity::Verbose) {
             return;
         }
-        
+
         let emoji = if self.use_emoji { "➡️ " } else { "[SEL] " };
         let reason_str = match reason {
             SelectionReason::TacticalPriority { move_type, score } => {
                 format!("tactical priority ({}: {:.2})", move_type, score)
             }
-            SelectionReason::UcbSelection { q_value, u_value, total } => {
+            SelectionReason::UcbSelection {
+                q_value,
+                u_value,
+                total,
+            } => {
                 format!("UCB (Q={:.3} + U={:.3} = {:.3})", q_value, u_value, total)
             }
             SelectionReason::Exploration => "exploration".to_string(),
             SelectionReason::ForcedMove => "only legal move".to_string(),
         };
-        
+
         let indent = "  ".repeat(depth);
         self.sink.writeln(&format!(
             "{}{}{}Select {} [{}]",
@@ -517,46 +545,48 @@ impl SearchLogger {
             reason_str
         ));
     }
-    
+
     /// Log entering a node during selection
     pub fn log_enter_node(&self, node: &MctsNode, depth: usize) {
         self.current_depth.store(depth, Ordering::SeqCst);
-        
+
         if !self.should_log(Verbosity::Debug) {
             return;
         }
-        
-        let move_str = node.action
+
+        let move_str = node
+            .action
             .map(|m| self.fmt_move(m))
             .unwrap_or_else(|| "Root".to_string());
-        
+
         self.sink.writeln(&format!(
             "{}Enter: {} (N={}, Q={:.3})",
             self.indent(),
             move_str,
             node.visits,
-            if node.visits > 0 { node.total_value / node.visits as f64 } else { 0.0 }
+            if node.visits > 0 {
+                node.total_value / node.visits as f64
+            } else {
+                0.0
+            }
         ));
 
         if let Some(fen) = node.state.to_fen() {
-            self.sink.writeln(&format!(
-                "{}  FEN: {}",
-                self.indent(),
-                fen
-            ));
+            self.sink
+                .writeln(&format!("{}  FEN: {}", self.indent(), fen));
         }
     }
-    
+
     // ═══════════════════════════════════════════════════════════════
     // Backpropagation Events
     // ═══════════════════════════════════════════════════════════════
-    
+
     /// Log backpropagation
     pub fn log_backprop(&self, path_length: usize, leaf_value: f64) {
         if !self.should_log(Verbosity::Debug) {
             return;
         }
-        
+
         let emoji = if self.use_emoji { "⬆️ " } else { "[BACK] " };
         self.sink.writeln(&format!(
             "{}{}Backprop: value={:.3} through {} nodes",
@@ -566,33 +596,33 @@ impl SearchLogger {
             path_length
         ));
     }
-    
+
     // ═══════════════════════════════════════════════════════════════
     // Summary Events
     // ═══════════════════════════════════════════════════════════════
-    
+
     /// Log iteration summary (periodic)
     pub fn log_iteration_summary(&self, iteration: u32, best_move: Option<Move>, root_visits: u32) {
         if !self.should_log(Verbosity::Minimal) {
             return;
         }
-        
+
         // Only log every 100 iterations at Minimal, every 10 at Normal
         let interval = match self.verbosity {
             Verbosity::Minimal => 100,
             Verbosity::Normal => 50,
             _ => 10,
         };
-        
+
         if iteration % interval != 0 {
             return;
         }
-        
+
         let emoji = if self.use_emoji { "📈 " } else { "[STAT] " };
         let move_str = best_move
             .map(|m| self.fmt_move(m))
             .unwrap_or_else(|| "?".to_string());
-        
+
         self.sink.writeln(&format!(
             "{}{}Iter {}: best={}, root_N={}",
             self.elapsed(),
@@ -602,7 +632,7 @@ impl SearchLogger {
             root_visits
         ));
     }
-    
+
     /// Log final search result
     pub fn log_search_complete(
         &self,
@@ -614,32 +644,35 @@ impl SearchLogger {
         if !self.should_log(Verbosity::Minimal) {
             return;
         }
-        
+
         let emoji = if self.use_emoji { "✅ " } else { "[DONE] " };
         let move_str = best_move
             .map(|m| self.fmt_move(m))
             .unwrap_or_else(|| "none".to_string());
-        
-        self.sink.writeln(&format!(
-            "\n{}{}Search complete!",
-            self.elapsed(),
-            emoji
-        ));
+
+        self.sink
+            .writeln(&format!("\n{}{}Search complete!", self.elapsed(), emoji));
         self.sink.writeln(&format!("   Best move: {}", move_str));
         self.sink.writeln(&format!("   Iterations: {}", iterations));
-        self.sink.writeln(&format!("   Nodes expanded: {}", nodes_expanded));
+        self.sink
+            .writeln(&format!("   Nodes expanded: {}", nodes_expanded));
         if mates_found > 0 {
-            self.sink.writeln(&format!("   Mates found: {}", mates_found));
+            self.sink
+                .writeln(&format!("   Mates found: {}", mates_found));
         }
     }
-    
+
     /// Log tier override explanation
     pub fn log_tier_override(&self, from_tier: &str, to_tier: &str, reason: &str) {
         if !self.should_log(Verbosity::Normal) {
             return;
         }
-        
-        let emoji = if self.use_emoji { "⚡ " } else { "[OVERRIDE] " };
+
+        let emoji = if self.use_emoji {
+            "⚡ "
+        } else {
+            "[OVERRIDE] "
+        };
         self.sink.writeln(&format!(
             "{}{}OVERRIDE: {} → {} ({})",
             self.elapsed(),

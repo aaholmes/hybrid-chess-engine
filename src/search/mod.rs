@@ -42,16 +42,18 @@
 //! - Draw scores: `0`
 
 pub mod alpha_beta;
-pub mod quiescence;
-pub mod iterative_deepening;
 pub mod history;
-pub mod mate_search;
+pub mod iterative_deepening;
 mod koth;
+pub mod mate_search;
+pub mod quiescence;
 mod see;
 
 pub use history::{HistoryTable, MAX_PLY};
-pub use mate_search::mate_search;
-pub use quiescence::{quiescence_search, quiescence_search_tactical, material_qsearch, forced_material_balance};
 pub use iterative_deepening::iterative_deepening_ab_search;
 pub use koth::koth_center_in_3;
+pub use mate_search::mate_search;
+pub use quiescence::{
+    forced_material_balance, material_qsearch, quiescence_search, quiescence_search_tactical,
+};
 pub use see::see;

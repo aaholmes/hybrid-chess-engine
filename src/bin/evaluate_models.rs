@@ -6,24 +6,26 @@
 //! Usage: evaluate_models <candidate.pt> <current.pt> <num_games> <simulations> [--threshold 0.55]
 
 use kingfisher::boardstack::BoardStack;
+use kingfisher::mcts::sprt::{SprtConfig, SprtResult, SprtState};
+use kingfisher::mcts::{
+    tactical_mcts_search_with_tt, InferenceServer, MctsNode, TacticalMctsConfig,
+};
 use kingfisher::move_generation::MoveGen;
 use kingfisher::move_types::Move;
-use kingfisher::mcts::{tactical_mcts_search_with_tt, MctsNode, TacticalMctsConfig, InferenceServer};
-use kingfisher::mcts::sprt::{SprtConfig, SprtState, SprtResult};
 use kingfisher::neural_net::NeuralNetPolicy;
 use kingfisher::search::quiescence::forced_material_balance;
 use kingfisher::tensor::move_to_index;
-use kingfisher::training_data::{TrainingSample, save_binary_data};
+use kingfisher::training_data::{save_binary_data, TrainingSample};
 use kingfisher::transposition::TranspositionTable;
+use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
-use rand::rngs::StdRng;
+use rayon::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use rayon::prelude::*;
 
 /// Result of a single evaluation game.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -68,7 +70,11 @@ const EVAL_EXPLORATION_PLIES: u32 = 10;
 
 /// Select a move for evaluation: deterministic for forced wins,
 /// proportional sampling for the first few moves, then greedy.
-fn select_eval_move(root: &Rc<RefCell<MctsNode>>, rng: &mut impl Rng, move_count: u32) -> Option<Move> {
+fn select_eval_move(
+    root: &Rc<RefCell<MctsNode>>,
+    rng: &mut impl Rng,
+    move_count: u32,
+) -> Option<Move> {
     let root_ref = root.borrow();
 
     // 1. If any child is a forced win (terminal_or_mate_value < -0.5 from child's STM = we win),
@@ -97,7 +103,9 @@ fn select_eval_move(root: &Rc<RefCell<MctsNode>>, rng: &mut impl Rng, move_count
     }
 
     // 3. Collect visit counts
-    let visit_pairs: Vec<(Move, u32)> = root_ref.children.iter()
+    let visit_pairs: Vec<(Move, u32)> = root_ref
+        .children
+        .iter()
         .filter_map(|c| {
             let cr = c.borrow();
             cr.action.map(|mv| (mv, cr.visits))
@@ -109,7 +117,10 @@ fn select_eval_move(root: &Rc<RefCell<MctsNode>>, rng: &mut impl Rng, move_count
         sample_proportional(&visit_pairs, rng)
     } else {
         // Rest of game: greedy (most-visited) for strength measurement
-        visit_pairs.iter().max_by_key(|(_, v)| *v).map(|(mv, _)| *mv)
+        visit_pairs
+            .iter()
+            .max_by_key(|(_, v)| *v)
+            .map(|(mv, _)| *mv)
     }
 }
 
@@ -139,7 +150,16 @@ pub fn play_evaluation_game(
     candidate_is_white: bool,
     simulations: u32,
 ) -> GameResult {
-    play_evaluation_game_koth(candidate_server, current_server, candidate_is_white, simulations, false, true, true, 0)
+    play_evaluation_game_koth(
+        candidate_server,
+        current_server,
+        candidate_is_white,
+        simulations,
+        false,
+        true,
+        true,
+        0,
+    )
 }
 
 pub fn play_evaluation_game_koth(
@@ -153,9 +173,17 @@ pub fn play_evaluation_game_koth(
     game_seed: u64,
 ) -> GameResult {
     play_evaluation_game_with_servers(
-        candidate_server, current_server, candidate_is_white, simulations,
-        enable_koth, enable_tier1, enable_material, game_seed, false,
-    ).result
+        candidate_server,
+        current_server,
+        candidate_is_white,
+        simulations,
+        enable_koth,
+        enable_tier1,
+        enable_material,
+        game_seed,
+        false,
+    )
+    .result
 }
 
 /// Play a single evaluation game using shared InferenceServers (no ownership transfer).
@@ -223,8 +251,8 @@ pub fn play_evaluation_game_with_servers(
         let board = board_stack.current_state().clone();
         let white_to_move = board.w_to_move;
 
-        let candidate_turn = (white_to_move && candidate_is_white)
-            || (!white_to_move && !candidate_is_white);
+        let candidate_turn =
+            (white_to_move && candidate_is_white) || (!white_to_move && !candidate_is_white);
 
         let (_best_move, _stats, root) = if candidate_turn {
             tactical_mcts_search_with_tt(
@@ -245,9 +273,7 @@ pub fn play_evaluation_game_with_servers(
         // Collect training data from MCTS root visit counts
         if collect_training_data {
             let root_ref = root.borrow();
-            let total_visits: u32 = root_ref.children.iter()
-                .map(|c| c.borrow().visits)
-                .sum();
+            let total_visits: u32 = root_ref.children.iter().map(|c| c.borrow().visits).sum();
 
             if total_visits > 0 {
                 let mut policy_dist = Vec::new();
@@ -255,7 +281,11 @@ pub fn play_evaluation_game_with_servers(
                 for child in &root_ref.children {
                     let cr = child.borrow();
                     if let Some(mv) = cr.action {
-                        let relative_mv = if board.w_to_move { mv } else { mv.flip_vertical() };
+                        let relative_mv = if board.w_to_move {
+                            mv
+                        } else {
+                            mv.flip_vertical()
+                        };
                         let idx = move_to_index(relative_mv) as u16;
                         let prob = cr.visits as f32 / total_visits as f32;
                         policy_dist.push((idx, prob));
@@ -311,7 +341,9 @@ pub fn play_evaluation_game_with_servers(
             break;
         }
 
-        let (mate, stalemate) = board_stack.current_state().is_checkmate_or_stalemate(&move_gen);
+        let (mate, stalemate) = board_stack
+            .current_state()
+            .is_checkmate_or_stalemate(&move_gen);
         if mate || stalemate {
             break;
         }
@@ -334,7 +366,11 @@ pub fn play_evaluation_game_with_servers(
         } else {
             GameResult::CurrentWin
         };
-        let s = if white_wins { "White wins (KOTH)" } else { "Black wins (KOTH)" };
+        let s = if white_wins {
+            "White wins (KOTH)"
+        } else {
+            "Black wins (KOTH)"
+        };
         (r, s)
     } else if mate {
         let white_wins = !final_board.w_to_move;
@@ -343,7 +379,11 @@ pub fn play_evaluation_game_with_servers(
         } else {
             GameResult::CurrentWin
         };
-        let s = if white_wins { "White wins (checkmate)" } else { "Black wins (checkmate)" };
+        let s = if white_wins {
+            "White wins (checkmate)"
+        } else {
+            "Black wins (checkmate)"
+        };
         (r, s)
     } else if stalemate {
         (GameResult::Draw, "Draw (stalemate)")
@@ -364,12 +404,19 @@ pub fn play_evaluation_game_with_servers(
         } else if koth_black {
             -1.0
         } else if mate {
-            if final_board.w_to_move { -1.0 } else { 1.0 }
+            if final_board.w_to_move {
+                -1.0
+            } else {
+                1.0
+            }
         } else {
             0.0
         };
 
-        for sample in candidate_samples.iter_mut().chain(current_samples.iter_mut()) {
+        for sample in candidate_samples
+            .iter_mut()
+            .chain(current_samples.iter_mut())
+        {
             sample.value_target = if sample.w_to_move {
                 final_score_white
             } else {
@@ -381,15 +428,23 @@ pub fn play_evaluation_game_with_servers(
     let mut move_str = String::new();
     for (i, uci) in game_moves.iter().enumerate() {
         if i % 2 == 0 {
-            if !move_str.is_empty() { move_str.push(' '); }
+            if !move_str.is_empty() {
+                move_str.push(' ');
+            }
             move_str.push_str(&format!("{}.", i / 2 + 1));
         }
         move_str.push(' ');
         move_str.push_str(uci);
     }
     let cand_color = if candidate_is_white { "White" } else { "Black" };
-    eprintln!("  [seed={}] Candidate={} | {} moves | {} -> {:?}",
-              game_seed, cand_color, game_moves.len(), result_str, result);
+    eprintln!(
+        "  [seed={}] Candidate={} | {} moves | {} -> {:?}",
+        game_seed,
+        cand_color,
+        game_moves.len(),
+        result_str,
+        result
+    );
     eprintln!("  {}", move_str);
 
     EvalGameData {
@@ -406,7 +461,17 @@ pub fn evaluate_models(
     num_games: u32,
     simulations: u32,
 ) -> EvalResults {
-    evaluate_models_koth(candidate_path, current_path, num_games, simulations, false, true, true, 8, 0)
+    evaluate_models_koth(
+        candidate_path,
+        current_path,
+        num_games,
+        simulations,
+        false,
+        true,
+        true,
+        8,
+        0,
+    )
 }
 
 /// Run a full evaluation match between two models with optional KOTH mode.
@@ -426,7 +491,11 @@ pub fn evaluate_models_koth(
         let mut nn = NeuralNetPolicy::new();
         if let Err(e) = nn.load(candidate_path) {
             eprintln!("Failed to load candidate model: {}", e);
-            return EvalResults { wins: 0, losses: 0, draws: 0 };
+            return EvalResults {
+                wins: 0,
+                losses: 0,
+                draws: 0,
+            };
         }
         Some(Arc::new(InferenceServer::new(nn, inference_batch_size)))
     };
@@ -435,7 +504,11 @@ pub fn evaluate_models_koth(
         let mut nn = NeuralNetPolicy::new();
         if let Err(e) = nn.load(current_path) {
             eprintln!("Failed to load current model: {}", e);
-            return EvalResults { wins: 0, losses: 0, draws: 0 };
+            return EvalResults {
+                wins: 0,
+                losses: 0,
+                draws: 0,
+            };
         }
         Some(Arc::new(InferenceServer::new(nn, inference_batch_size)))
     };
@@ -509,7 +582,15 @@ pub fn evaluate_models_koth_sprt(
         let mut nn = NeuralNetPolicy::new();
         if let Err(e) = nn.load(candidate_path) {
             eprintln!("Failed to load candidate model: {}", e);
-            return (EvalResults { wins: 0, losses: 0, draws: 0 }, None, SprtResult::Inconclusive);
+            return (
+                EvalResults {
+                    wins: 0,
+                    losses: 0,
+                    draws: 0,
+                },
+                None,
+                SprtResult::Inconclusive,
+            );
         }
         Some(Arc::new(InferenceServer::new(nn, inference_batch_size)))
     };
@@ -518,7 +599,15 @@ pub fn evaluate_models_koth_sprt(
         let mut nn = NeuralNetPolicy::new();
         if let Err(e) = nn.load(current_path) {
             eprintln!("Failed to load current model: {}", e);
-            return (EvalResults { wins: 0, losses: 0, draws: 0 }, None, SprtResult::Inconclusive);
+            return (
+                EvalResults {
+                    wins: 0,
+                    losses: 0,
+                    draws: 0,
+                },
+                None,
+                SprtResult::Inconclusive,
+            );
         }
         Some(Arc::new(InferenceServer::new(nn, inference_batch_size)))
     };
@@ -527,7 +616,8 @@ pub fn evaluate_models_koth_sprt(
     let stop_flag = Arc::new(AtomicBool::new(false));
     let games_completed = Arc::new(Mutex::new(0u32));
     // Record the SPRT decision at the moment it fires, before in-flight games dilute it
-    let triggered_decision: Arc<Mutex<Option<(SprtResult, Option<f64>)>>> = Arc::new(Mutex::new(None));
+    let triggered_decision: Arc<Mutex<Option<(SprtResult, Option<f64>)>>> =
+        Arc::new(Mutex::new(None));
 
     // Thread-safe accumulators for training samples
     let all_candidate_samples: Arc<Mutex<Vec<TrainingSample>>> = Arc::new(Mutex::new(Vec::new()));
@@ -555,10 +645,16 @@ pub fn evaluate_models_koth_sprt(
         // Collect training samples
         if collect {
             if !game_data.candidate_samples.is_empty() {
-                all_candidate_samples.lock().unwrap().extend(game_data.candidate_samples);
+                all_candidate_samples
+                    .lock()
+                    .unwrap()
+                    .extend(game_data.candidate_samples);
             }
             if !game_data.current_samples.is_empty() {
-                all_current_samples.lock().unwrap().extend(game_data.current_samples);
+                all_current_samples
+                    .lock()
+                    .unwrap()
+                    .extend(game_data.current_samples);
             }
         }
 
@@ -574,7 +670,8 @@ pub fn evaluate_models_koth_sprt(
 
         let color_str = if candidate_is_white { "White" } else { "Black" };
         let decision = state.check_decision(sprt_config);
-        let llr_str = state.compute_llr(sprt_config)
+        let llr_str = state
+            .compute_llr(sprt_config)
             .map(|v| format!("{:.2}", v))
             .unwrap_or_else(|| "N/A".to_string());
         eprintln!(
@@ -605,7 +702,10 @@ pub fn evaluate_models_koth_sprt(
 
     // Save training data to disk
     if let Some(base_dir) = save_training_data {
-        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
 
         let candidate_dir = format!("{}/candidate", base_dir);
         let current_dir = format!("{}/current", base_dir);
@@ -626,7 +726,11 @@ pub fn evaluate_models_koth_sprt(
             if let Err(e) = save_binary_data(&path, &candidate_samples) {
                 eprintln!("Failed to save candidate training data: {}", e);
             } else {
-                eprintln!("Saved {} candidate training samples to {}", candidate_samples.len(), path);
+                eprintln!(
+                    "Saved {} candidate training samples to {}",
+                    candidate_samples.len(),
+                    path
+                );
             }
         }
 
@@ -635,7 +739,11 @@ pub fn evaluate_models_koth_sprt(
             if let Err(e) = save_binary_data(&path, &current_samples) {
                 eprintln!("Failed to save current training data: {}", e);
             } else {
-                eprintln!("Saved {} current training samples to {}", current_samples.len(), path);
+                eprintln!(
+                    "Saved {} current training samples to {}",
+                    current_samples.len(),
+                    path
+                );
             }
         }
     }
@@ -652,7 +760,10 @@ pub fn evaluate_models_koth_sprt(
     // flag is set, adding results that drag the LLR below the threshold.
     let (decision, llr) = match *triggered_decision.lock().unwrap() {
         Some((dec, llr_at_trigger)) => (dec, llr_at_trigger),
-        None => (final_state.check_decision(sprt_config), final_state.compute_llr(sprt_config)),
+        None => (
+            final_state.check_decision(sprt_config),
+            final_state.compute_llr(sprt_config),
+        ),
     };
 
     (results, llr, decision)
@@ -687,18 +798,21 @@ fn main() {
     let enable_tier1 = !args.iter().any(|a| a == "--disable-tier1");
     let enable_material = !args.iter().any(|a| a == "--disable-material");
 
-    let inference_batch_size: usize = args.iter()
+    let inference_batch_size: usize = args
+        .iter()
         .position(|a| a == "--batch-size")
         .and_then(|i| args.get(i + 1))
         .and_then(|v| v.parse().ok())
         .unwrap_or(8);
 
-    let num_threads: Option<usize> = args.iter()
+    let num_threads: Option<usize> = args
+        .iter()
         .position(|a| a == "--threads")
         .and_then(|i| args.get(i + 1))
         .and_then(|v| v.parse().ok());
 
-    let seed_offset: u64 = args.iter()
+    let seed_offset: u64 = args
+        .iter()
         .position(|a| a == "--seed-offset")
         .and_then(|i| args.get(i + 1))
         .and_then(|v| v.parse().ok())
@@ -709,7 +823,8 @@ fn main() {
         None
     } else {
         // Default: save alongside candidate model; --save-training-data <dir> overrides
-        let explicit = args.iter()
+        let explicit = args
+            .iter()
             .position(|a| a == "--save-training-data")
             .and_then(|i| args.get(i + 1))
             .cloned();
@@ -717,7 +832,10 @@ fn main() {
             let parent = std::path::Path::new(candidate_path)
                 .parent()
                 .unwrap_or(std::path::Path::new("."));
-            parent.join("eval_training_data").to_string_lossy().into_owned()
+            parent
+                .join("eval_training_data")
+                .to_string_lossy()
+                .into_owned()
         }))
     };
 
@@ -739,22 +857,35 @@ fn main() {
         };
 
         let (lower, upper) = sprt_config.bounds();
-        eprintln!("SPRT: elo0={}, elo1={}, alpha={}, beta={}, bounds=[{:.3}, {:.3}]",
-                  sprt_config.elo0, sprt_config.elo1, sprt_config.alpha, sprt_config.beta, lower, upper);
-        eprintln!("Max games: {}, Sims: {}, KOTH: {}, Tier1: {}, Material: {}",
-                  num_games, simulations, enable_koth, enable_tier1, enable_material);
+        eprintln!(
+            "SPRT: elo0={}, elo1={}, alpha={}, beta={}, bounds=[{:.3}, {:.3}]",
+            sprt_config.elo0, sprt_config.elo1, sprt_config.alpha, sprt_config.beta, lower, upper
+        );
+        eprintln!(
+            "Max games: {}, Sims: {}, KOTH: {}, Tier1: {}, Material: {}",
+            num_games, simulations, enable_koth, enable_tier1, enable_material
+        );
 
         let (results, llr, decision) = evaluate_models_koth_sprt(
-            candidate_path, current_path, num_games, simulations,
-            enable_koth, enable_tier1, enable_material, inference_batch_size,
-            &sprt_config, seed_offset,
+            candidate_path,
+            current_path,
+            num_games,
+            simulations,
+            enable_koth,
+            enable_tier1,
+            enable_material,
+            inference_batch_size,
+            &sprt_config,
+            seed_offset,
             save_training_data.as_deref(),
         );
 
         let win_rate = results.win_rate();
         let games_played = results.wins + results.losses + results.draws;
         let accepted = decision == SprtResult::AcceptH1;
-        let llr_str = llr.map(|v| format!("{:.2}", v)).unwrap_or_else(|| "N/A".to_string());
+        let llr_str = llr
+            .map(|v| format!("{:.2}", v))
+            .unwrap_or_else(|| "N/A".to_string());
 
         // Machine-readable output on stdout (backward-compatible + SPRT fields)
         println!(
@@ -772,12 +903,20 @@ fn main() {
         std::process::exit(if accepted { 0 } else { 1 });
     } else {
         // Legacy fixed-threshold mode
-        eprintln!("Games: {}, Sims: {}, Threshold: {}, KOTH: {}, Tier1: {}, Material: {}",
-                  num_games, simulations, threshold, enable_koth, enable_tier1, enable_material);
+        eprintln!(
+            "Games: {}, Sims: {}, Threshold: {}, KOTH: {}, Tier1: {}, Material: {}",
+            num_games, simulations, threshold, enable_koth, enable_tier1, enable_material
+        );
 
         let results = evaluate_models_koth(
-            candidate_path, current_path, num_games, simulations,
-            enable_koth, enable_tier1, enable_material, inference_batch_size,
+            candidate_path,
+            current_path,
+            num_games,
+            simulations,
+            enable_koth,
+            enable_tier1,
+            enable_material,
+            inference_batch_size,
             seed_offset,
         );
         let win_rate = results.win_rate();

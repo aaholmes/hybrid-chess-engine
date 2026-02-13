@@ -1,8 +1,8 @@
 use kingfisher::board::Board;
 use kingfisher::boardstack::BoardStack;
-use kingfisher::move_generation::MoveGen;
+use kingfisher::mcts::sprt::{SprtConfig, SprtResult, SprtState};
 use kingfisher::mcts::{tactical_mcts_search_with_tt, TacticalMctsConfig};
-use kingfisher::mcts::sprt::{SprtConfig, SprtState, SprtResult};
+use kingfisher::move_generation::MoveGen;
 use kingfisher::neural_net::NeuralNetPolicy;
 use kingfisher::transposition::TranspositionTable;
 use std::time::Duration;
@@ -17,7 +17,10 @@ enum GameResult {
 
 /// Play a single game between two MCTS configs (both using stub NN / pesto eval).
 fn play_test_game(simulations: u32) -> GameResult {
-    play_test_game_fen(simulations, "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
+    play_test_game_fen(
+        simulations,
+        "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    )
 }
 
 /// Play a game from a custom starting position.
@@ -51,12 +54,8 @@ fn play_test_game_fen_koth(simulations: u32, fen: &str, enable_koth: bool) -> Ga
     loop {
         let board = board_stack.current_state().clone();
 
-        let (best_move, _stats, _root) = tactical_mcts_search_with_tt(
-            board.clone(),
-            &move_gen,
-            config.clone(),
-            &mut tt,
-        );
+        let (best_move, _stats, _root) =
+            tactical_mcts_search_with_tt(board.clone(), &move_gen, config.clone(), &mut tt);
 
         match best_move {
             None => break,
@@ -89,7 +88,9 @@ fn play_test_game_fen_koth(simulations: u32, fen: &str, enable_koth: bool) -> Ga
             break;
         }
 
-        let (mate, stalemate) = board_stack.current_state().is_checkmate_or_stalemate(&move_gen);
+        let (mate, stalemate) = board_stack
+            .current_state()
+            .is_checkmate_or_stalemate(&move_gen);
         if mate || stalemate {
             break;
         }
@@ -97,7 +98,11 @@ fn play_test_game_fen_koth(simulations: u32, fen: &str, enable_koth: bool) -> Ga
 
     // Check KOTH winner first
     if let Some(white_won) = koth_winner {
-        return if white_won { GameResult::WhiteWin } else { GameResult::BlackWin };
+        return if white_won {
+            GameResult::WhiteWin
+        } else {
+            GameResult::BlackWin
+        };
     }
 
     let final_board = board_stack.current_state();
@@ -152,9 +157,15 @@ fn test_alternating_colors() {
     for game_idx in 0u32..6 {
         let candidate_is_white = game_idx % 2 == 0;
         if game_idx % 2 == 0 {
-            assert!(candidate_is_white, "Even game should have candidate as white");
+            assert!(
+                candidate_is_white,
+                "Even game should have candidate as white"
+            );
         } else {
-            assert!(!candidate_is_white, "Odd game should have candidate as black");
+            assert!(
+                !candidate_is_white,
+                "Odd game should have candidate as black"
+            );
         }
     }
 }
@@ -270,7 +281,8 @@ fn test_acceptance_threshold_custom() {
 #[test]
 fn test_game_from_checkmate_position() {
     // Scholar's mate final position: Qxf7# with black king on e8
-    let board = Board::new_from_fen("rnbqkb1r/pppp1Qpp/5n2/4p3/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 0 4");
+    let board =
+        Board::new_from_fen("rnbqkb1r/pppp1Qpp/5n2/4p3/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 0 4");
     let move_gen = MoveGen::new();
     let (mate, _stalemate) = board.is_checkmate_or_stalemate(&move_gen);
     assert!(mate, "Position should be checkmate");
@@ -314,12 +326,12 @@ fn test_stub_nn_load_returns_error() {
 fn test_eval_results_aggregate() {
     // Simulate a 100-game match with known results
     let scenarios: Vec<(u32, u32, u32, f64, bool)> = vec![
-        (55, 35, 10, 0.60, true),   // 55 + 5 = 60/100 = 0.60 -> accepted
-        (50, 40, 10, 0.55, true),   // 50 + 5 = 55/100 = 0.55 -> accepted (exact boundary)
-        (40, 50, 10, 0.45, false),  // 40 + 5 = 45/100 = 0.45 -> rejected
-        (0, 0, 100, 0.50, false),   // All draws = 0.50 -> rejected at 0.55
-        (100, 0, 0, 1.0, true),     // All wins = 1.0 -> accepted
-        (0, 100, 0, 0.0, false),    // All losses = 0.0 -> rejected
+        (55, 35, 10, 0.60, true),  // 55 + 5 = 60/100 = 0.60 -> accepted
+        (50, 40, 10, 0.55, true),  // 50 + 5 = 55/100 = 0.55 -> accepted (exact boundary)
+        (40, 50, 10, 0.45, false), // 40 + 5 = 45/100 = 0.45 -> rejected
+        (0, 0, 100, 0.50, false),  // All draws = 0.50 -> rejected at 0.55
+        (100, 0, 0, 1.0, true),    // All wins = 1.0 -> accepted
+        (0, 100, 0, 0.0, false),   // All losses = 0.0 -> rejected
     ];
 
     let threshold = 0.55;
@@ -329,13 +341,22 @@ fn test_eval_results_aggregate() {
         assert!(
             (wr - expected_wr).abs() < 1e-9,
             "W:{} L:{} D:{} expected WR={} got WR={}",
-            wins, losses, draws, expected_wr, wr
+            wins,
+            losses,
+            draws,
+            expected_wr,
+            wr
         );
         assert_eq!(
             wr >= threshold,
             expected_accepted,
             "W:{} L:{} D:{} WR={} threshold={} expected accepted={}",
-            wins, losses, draws, wr, threshold, expected_accepted
+            wins,
+            losses,
+            draws,
+            wr,
+            threshold,
+            expected_accepted
         );
     }
 }
@@ -365,15 +386,13 @@ fn test_two_engine_game_with_different_tt() {
     let mut tt2 = TranspositionTable::new();
 
     // White's move (engine 1)
-    let (move1, _, _) = tactical_mcts_search_with_tt(
-        board.clone(), &move_gen, config.clone(), &mut tt1,
-    );
+    let (move1, _, _) =
+        tactical_mcts_search_with_tt(board.clone(), &move_gen, config.clone(), &mut tt1);
     assert!(move1.is_some());
 
     // Black's move (engine 2) from same position
-    let (move2, _, _) = tactical_mcts_search_with_tt(
-        board.clone(), &move_gen, config.clone(), &mut tt2,
-    );
+    let (move2, _, _) =
+        tactical_mcts_search_with_tt(board.clone(), &move_gen, config.clone(), &mut tt2);
     assert!(move2.is_some());
 }
 
@@ -384,40 +403,40 @@ fn test_koth_win_terminates_game() {
     // White king on d3, one move from center (d4). With KOTH enabled and enough
     // simulations, MCTS should move king to center and the game should end as WhiteWin.
     // Position: White king on d3, Black king on a7 (far from center).
-    let result = play_test_game_fen_koth(
-        100,
-        "3N4/k6p/p6P/2P1R3/2n3P1/P1rK4/8/5B2 w - - 4 47",
-        true,
+    let result =
+        play_test_game_fen_koth(100, "3N4/k6p/p6P/2P1R3/2n3P1/P1rK4/8/5B2 w - - 4 47", true);
+    assert_eq!(
+        result,
+        GameResult::WhiteWin,
+        "KOTH win-in-1 should terminate as WhiteWin, got {:?}",
+        result
     );
-    assert_eq!(result, GameResult::WhiteWin,
-        "KOTH win-in-1 should terminate as WhiteWin, got {:?}", result);
 }
 
 #[test]
 fn test_koth_win_correct_outcome_black() {
     // Black king on e5, one move from center (d4/d5/e4). White king far away.
     // Black to move should win immediately.
-    let result = play_test_game_fen_koth(
-        100,
-        "8/8/8/4k3/8/8/8/K7 b - - 0 1",
-        true,
+    let result = play_test_game_fen_koth(100, "8/8/8/4k3/8/8/8/K7 b - - 0 1", true);
+    assert_eq!(
+        result,
+        GameResult::BlackWin,
+        "Black king near center should win KOTH, got {:?}",
+        result
     );
-    assert_eq!(result, GameResult::BlackWin,
-        "Black king near center should win KOTH, got {:?}", result);
 }
 
 #[test]
 fn test_koth_disabled_no_early_termination() {
     // Same position as above but with KOTH disabled - should NOT end as KOTH win
     // (will end as draw due to move limit or 50-move rule since it's KvK)
-    let result = play_test_game_fen_koth(
-        50,
-        "8/8/8/4k3/8/8/8/K7 b - - 0 1",
-        false,
-    );
+    let result = play_test_game_fen_koth(50, "8/8/8/4k3/8/8/8/K7 b - - 0 1", false);
     // Without KOTH, KvK is a draw (insufficient material or will hit move/50-move limit)
-    assert_ne!(result, GameResult::BlackWin,
-        "Without KOTH, king reaching center should not be a win");
+    assert_ne!(
+        result,
+        GameResult::BlackWin,
+        "Without KOTH, king reaching center should not be a win"
+    );
 }
 
 // ---- SPRT tests ----
@@ -434,40 +453,72 @@ fn default_sprt_config() -> SprtConfig {
 #[test]
 fn test_sprt_llr_winning() {
     let config = default_sprt_config();
-    let state = SprtState { wins: 60, losses: 30, draws: 10 };
+    let state = SprtState {
+        wins: 60,
+        losses: 30,
+        draws: 10,
+    };
     let llr = state.compute_llr(&config);
     assert!(llr.is_some(), "LLR should be computable with 100 games");
-    assert!(llr.unwrap() > 0.0, "Winning record should have positive LLR, got {}", llr.unwrap());
+    assert!(
+        llr.unwrap() > 0.0,
+        "Winning record should have positive LLR, got {}",
+        llr.unwrap()
+    );
 }
 
 #[test]
 fn test_sprt_llr_losing() {
     let config = default_sprt_config();
-    let state = SprtState { wins: 30, losses: 60, draws: 10 };
+    let state = SprtState {
+        wins: 30,
+        losses: 60,
+        draws: 10,
+    };
     let llr = state.compute_llr(&config);
     assert!(llr.is_some());
-    assert!(llr.unwrap() < 0.0, "Losing record should have negative LLR, got {}", llr.unwrap());
+    assert!(
+        llr.unwrap() < 0.0,
+        "Losing record should have negative LLR, got {}",
+        llr.unwrap()
+    );
 }
 
 #[test]
 fn test_sprt_llr_all_draws() {
     let config = default_sprt_config();
-    let state = SprtState { wins: 0, losses: 0, draws: 100 };
+    let state = SprtState {
+        wins: 0,
+        losses: 0,
+        draws: 100,
+    };
     let llr = state.compute_llr(&config);
     // All draws → var = (0 + 100/4)/100 - 0.25 = 0, so LLR is None (zero variance)
     assert!(llr.is_none(), "All draws should have zero variance → None");
 
     // With a mix that's mostly draws, LLR should be computable and near 0
-    let state2 = SprtState { wins: 2, losses: 2, draws: 96 };
+    let state2 = SprtState {
+        wins: 2,
+        losses: 2,
+        draws: 96,
+    };
     let llr2 = state2.compute_llr(&config);
     assert!(llr2.is_some());
-    assert!(llr2.unwrap().abs() < 2.0, "Mostly draws LLR should be near 0, got {}", llr2.unwrap());
+    assert!(
+        llr2.unwrap().abs() < 2.0,
+        "Mostly draws LLR should be near 0, got {}",
+        llr2.unwrap()
+    );
 }
 
 #[test]
 fn test_sprt_llr_too_few_games() {
     let config = default_sprt_config();
-    let state = SprtState { wins: 1, losses: 0, draws: 0 };
+    let state = SprtState {
+        wins: 1,
+        losses: 0,
+        draws: 0,
+    };
     let llr = state.compute_llr(&config);
     assert!(llr.is_none(), "LLR should be None for <2 games");
 }
@@ -475,25 +526,49 @@ fn test_sprt_llr_too_few_games() {
 #[test]
 fn test_sprt_decision_h1() {
     let config = default_sprt_config();
-    let state = SprtState { wins: 80, losses: 10, draws: 10 };
+    let state = SprtState {
+        wins: 80,
+        losses: 10,
+        draws: 10,
+    };
     let result = state.check_decision(&config);
-    assert_eq!(result, SprtResult::AcceptH1, "Dominant winning record should accept H1");
+    assert_eq!(
+        result,
+        SprtResult::AcceptH1,
+        "Dominant winning record should accept H1"
+    );
 }
 
 #[test]
 fn test_sprt_decision_h0() {
     let config = default_sprt_config();
-    let state = SprtState { wins: 10, losses: 80, draws: 10 };
+    let state = SprtState {
+        wins: 10,
+        losses: 80,
+        draws: 10,
+    };
     let result = state.check_decision(&config);
-    assert_eq!(result, SprtResult::AcceptH0, "Dominant losing record should accept H0");
+    assert_eq!(
+        result,
+        SprtResult::AcceptH0,
+        "Dominant losing record should accept H0"
+    );
 }
 
 #[test]
 fn test_sprt_decision_inconclusive() {
     let config = default_sprt_config();
-    let state = SprtState { wins: 26, losses: 24, draws: 50 };
+    let state = SprtState {
+        wins: 26,
+        losses: 24,
+        draws: 50,
+    };
     let result = state.check_decision(&config);
-    assert_eq!(result, SprtResult::Inconclusive, "Close results should be inconclusive");
+    assert_eq!(
+        result,
+        SprtResult::Inconclusive,
+        "Close results should be inconclusive"
+    );
 }
 
 /// Regression test for the SPRT in-flight dilution bug.
@@ -511,17 +586,35 @@ fn test_sprt_decision_not_diluted_by_inflight_games() {
     let (lower, upper) = config.bounds();
 
     // State at decision point: 21W/4L/137D — this triggers H1
-    let state_at_decision = SprtState { wins: 21, losses: 4, draws: 137 };
+    let state_at_decision = SprtState {
+        wins: 21,
+        losses: 4,
+        draws: 137,
+    };
     let llr_at_decision = state_at_decision.compute_llr(&config).unwrap();
     let decision_at_trigger = state_at_decision.check_decision(&config);
-    assert!(llr_at_decision >= upper, "LLR {:.2} should be >= threshold {:.3}", llr_at_decision, upper);
+    assert!(
+        llr_at_decision >= upper,
+        "LLR {:.2} should be >= threshold {:.3}",
+        llr_at_decision,
+        upper
+    );
     assert_eq!(decision_at_trigger, SprtResult::AcceptH1);
 
     // State after in-flight games complete: 24W/9L/156D — diluted below threshold
-    let state_after_inflight = SprtState { wins: 24, losses: 9, draws: 156 };
+    let state_after_inflight = SprtState {
+        wins: 24,
+        losses: 9,
+        draws: 156,
+    };
     let llr_after = state_after_inflight.compute_llr(&config).unwrap();
     let decision_after = state_after_inflight.check_decision(&config);
-    assert!(llr_after < upper, "Diluted LLR {:.2} should be < threshold {:.3}", llr_after, upper);
+    assert!(
+        llr_after < upper,
+        "Diluted LLR {:.2} should be < threshold {:.3}",
+        llr_after,
+        upper
+    );
     assert_eq!(decision_after, SprtResult::Inconclusive);
 
     // The correct behavior: use the decision captured at the stop-flag point (H1),
@@ -540,6 +633,10 @@ fn test_sprt_bounds_symmetric() {
         beta: 0.05,
     };
     let (lower, upper) = config.bounds();
-    assert!((lower.abs() - upper.abs()).abs() < 1e-9,
-        "Symmetric alpha/beta should give |A| == |B|, got A={} B={}", lower, upper);
+    assert!(
+        (lower.abs() - upper.abs()).abs() < 1e-9,
+        "Symmetric alpha/beta should give |A| == |B|, got A={} B={}",
+        lower,
+        upper
+    );
 }

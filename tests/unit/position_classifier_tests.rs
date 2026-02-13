@@ -45,7 +45,8 @@ fn test_classify_tactical_many_captures() {
     let (move_gen, pesto) = setup();
     let classifier = PositionClassifier::new(&move_gen, &pesto);
     // Position with many capture opportunities (pieces intermingled)
-    let board = Board::new_from_fen("r1bqkbnr/pppppppp/2n5/4P3/3pP3/2N2N2/PPP2PPP/R1BQKB1R b KQkq - 0 4");
+    let board =
+        Board::new_from_fen("r1bqkbnr/pppppppp/2n5/4P3/3pP3/2N2N2/PPP2PPP/R1BQKB1R b KQkq - 0 4");
     let result = classifier.classify(&board);
     // This position has captures available (d4xNc3, Nc6xe5, etc.)
     // May be Tactical or Positional depending on capture count
@@ -57,7 +58,8 @@ fn test_classify_defensive_in_check() {
     let (move_gen, pesto) = setup();
     let classifier = PositionClassifier::new(&move_gen, &pesto);
     // Scholar's mate attempt: Qf7+ — Black is in check, many pieces, few captures
-    let board = Board::new_from_fen("rnbqkbnr/pppp1Qpp/8/4p3/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 0 1");
+    let board =
+        Board::new_from_fen("rnbqkbnr/pppp1Qpp/8/4p3/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 0 1");
     let piece_count = board.get_all_occupancy().count_ones();
     assert!(piece_count > 10, "Should have many pieces");
     let result = classifier.classify(&board);
@@ -65,7 +67,8 @@ fn test_classify_defensive_in_check() {
     // The classifier checks captures first (>= 3), then check
     assert!(
         result == PositionType::Defensive || result == PositionType::Tactical,
-        "Position in check should be Defensive or Tactical, got {:?}", result
+        "Position in check should be Defensive or Tactical, got {:?}",
+        result
     );
 }
 

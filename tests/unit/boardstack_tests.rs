@@ -1,9 +1,9 @@
 //! Unit tests for BoardStack (move history and undo/redo)
 
+use crate::common::positions;
 use kingfisher::boardstack::BoardStack;
 use kingfisher::move_types::Move;
 use kingfisher::piece_types::{PAWN, WHITE};
-use crate::common::positions;
 
 #[test]
 fn test_new_starts_at_initial_position() {
@@ -11,14 +11,22 @@ fn test_new_starts_at_initial_position() {
     let board = stack.current_state();
     assert!(board.w_to_move, "Starting position should be white to move");
     // position_history should have exactly 1 entry
-    assert_eq!(stack.position_history.len(), 1, "Should have one position in history");
+    assert_eq!(
+        stack.position_history.len(),
+        1,
+        "Should have one position in history"
+    );
 }
 
 #[test]
 fn test_new_from_fen() {
     let stack = BoardStack::new_from_fen(positions::EN_PASSANT);
     let board = stack.current_state();
-    assert_eq!(board.en_passant(), Some(40), "En passant square should be a6 (40)");
+    assert_eq!(
+        board.en_passant(),
+        Some(40),
+        "En passant square should be a6 (40)"
+    );
 }
 
 #[test]
@@ -31,16 +39,23 @@ fn test_make_move_and_undo_restores_state() {
     stack.make_move(mv);
     let after_fen = stack.current_state().to_fen().unwrap();
     assert_ne!(after_fen, original_fen, "FEN should change after move");
-    assert!(!stack.current_state().w_to_move, "Should be black to move after e2e4");
+    assert!(
+        !stack.current_state().w_to_move,
+        "Should be black to move after e2e4"
+    );
 
     // Undo
     let undone = stack.undo_move();
     assert_eq!(undone, Some(mv));
     assert_eq!(
-        stack.current_state().to_fen().unwrap(), original_fen,
+        stack.current_state().to_fen().unwrap(),
+        original_fen,
         "FEN should be restored after undo"
     );
-    assert!(stack.current_state().w_to_move, "Should be white to move after undo");
+    assert!(
+        stack.current_state().w_to_move,
+        "Should be white to move after undo"
+    );
 }
 
 #[test]
@@ -74,7 +89,10 @@ fn test_is_draw_by_repetition_true() {
     stack.make_move(ng1);
     stack.make_move(ng8);
     // Back to starting position (2nd time)
-    assert!(!stack.is_draw_by_repetition(), "Should not be draw after 2 repetitions");
+    assert!(
+        !stack.is_draw_by_repetition(),
+        "Should not be draw after 2 repetitions"
+    );
 
     // Cycle 2
     stack.make_move(nf3);
@@ -82,7 +100,10 @@ fn test_is_draw_by_repetition_true() {
     stack.make_move(ng1);
     stack.make_move(ng8);
     // Back to starting position (3rd time)
-    assert!(stack.is_draw_by_repetition(), "Should be draw after 3 repetitions");
+    assert!(
+        stack.is_draw_by_repetition(),
+        "Should be draw after 3 repetitions"
+    );
 }
 
 #[test]
@@ -115,13 +136,24 @@ fn test_null_move_make_and_undo() {
     assert!(stack.current_state().w_to_move);
 
     stack.make_null_move();
-    assert!(!stack.current_state().w_to_move, "Null move should flip side to move");
-    assert_eq!(stack.current_state().en_passant(), None, "Null move should clear en passant");
+    assert!(
+        !stack.current_state().w_to_move,
+        "Null move should flip side to move"
+    );
+    assert_eq!(
+        stack.current_state().en_passant(),
+        None,
+        "Null move should clear en passant"
+    );
 
     stack.undo_null_move();
-    assert!(stack.current_state().w_to_move, "Undo null move should restore side to move");
+    assert!(
+        stack.current_state().w_to_move,
+        "Undo null move should restore side to move"
+    );
     assert_eq!(
-        stack.current_state().to_fen().unwrap(), original_fen,
+        stack.current_state().to_fen().unwrap(),
+        original_fen,
         "FEN should be restored after undo null move"
     );
 }

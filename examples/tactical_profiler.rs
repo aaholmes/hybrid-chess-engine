@@ -4,8 +4,8 @@
 //! to identify bottlenecks and optimization opportunities.
 
 use kingfisher::board::Board;
-use kingfisher::move_generation::MoveGen;
 use kingfisher::mcts::{tactical_mcts_search, TacticalMctsConfig};
+use kingfisher::move_generation::MoveGen;
 use std::time::{Duration, Instant};
 
 #[derive(Debug)]
@@ -21,31 +21,23 @@ pub struct ProfileResult {
 }
 
 /// Profile the tactical MCTS on a specific position
-fn profile_position(
-    board: Board,
-    move_gen: &MoveGen,
-    config: TacticalMctsConfig,
-) -> ProfileResult {
+fn profile_position(board: Board, move_gen: &MoveGen, config: TacticalMctsConfig) -> ProfileResult {
     let start_time = Instant::now();
-    let (_, stats, _) = tactical_mcts_search(
-        board,
-        move_gen,
-        config,
-    );
+    let (_, stats, _) = tactical_mcts_search(board, move_gen, config);
     let total_time = start_time.elapsed();
-    
+
     let avg_time_per_iteration = if stats.iterations > 0 {
         Duration::from_nanos(total_time.as_nanos() as u64 / stats.iterations as u64)
     } else {
         Duration::from_nanos(0)
     };
-    
+
     let nodes_per_second = if total_time.as_secs_f64() > 0.0 {
         stats.nodes_expanded as f64 / total_time.as_secs_f64()
     } else {
         0.0
     };
-    
+
     ProfileResult {
         total_time,
         iterations: stats.iterations,
@@ -64,70 +56,88 @@ fn run_profiling_suite() {
     println!("{}", "=".repeat(60));
 
     let move_gen = MoveGen::new();
-    
+
     // Test positions
     let test_positions = vec![
-        ("Starting Position", "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"),
-        ("Middle Game", "r1bqkb1r/pppp1ppp/2n2n2/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4"),
-        ("Tactical Position", "rnbqkb1r/pppp1ppp/5n2/4p3/2B1P3/8/PPPP1PPP/RNBQK1NR w KQkq - 2 3"),
+        (
+            "Starting Position",
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+        ),
+        (
+            "Middle Game",
+            "r1bqkb1r/pppp1ppp/2n2n2/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        ),
+        (
+            "Tactical Position",
+            "rnbqkb1r/pppp1ppp/5n2/4p3/2B1P3/8/PPPP1PPP/RNBQK1NR w KQkq - 2 3",
+        ),
         ("Endgame", "8/8/8/3k4/8/3K4/8/8 w - - 0 1"),
     ];
-    
+
     // Test configurations
     let test_configs = vec![
-        ("Quick Search", TacticalMctsConfig {
-            max_iterations: 100,
-            time_limit: Duration::from_millis(500),
-            mate_search_depth: 1,
-            exploration_constant: 1.414,
-            use_neural_policy: false,
-            inference_server: None,
-            logger: None,
-            ..Default::default()
-        }),
-        ("Standard Search", TacticalMctsConfig {
-            max_iterations: 500,
-            time_limit: Duration::from_millis(2000),
-            mate_search_depth: 3,
-            exploration_constant: 1.414,
-            use_neural_policy: false,
-            inference_server: None,
-            logger: None,
-            ..Default::default()
-        }),
-        ("Deep Search", TacticalMctsConfig {
-            max_iterations: 1000,
-            time_limit: Duration::from_millis(5000),
-            mate_search_depth: 5,
-            exploration_constant: 1.414,
-            use_neural_policy: false,
-            inference_server: None,
-            logger: None,
-            ..Default::default()
-        }),
+        (
+            "Quick Search",
+            TacticalMctsConfig {
+                max_iterations: 100,
+                time_limit: Duration::from_millis(500),
+                mate_search_depth: 1,
+                exploration_constant: 1.414,
+                use_neural_policy: false,
+                inference_server: None,
+                logger: None,
+                ..Default::default()
+            },
+        ),
+        (
+            "Standard Search",
+            TacticalMctsConfig {
+                max_iterations: 500,
+                time_limit: Duration::from_millis(2000),
+                mate_search_depth: 3,
+                exploration_constant: 1.414,
+                use_neural_policy: false,
+                inference_server: None,
+                logger: None,
+                ..Default::default()
+            },
+        ),
+        (
+            "Deep Search",
+            TacticalMctsConfig {
+                max_iterations: 1000,
+                time_limit: Duration::from_millis(5000),
+                mate_search_depth: 5,
+                exploration_constant: 1.414,
+                use_neural_policy: false,
+                inference_server: None,
+                logger: None,
+                ..Default::default()
+            },
+        ),
     ];
-    
+
     for (pos_name, fen) in test_positions {
         println!("\n🎯 Profiling Position: {}", pos_name);
         println!("   FEN: {}", fen);
-        
+
         let board = Board::new_from_fen(fen);
-        
+
         for (config_name, config) in &test_configs {
             println!("\n   📊 Configuration: {}", config_name);
-            
+
             let result = profile_position(board.clone(), &move_gen, config.clone());
             print_profile_result(&result);
         }
     }
-    
+
     // Scaling analysis
     println!("\n🚀 SCALING ANALYSIS");
     println!("{}", "=".repeat(60));
-    
+
     let board = Board::new(); // Starting position
     let iteration_counts = vec![50, 100, 200, 500, 1000];
-    
+
     for &iterations in &iteration_counts {
         let config = TacticalMctsConfig {
             max_iterations: iterations,
@@ -139,7 +149,7 @@ fn run_profiling_suite() {
             logger: None,
             ..Default::default()
         };
-        
+
         println!("\n📈 {} iterations:", iterations);
         let result = profile_position(board.clone(), &move_gen, config);
         print_scaling_result(&result, iterations);
@@ -147,17 +157,27 @@ fn run_profiling_suite() {
 }
 
 fn print_profile_result(result: &ProfileResult) {
-    println!("      Total time:           {}ms", result.total_time.as_millis());
+    println!(
+        "      Total time:           {}ms",
+        result.total_time.as_millis()
+    );
     println!("      Iterations:           {}", result.iterations);
     println!("      Nodes expanded:       {}", result.nodes_expanded);
-    println!("      Tactical moves:       {}", result.tactical_moves_identified);
+    println!(
+        "      Tactical moves:       {}",
+        result.tactical_moves_identified
+    );
     println!("      NN evaluations:       {}", result.nn_evaluations);
-    println!("      Avg time/iteration:   {:.2}ms", result.avg_time_per_iteration.as_secs_f64() * 1000.0);
+    println!(
+        "      Avg time/iteration:   {:.2}ms",
+        result.avg_time_per_iteration.as_secs_f64() * 1000.0
+    );
     println!("      Nodes/second:         {:.0}", result.nodes_per_second);
-    
+
     // Calculate efficiency metrics
     if result.iterations > 0 {
-        let tactical_per_iteration = result.tactical_moves_identified as f64 / result.iterations as f64;
+        let tactical_per_iteration =
+            result.tactical_moves_identified as f64 / result.iterations as f64;
         let nodes_per_iteration = result.nodes_expanded as f64 / result.iterations as f64;
         println!("      Tactical/iteration:   {:.1}", tactical_per_iteration);
         println!("      Nodes/iteration:      {:.1}", nodes_per_iteration);
@@ -170,18 +190,24 @@ fn print_scaling_result(result: &ProfileResult, target_iterations: u32) {
     } else {
         0.0
     };
-    
-    println!("   Completed: {}/{} iterations ({:.1}%)", 
-             result.iterations, target_iterations, efficiency);
-    println!("   Time: {}ms, Nodes: {}, NPS: {:.0}", 
-             result.total_time.as_millis(), result.nodes_expanded, result.nodes_per_second);
+
+    println!(
+        "   Completed: {}/{} iterations ({:.1}%)",
+        result.iterations, target_iterations, efficiency
+    );
+    println!(
+        "   Time: {}ms, Nodes: {}, NPS: {:.0}",
+        result.total_time.as_millis(),
+        result.nodes_expanded,
+        result.nodes_per_second
+    );
 }
 
 /// Memory usage analysis
 fn analyze_memory_usage() {
     println!("\n💾 MEMORY USAGE ANALYSIS");
     println!("{}", "=".repeat(60));
-    
+
     // This is a simplified analysis - in a real implementation,
     // you would use tools like valgrind or built-in memory profilers
     println!("Memory analysis would require external profiling tools.");
@@ -195,22 +221,22 @@ fn analyze_memory_usage() {
 fn identify_bottlenecks() {
     println!("\n🎯 POTENTIAL BOTTLENECKS");
     println!("{}", "=".repeat(60));
-    
+
     println!("Based on the tactical MCTS implementation:");
     println!("1. 🔍 Mate Search:");
     println!("   - Called for every leaf node");
     println!("   - Optimization: Cache results, reduce depth for non-tactical positions");
-    
+
     println!("\n2. 🎯 Tactical Move Identification:");
     println!("   - MVV-LVA calculation for each move");
     println!("   - Fork detection algorithms");
     println!("   - Optimization: Cache tactical moves per position");
-    
+
     println!("\n3. 🌳 Node Creation and Management:");
     println!("   - RefCell borrowing overhead");
     println!("   - HashMap operations for move priorities");
     println!("   - Optimization: Object pooling, reduce allocations");
-    
+
     println!("\n4. 🧮 Position Evaluation:");
     println!("   - Pesto evaluation for each leaf");
     println!("   - Board cloning for mate search");
@@ -219,11 +245,11 @@ fn identify_bottlenecks() {
 
 fn main() {
     println!("🔬 Starting Tactical-Enhanced MCTS Performance Profiler\n");
-    
+
     run_profiling_suite();
     analyze_memory_usage();
     identify_bottlenecks();
-    
+
     println!("\n✅ Profiling Complete!");
     println!("\n💡 Next Steps:");
     println!("   1. Run with release build for accurate performance numbers");

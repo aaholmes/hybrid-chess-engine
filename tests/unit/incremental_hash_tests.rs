@@ -3,11 +3,11 @@
 //! Verifies that the incremental hash computation in apply_move_to_board
 //! produces the same result as full recomputation via compute_zobrist_hash().
 
+use crate::common::{board_from_fen, positions};
 use kingfisher::board::Board;
 use kingfisher::move_generation::MoveGen;
 use kingfisher::move_types::Move;
 use kingfisher::piece_types::QUEEN;
-use crate::common::{board_from_fen, positions};
 
 fn setup() -> MoveGen {
     MoveGen::new()
@@ -27,9 +27,13 @@ fn test_incremental_hash_quiet_move() {
     // The stored hash should also match
     let expected = new_board.compute_zobrist_hash();
     // Apply again from scratch using FEN to verify
-    let fen_board = Board::new_from_fen("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1");
-    assert_eq!(expected, fen_board.compute_zobrist_hash(),
-        "Incremental hash after e2e4 should match FEN-constructed board");
+    let fen_board =
+        Board::new_from_fen("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1");
+    assert_eq!(
+        expected,
+        fen_board.compute_zobrist_hash(),
+        "Incremental hash after e2e4 should match FEN-constructed board"
+    );
 }
 
 #[test]
@@ -40,9 +44,13 @@ fn test_incremental_hash_capture() {
     let mv = Move::new(21, 36, None);
     let new_board = board.apply_move_to_board(mv);
     let expected = new_board.compute_zobrist_hash();
-    let fen_board = Board::new_from_fen("rnbqkbnr/pppp1ppp/8/4N3/4P3/8/PPPP1PPP/RNBQKB1R b KQkq - 0 3");
-    assert_eq!(expected, fen_board.compute_zobrist_hash(),
-        "Incremental hash after Nxe5 should match FEN-constructed board");
+    let fen_board =
+        Board::new_from_fen("rnbqkbnr/pppp1ppp/8/4N3/4P3/8/PPPP1PPP/RNBQKB1R b KQkq - 0 3");
+    assert_eq!(
+        expected,
+        fen_board.compute_zobrist_hash(),
+        "Incremental hash after Nxe5 should match FEN-constructed board"
+    );
 }
 
 #[test]
@@ -55,8 +63,11 @@ fn test_incremental_hash_en_passant() {
     let expected = new_board.compute_zobrist_hash();
     // After en passant: pawn on a6, no pawn on a5, black to move
     let fen_board = Board::new_from_fen("8/8/P7/8/8/8/8/K6k b - - 0 1");
-    assert_eq!(expected, fen_board.compute_zobrist_hash(),
-        "Incremental hash after en passant should match FEN-constructed board");
+    assert_eq!(
+        expected,
+        fen_board.compute_zobrist_hash(),
+        "Incremental hash after en passant should match FEN-constructed board"
+    );
 }
 
 #[test]
@@ -67,8 +78,11 @@ fn test_incremental_hash_kingside_castling() {
     let new_board = board.apply_move_to_board(mv);
     let expected = new_board.compute_zobrist_hash();
     let fen_board = Board::new_from_fen("r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R4RK1 b kq - 1 1");
-    assert_eq!(expected, fen_board.compute_zobrist_hash(),
-        "Incremental hash after O-O should match FEN-constructed board");
+    assert_eq!(
+        expected,
+        fen_board.compute_zobrist_hash(),
+        "Incremental hash after O-O should match FEN-constructed board"
+    );
 }
 
 #[test]
@@ -79,8 +93,11 @@ fn test_incremental_hash_queenside_castling() {
     let new_board = board.apply_move_to_board(mv);
     let expected = new_board.compute_zobrist_hash();
     let fen_board = Board::new_from_fen("r3k2r/pppppppp/8/8/8/8/PPPPPPPP/2KR3R b kq - 1 1");
-    assert_eq!(expected, fen_board.compute_zobrist_hash(),
-        "Incremental hash after O-O-O should match FEN-constructed board");
+    assert_eq!(
+        expected,
+        fen_board.compute_zobrist_hash(),
+        "Incremental hash after O-O-O should match FEN-constructed board"
+    );
 }
 
 #[test]
@@ -91,8 +108,11 @@ fn test_incremental_hash_promotion() {
     let new_board = board.apply_move_to_board(mv);
     let expected = new_board.compute_zobrist_hash();
     let fen_board = Board::new_from_fen("Q7/8/8/8/8/8/8/K6k b - - 0 1");
-    assert_eq!(expected, fen_board.compute_zobrist_hash(),
-        "Incremental hash after promotion should match FEN-constructed board");
+    assert_eq!(
+        expected,
+        fen_board.compute_zobrist_hash(),
+        "Incremental hash after promotion should match FEN-constructed board"
+    );
 }
 
 #[test]
@@ -103,8 +123,11 @@ fn test_incremental_hash_null_move() {
     let expected = new_board.compute_zobrist_hash();
     // After null move from starting position, same pieces but black to move, no en passant
     let fen_board = Board::new_from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1");
-    assert_eq!(expected, fen_board.compute_zobrist_hash(),
-        "Incremental hash after null move should match FEN-constructed board");
+    assert_eq!(
+        expected,
+        fen_board.compute_zobrist_hash(),
+        "Incremental hash after null move should match FEN-constructed board"
+    );
 }
 
 #[test]
@@ -116,8 +139,11 @@ fn test_incremental_hash_castling_rights_change_by_rook_move() {
     let new_board = board.apply_move_to_board(mv);
     let expected = new_board.compute_zobrist_hash();
     let fen_board = Board::new_from_fen("r3k2r/pppppppp/8/8/8/8/RPPPPPPP/4K2R b Kkq - 1 1");
-    assert_eq!(expected, fen_board.compute_zobrist_hash(),
-        "Incremental hash after rook move removing castling should match");
+    assert_eq!(
+        expected,
+        fen_board.compute_zobrist_hash(),
+        "Incremental hash after rook move removing castling should match"
+    );
 }
 
 #[test]
@@ -151,7 +177,11 @@ fn test_incremental_hash_perft3() {
     }
 
     walk(&board, &move_gen, 3, &mut mismatches, &mut total);
-    assert_eq!(mismatches, 0, "All {} perft-3 leaf positions should have matching incremental hashes", total);
+    assert_eq!(
+        mismatches, 0,
+        "All {} perft-3 leaf positions should have matching incremental hashes",
+        total
+    );
     assert!(total > 0, "Should have visited at least some leaf nodes");
 }
 
@@ -172,8 +202,11 @@ fn test_incremental_hash_rook_capture_removes_castling() {
     let expected = new_board.compute_zobrist_hash();
     // After Rxa8: white rook on a8, no black rook, black to move, no castling
     let fen_board = Board::new_from_fen("R3k3/8/8/8/8/8/8/4K3 b - - 0 1");
-    assert_eq!(expected, fen_board.compute_zobrist_hash(),
-        "Incremental hash after rook capture removing opponent castling should match");
+    assert_eq!(
+        expected,
+        fen_board.compute_zobrist_hash(),
+        "Incremental hash after rook capture removing opponent castling should match"
+    );
 }
 
 #[test]
@@ -183,16 +216,25 @@ fn test_incremental_hash_sequence_of_moves() {
 
     // 1. e4
     let b1 = board.apply_move_to_board(Move::new(12, 28, None));
-    assert_eq!(b1.compute_zobrist_hash(),
-        Board::new_from_fen("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1").compute_zobrist_hash());
+    assert_eq!(
+        b1.compute_zobrist_hash(),
+        Board::new_from_fen("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1")
+            .compute_zobrist_hash()
+    );
 
     // 1...e5
     let b2 = b1.apply_move_to_board(Move::new(52, 36, None));
-    assert_eq!(b2.compute_zobrist_hash(),
-        Board::new_from_fen("rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2").compute_zobrist_hash());
+    assert_eq!(
+        b2.compute_zobrist_hash(),
+        Board::new_from_fen("rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2")
+            .compute_zobrist_hash()
+    );
 
     // 2. Nf3
     let b3 = b2.apply_move_to_board(Move::new(6, 21, None));
-    assert_eq!(b3.compute_zobrist_hash(),
-        Board::new_from_fen("rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2").compute_zobrist_hash());
+    assert_eq!(
+        b3.compute_zobrist_hash(),
+        Board::new_from_fen("rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2")
+            .compute_zobrist_hash()
+    );
 }

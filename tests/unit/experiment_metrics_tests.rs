@@ -1,8 +1,6 @@
 //! Tests for experiments::metrics module
 
-use kingfisher::experiments::metrics::{
-    AggregatedMetrics, SafetyMetrics, SearchMetrics,
-};
+use kingfisher::experiments::metrics::{AggregatedMetrics, SafetyMetrics, SearchMetrics};
 use std::time::Duration;
 
 // === SearchMetrics Tests ===

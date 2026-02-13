@@ -7,40 +7,39 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use kingfisher::board::Board;
-use kingfisher::mcts::tactical_mcts::{tactical_mcts_search, TacticalMctsConfig};
 use kingfisher::mcts::inference_server::InferenceServer;
 use kingfisher::mcts::search_logger::{SearchLogger, Verbosity};
+use kingfisher::mcts::tactical_mcts::{tactical_mcts_search, TacticalMctsConfig};
 use kingfisher::move_generation::MoveGen;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    
+
     if args.len() < 2 {
         print_usage();
         return;
     }
-    
+
     let fen = &args[1];
     let verbosity = parse_verbosity(&args).unwrap_or(Verbosity::Normal);
     let iterations = parse_arg(&args, "--iterations").unwrap_or(200);
     let no_emoji = args.iter().any(|a| a == "--no-emoji");
-    
+
     println!("🎙️ Caissawary Verbose MCTS Search");
     println!("======================");
     println!("FEN: {}", fen);
     println!("Verbosity: {:?}", verbosity);
     println!("Iterations: {}", iterations);
     println!();
-    
+
     // Create logger
-    let logger = SearchLogger::new(verbosity)
-        .with_emoji(!no_emoji);
-    
+    let logger = SearchLogger::new(verbosity).with_emoji(!no_emoji);
+
     // Initialize components
     let board = Board::new_from_fen(fen);
     let move_gen = MoveGen::new();
     let server = InferenceServer::new_mock();
-    
+
     let config = TacticalMctsConfig {
         max_iterations: iterations,
         time_limit: Duration::from_secs(60),
@@ -51,15 +50,11 @@ fn main() {
         logger: Some(Arc::new(logger)),
         ..Default::default()
     };
-    
+
     println!("--- Search begins ---\n");
-    
-    let (best_move, stats, _root) = tactical_mcts_search(
-        board,
-        &move_gen,
-        config,
-    );
-    
+
+    let (best_move, stats, _root) = tactical_mcts_search(board, &move_gen, config);
+
     println!("\n--- Search complete ---");
     println!();
     if let Some(mv) = best_move {
