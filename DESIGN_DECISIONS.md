@@ -177,6 +177,10 @@ This is the odds ratio of the expected score — the probability of winning divi
 
 **Why this is better than weighted sampling.** With weighted random sampling, a position from the strongest model might be sampled 3 times while a position from a slightly weaker model is never seen — pure randomness. Epoch-based inclusion guarantees that every max-Elo position is trained on exactly once per epoch, while older data is deterministically downsampled. This eliminates both wasted data (positions evicted before being trained on) and redundant training (positions sampled multiple times in one pass).
 
+**How many epochs?** The optimal number depends on the ratio of model capacity to buffer size. AlphaZero and ELF OpenGo train on thousands of GPUs generating data far faster than they consume it (ELF reports a 13:1 self-play-to-training ratio), so each position is rarely seen twice. Running on a single GPU, we need to extract maximum signal from every position — multiple epochs are the natural lever.
+
+Early experiments with the 2M parameter model at 1 epoch showed rapid initial gains (+67 Elo in 2 generations) followed by 4 consecutive rejections — the model had capacity to learn more but wasn't getting enough gradient updates per generation. Switching to 2 epochs broke through the plateau: the 2-epoch run reached +88 Elo in 3 generations where the 1-epoch run stalled at +67. The risk of overfitting increases with more epochs, but with 100K+ samples and a 2M parameter model that's clearly underfitting, 2 epochs is well within the safe regime. Whether 3+ epochs would help further is an open question — diminishing returns are expected, and the answer likely depends on how quickly the buffer grows relative to model capacity.
+
 ### Data augmentation: exploiting board symmetries
 
 Chess has a horizontal flip symmetry (a-file ↔ h-file) that holds whenever castling rights are absent. Pawnless, castling-free positions additionally have the full D4 dihedral symmetry (4 rotations x 2 reflections = 8 transforms). The augmentation system classifies each training sample into one of three symmetry groups:
