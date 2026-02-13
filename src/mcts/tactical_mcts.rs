@@ -50,6 +50,9 @@ pub struct TacticalMctsConfig {
     pub dirichlet_alpha: f64,
     /// Dirichlet noise epsilon (0.0 = disabled, 0.25 for chess training)
     pub dirichlet_epsilon: f64,
+    /// Shuffle children after expansion to break move-generation-order bias
+    /// Enable for training (self-play), disable for deterministic analysis/evaluation
+    pub randomize_move_order: bool,
 }
 
 impl Default for TacticalMctsConfig {
@@ -69,6 +72,7 @@ impl Default for TacticalMctsConfig {
             enable_material_value: true,
             dirichlet_alpha: 0.0,
             dirichlet_epsilon: 0.0,
+            randomize_move_order: false,
         }
     }
 }

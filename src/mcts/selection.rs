@@ -10,6 +10,7 @@ use crate::mcts::tactical::identify_tactical_moves;
 use crate::mcts::tactical_mcts::{TacticalMctsConfig, TacticalMctsStats};
 use crate::move_generation::MoveGen;
 use crate::move_types::Move;
+use rand::seq::SliceRandom;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -24,7 +25,7 @@ pub fn select_child_with_tactical_priority(
     depth: usize,
 ) -> Option<Rc<RefCell<MctsNode>>> {
     // First, ensure the node has been expanded (children created)
-    ensure_node_expanded(node.clone(), move_gen);
+    ensure_node_expanded(node.clone(), move_gen, config.randomize_move_order);
 
     {
         let node_ref = node.borrow();
@@ -75,8 +76,10 @@ pub fn select_child_with_tactical_priority(
     select_ucb_with_policy(node, config, move_gen, logger, depth)
 }
 
-/// Ensure the node has been expanded with all child nodes
-fn ensure_node_expanded(node: Rc<RefCell<MctsNode>>, move_gen: &MoveGen) {
+/// Ensure the node has been expanded with all child nodes.
+/// When `shuffle` is true, children are randomly reordered after expansion
+/// to break move-generation-order bias (important for training with uniform policy).
+fn ensure_node_expanded(node: Rc<RefCell<MctsNode>>, move_gen: &MoveGen, shuffle: bool) {
     let mut node_ref = node.borrow_mut();
 
     // If children already created, nothing to do
@@ -93,6 +96,10 @@ fn ensure_node_expanded(node: Rc<RefCell<MctsNode>>, move_gen: &MoveGen) {
             let child_node = MctsNode::new_child(Rc::downgrade(&node), *mv, new_board, move_gen);
             node_ref.children.push(child_node);
         }
+    }
+
+    if shuffle {
+        node_ref.children.shuffle(&mut rand::thread_rng());
     }
 }
 
@@ -377,11 +384,68 @@ mod tests {
         let move_gen = MoveGen::new();
         let root = MctsNode::new_root(board, &move_gen);
 
-        ensure_node_expanded(root.clone(), &move_gen);
+        ensure_node_expanded(root.clone(), &move_gen, false);
 
         // Starting position should have 20 legal moves
         let node_ref = root.borrow();
         assert_eq!(node_ref.children.len(), 20);
+    }
+
+    #[test]
+    fn test_default_expansion_is_deterministic() {
+        let board = Board::new();
+        let move_gen = MoveGen::new();
+
+        // Expand twice without shuffling
+        let root1 = MctsNode::new_root(board.clone(), &move_gen);
+        ensure_node_expanded(root1.clone(), &move_gen, false);
+        let order1: Vec<Move> = root1
+            .borrow()
+            .children
+            .iter()
+            .map(|c| c.borrow().action.unwrap())
+            .collect();
+
+        let root2 = MctsNode::new_root(board, &move_gen);
+        ensure_node_expanded(root2.clone(), &move_gen, false);
+        let order2: Vec<Move> = root2
+            .borrow()
+            .children
+            .iter()
+            .map(|c| c.borrow().action.unwrap())
+            .collect();
+
+        assert_eq!(order1, order2, "Non-shuffled expansion should be deterministic");
+    }
+
+    #[test]
+    fn test_shuffled_expansion_varies_order() {
+        let board = Board::new();
+        let move_gen = MoveGen::new();
+
+        // Collect orderings from 5 shuffled expansions
+        let mut orderings = Vec::new();
+        for _ in 0..5 {
+            let root = MctsNode::new_root(board.clone(), &move_gen);
+            ensure_node_expanded(root.clone(), &move_gen, true);
+            let order: Vec<Move> = root
+                .borrow()
+                .children
+                .iter()
+                .map(|c| c.borrow().action.unwrap())
+                .collect();
+            orderings.push(order);
+        }
+
+        // At least 2 out of 5 should differ (probability of all identical = 1/20!^4 ≈ 0)
+        let distinct = orderings
+            .iter()
+            .filter(|o| **o != orderings[0])
+            .count();
+        assert!(
+            distinct >= 1,
+            "Shuffled expansion should produce varied orderings"
+        );
     }
 
     #[test]

@@ -193,6 +193,7 @@ fn play_game(
         enable_tier1_gate: enable_tier1,
         enable_material_value: enable_material,
         enable_tier3_neural: has_nn,
+        randomize_move_order: true,
         ..Default::default()
     };
     let mut transposition_table = TranspositionTable::new();
