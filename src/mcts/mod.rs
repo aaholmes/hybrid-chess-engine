@@ -3,17 +3,17 @@
 //! This module provides the infrastructure for MCTS search guided by both traditional
 //! evaluation functions and neural network policies.
 
-pub mod node;
-pub mod simulation;
-pub mod selection;
-pub mod policy;
-pub mod tactical;
-pub mod neural_mcts;
-pub mod tactical_mcts;
-pub mod nn_counter;
 pub mod inference_server;
+pub mod neural_mcts;
+pub mod nn_counter;
+pub mod node;
+pub mod policy;
 pub mod search_logger;
+pub mod selection;
+pub mod simulation;
 pub mod sprt;
+pub mod tactical;
+pub mod tactical_mcts;
 
 use crate::board::Board;
 use crate::move_generation::MoveGen;
@@ -21,18 +21,18 @@ use crate::move_types::Move;
 use std::time::Duration;
 
 // Re-export common components
-pub use self::node::{MctsNode, MoveCategory, NodeOrigin, select_leaf_for_expansion};
-pub use self::tactical_mcts::{
-    tactical_mcts_search, tactical_mcts_search_for_training,
-    tactical_mcts_search_for_training_with_reuse, tactical_mcts_search_with_tt,
-    reuse_subtree, apply_dirichlet_noise, TacticalMctsConfig, TacticalMctsStats, MctsTrainingResult,
-};
-pub use self::neural_mcts::neural_mcts_search;
 pub use self::inference_server::InferenceServer;
-pub use self::search_logger::{SearchLogger, Verbosity, GateReason, SelectionReason};
+pub use self::neural_mcts::neural_mcts_search;
+pub use self::node::{select_leaf_for_expansion, MctsNode, MoveCategory, NodeOrigin};
+pub use self::search_logger::{GateReason, SearchLogger, SelectionReason, Verbosity};
+pub use self::tactical_mcts::{
+    apply_dirichlet_noise, reuse_subtree, tactical_mcts_search, tactical_mcts_search_for_training,
+    tactical_mcts_search_for_training_with_reuse, tactical_mcts_search_with_tt, MctsTrainingResult,
+    TacticalMctsConfig, TacticalMctsStats,
+};
 
 /// Exploration constant for UCB (sqrt(2))
-pub const EXPLORATION_CONSTANT: f64 = 1.41421356237;
+pub const EXPLORATION_CONSTANT: f64 = std::f64::consts::SQRT_2;
 
 /// Wrapper search function that maintains backward compatibility but uses the new tactical search
 pub fn mcts_pesto_search(
@@ -53,11 +53,7 @@ pub fn mcts_pesto_search(
         ..Default::default()
     };
 
-    let (best_move, _stats, _root) = tactical_mcts_search(
-        root_state,
-        move_gen,
-        config
-    );
+    let (best_move, _stats, _root) = tactical_mcts_search(root_state, move_gen, config);
 
     best_move
 }
