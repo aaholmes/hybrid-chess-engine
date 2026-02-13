@@ -161,9 +161,21 @@ $$w_i = n_i \cdot 2 \cdot \frac{1}{1 + 10^{(Elo_{max} - Elo_i) / 400}}$$
 
 This produces sampling ratios proportional to actual measured strength differences. A 55% winrate gap (~35 Elo) yields a ~1.2:1 ratio (not 7:1). A 200 Elo gap yields ~0.48x weight. No data is ever fully discarded — even data from much weaker models contributes at a reduced rate. The weighting adapts automatically: rapid improvement produces steeper gradients, while plateaus produce near-uniform sampling.
 
-### Adaptive minibatches
+### Training data scheduling: from fixed minibatches to epoch-based inclusion
 
-Fixed minibatch counts caused overfitting in early generations (small buffer, many passes) and underfitting in late generations (large buffer, few passes). The current approach targets ~3 epochs over the buffer, capped at a configurable maximum. This scales training proportionally to data availability.
+**v1: Fixed minibatch count.** Every generation trained for the same number of minibatches regardless of buffer size. This caused overfitting in early generations (small buffer, many passes over same data) and underfitting in late generations (large buffer, most positions never seen).
+
+**v2: Adaptive minibatch count.** Scaled minibatches to target ~1.5 epochs over the buffer, capped at a configurable maximum. Better, but still used random sampling with replacement — positions could be sampled multiple times while others were never seen. The sampling weights (Elo-based expected score) also didn't prevent high-Elo positions from being trained on repeatedly.
+
+**v3: Epoch-based training with Elo-weighted inclusion (current).** Each epoch iterates over the buffer exactly once, but each position's *inclusion probability* is determined by its model's Elo:
+
+$$p_{include} = \min\left(1, \frac{E_i}{1 - E_i}\right) \quad \text{where} \quad E_i = \frac{1}{1 + 10^{(\text{Elo}_{max} - \text{Elo}_i) / 400}}$$
+
+This is the odds ratio of the expected score — the probability of winning divided by the probability of losing. Max-Elo data has 100% inclusion. At 100 Elo weaker: 56%. At 200 Elo: 32%. At 400 Elo: 10%. The number of epochs per generation is configurable via `--n-epochs` (default: 1).
+
+**Why odds ratio, not expected score.** Expected score ranges from 0.5 (equal) to ~0 (much weaker), which would include only half of max-Elo data. The odds ratio maps equal strength to 1.0 (full inclusion) and decays smoothly to 0 for very weak data, giving the desired semantics: "include this position with probability proportional to how much we trust the model that generated it."
+
+**Why this is better than weighted sampling.** With weighted random sampling, a position from the strongest model might be sampled 3 times while a position from a slightly weaker model is never seen — pure randomness. Epoch-based inclusion guarantees that every max-Elo position is trained on exactly once per epoch, while older data is deterministically downsampled. This eliminates both wasted data (positions evicted before being trained on) and redundant training (positions sampled multiple times in one pass).
 
 ### Data augmentation: exploiting board symmetries
 

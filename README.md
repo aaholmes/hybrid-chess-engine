@@ -137,13 +137,16 @@ python python/orchestrate.py --num-blocks 2 --hidden-dim 64
 # Skip self-play after gen 1 (eval games produce training data)
 python python/orchestrate.py --skip-self-play
 
+# Multiple epochs per generation
+python python/orchestrate.py --n-epochs 2
+
 # Quick smoke test
 python python/orchestrate.py \
   --games-per-generation 2 --simulations-per-move 50 \
-  --minibatches-per-gen 10 --eval-max-games 4 --buffer-capacity 1000
+  --n-epochs 1 --eval-max-games 4 --buffer-capacity 1000
 ```
 
-The orchestrator supports adaptive minibatch scaling (~3 epochs per generation), Elo-based strength weighting for the replay buffer, and Muon optimizer by default. Model architecture is configurable via `--num-blocks` and `--hidden-dim`.
+Training uses epoch-based iteration with Elo-weighted probabilistic inclusion: each position's inclusion probability per epoch is the odds ratio of its model's expected score against the strongest model in the buffer, so max-Elo data is always fully included while weaker data is proportionally downsampled (200 Elo gap → ~32% inclusion, 400 Elo gap → ~10%). The orchestrator also supports Elo-based strength weighting for the replay buffer and Muon optimizer by default. Model architecture is configurable via `--num-blocks` and `--hidden-dim`.
 
 Evaluation uses SPRT (Sequential Probability Ratio Test) with early stopping — clear winners/losers decided in ~30 games, marginal cases use up to 400 (needed for statistical power at the ~84% draw rate typical of self-play). Data augmentation exploits board symmetry: positions without castling rights are expanded into both the original and horizontal flip (2x data), with pawnless endgames getting the full D4 dihedral group (8x data).
 
@@ -171,7 +174,7 @@ cargo build --release --features neural  # With neural network support
 
 ## Testing
 
-~830 tests (660 Rust + 175 Python). See [TESTING.md](TESTING.md) for details.
+~850 tests (660 Rust + 185 Python). See [TESTING.md](TESTING.md) for details.
 
 ```bash
 cargo test                                        # Fast Rust tests (~50s)
