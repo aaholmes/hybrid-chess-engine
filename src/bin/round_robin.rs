@@ -296,24 +296,57 @@ fn play_pair(
     }
 }
 
-/// Compute Elo ratings from pairwise results using iterative adjustment.
+/// Compute Elo ratings via Maximum Likelihood Estimation (Bradley-Terry model).
+///
+/// Finds ratings that maximize the joint probability of all observed game outcomes.
+/// Uses gradient ascent on the log-likelihood:
+///   log L = sum over pairs { s_ij * log(E_i) + (n_ij - s_ij) * log(1 - E_i) }
+/// where E_i = 1 / (1 + 10^((r_j - r_i) / 400)) is the expected score.
+///
+/// The mean rating is anchored at 1500 after each iteration (only differences matter).
 fn calculate_ratings(results: &[PairResult], model_names: &[String]) -> HashMap<String, f64> {
-    let mut ratings: HashMap<String, f64> = HashMap::new();
-    for name in model_names {
-        ratings.insert(name.clone(), 1500.0);
-    }
+    let n = model_names.len();
+    let name_to_idx: HashMap<&String, usize> = model_names.iter().enumerate().map(|(i, n)| (n, i)).collect();
+    let mut ratings = vec![1500.0f64; n];
 
-    for _ in 0..10 {
+    let lr = 10.0;  // learning rate (Elo units per step)
+    let iterations = 1000;
+
+    for _ in 0..iterations {
+        let mut grad = vec![0.0f64; n];
+
         for r in results {
-            let elo_diff = r.elo_difference();
-            let current_diff = ratings[&r.model_a] - ratings[&r.model_b];
-            let adjustment = (elo_diff - current_diff) * 0.1;
-            *ratings.get_mut(&r.model_a).unwrap() += adjustment;
-            *ratings.get_mut(&r.model_b).unwrap() -= adjustment;
+            let i = name_to_idx[&r.model_a];
+            let j = name_to_idx[&r.model_b];
+            let n_games = r.total() as f64;
+            if n_games == 0.0 { continue; }
+            let s_ij = r.a_score() * n_games;  // score for model_a
+
+            // Expected score: E_i = 1 / (1 + 10^((r_j - r_i) / 400))
+            let expected = 1.0 / (1.0 + 10.0f64.powf((ratings[j] - ratings[i]) / 400.0));
+
+            // Gradient: d(log L)/d(r_i) = (ln10 / 400) * (s_ij - n_games * E_i)
+            let g = (10.0f64.ln() / 400.0) * (s_ij - n_games * expected);
+            grad[i] += g;
+            grad[j] -= g;
+        }
+
+        for k in 0..n {
+            ratings[k] += lr * grad[k];
+        }
+
+        // Re-anchor mean to 1500
+        let mean: f64 = ratings.iter().sum::<f64>() / n as f64;
+        for k in 0..n {
+            ratings[k] += 1500.0 - mean;
         }
     }
 
-    ratings
+    let mut result = HashMap::new();
+    for (i, name) in model_names.iter().enumerate() {
+        result.insert(name.clone(), ratings[i]);
+    }
+    result
 }
 
 struct CliArgs {

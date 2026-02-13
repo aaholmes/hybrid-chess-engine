@@ -53,34 +53,34 @@ A 14-model round-robin tournament compared two training runs using the same smal
 
 Each pair played 30 games at 100 MCTS simulations per move (C(14,2) = 91 pairs, 2,730 total games). Move selection used proportional sampling for the first 10 plies and greedy (most-visited child) thereafter.
 
+![Elo vs Generation](tournament_results_14way_elo_plot.png)
+
 | Rank | Model | Elo | Type |
 |------|-------|-----|------|
-| 1 | tiered_gen9 | 1640 | Tiered |
-| 2 | tiered_gen14 | 1635 | Tiered |
-| 3 | tiered_gen19 | 1632 | Tiered |
-| 4 | tiered_gen5 | 1607 | Tiered |
-| 5 | tiered_gen2 | 1581 | Tiered |
-| 6 | vanilla_gen33 | 1550 | Vanilla |
-| 7 | vanilla_gen40 | 1548 | Vanilla |
-| 8 | tiered_gen0 | 1492 | Tiered |
-| 9 | vanilla_gen28 | 1467 | Vanilla |
-| 10 | vanilla_gen25 | 1424 | Vanilla |
-| 11 | vanilla_gen8 | 1406 | Vanilla |
-| 12 | vanilla_gen1 | 1370 | Vanilla |
-| 13 | vanilla_gen2 | 1370 | Vanilla |
-| 14 | vanilla_gen0 | 1280 | Vanilla |
+| 1 | tiered_gen19 | 1627 | Tiered |
+| 2 | tiered_gen9 | 1623 | Tiered |
+| 3 | tiered_gen14 | 1622 | Tiered |
+| 4 | tiered_gen5 | 1592 | Tiered |
+| 5 | tiered_gen2 | 1567 | Tiered |
+| 6 | vanilla_gen33 | 1520 | Vanilla |
+| 7 | vanilla_gen40 | 1517 | Vanilla |
+| 8 | tiered_gen0 | 1495 | Tiered |
+| 9 | vanilla_gen28 | 1466 | Vanilla |
+| 10 | vanilla_gen25 | 1431 | Vanilla |
+| 11 | vanilla_gen8 | 1419 | Vanilla |
+| 12 | vanilla_gen2 | 1397 | Vanilla |
+| 13 | vanilla_gen1 | 1389 | Vanilla |
+| 14 | vanilla_gen0 | 1336 | Vanilla |
 
 **Key findings:**
-- All five trained tiered models outrank all vanilla models. Even tiered_gen2 (1581) beats vanilla_gen33 (1550), the best vanilla model after 33 accepted generations.
-- Vanilla training improved substantially (+270 Elo from gen0 to gen33), but the tiered system's classical components provide a head start that pure NN training cannot overcome with this architecture and compute budget.
-- Tiered training plateaus early: gen9 (1640) through gen19 (1632) are statistically indistinguishable, suggesting the safety gates and material evaluation front-load much of the playing strength.
-- tiered_gen0 (1492), with a *zero-initialized* NN, already outperforms all vanilla models through gen8 (1406). The classical fallback $\tanh(0.5 \cdot \Delta M)$ alone provides meaningful play.
+- All five trained tiered models outrank all vanilla models. Even tiered_gen2 (1567) beats vanilla_gen33 (1520), the best vanilla model after 33 accepted generations.
+- Vanilla training improved substantially (+184 Elo from gen0 to gen33), but the tiered system's classical components provide a head start that pure NN training cannot overcome with this architecture and compute budget.
+- Tiered training plateaus early: gen9 (1623) through gen19 (1627) are statistically indistinguishable, suggesting the safety gates and material evaluation front-load much of the playing strength.
+- tiered_gen0 (1495), with a *zero-initialized* NN, already outperforms all vanilla models through gen8 (1419). The classical fallback $\tanh(0.5 \cdot \Delta M)$ alone provides meaningful play.
 
 ### Elo Methodology
 
-Pairwise Elo differences are computed from each pair's win/draw/loss record: $\Delta\text{Elo} = -400 \cdot \log_{10}(1/s - 1)$ where $s = (W + D/2) / N$ is the score fraction. 95% confidence intervals use the Wilson score interval on $s$, then convert both bounds to Elo.
-
-Global ratings use iterative adjustment: all models start at 1500, then for each pair the difference between its observed pairwise Elo and the current rating gap is applied as a correction (10 iterations, learning rate 0.1). The 1500 anchor is arbitrary — only relative differences matter. Full pairwise results are in [`tournament_results_14way.csv`](tournament_results_14way.csv).
+Ratings are computed via Maximum Likelihood Estimation on the Bradley-Terry model. Each game outcome contributes to the log-likelihood: $\log L = \sum_{\text{pairs}} \left[ s_{ij} \log(E_i) + (n_{ij} - s_{ij}) \log(1 - E_i) \right]$ where $s_{ij}$ is the observed score (wins + draws/2), $n_{ij}$ is the number of games, and $E_i = 1/(1 + 10^{(r_j - r_i)/400})$ is the expected score given ratings $r_i, r_j$. Gradient ascent finds the ratings maximizing this joint probability (2000 iterations, lr=10, mean anchored at 1500). Pairwise 95% confidence intervals use the Wilson score interval on the score fraction, converted to Elo. Full pairwise results are in [`tournament_results_14way.csv`](tournament_results_14way.csv).
 
 ## Example: Material-Aware Evaluation at Initialization
 
