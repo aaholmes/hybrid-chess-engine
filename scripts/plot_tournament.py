@@ -109,15 +109,15 @@ def main():
     # Plot as step functions: Elo is constant between accepted generations
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.step(tiered_gens, tiered_elos, where="post", color="#2563eb", linewidth=2,
-            label="Tiered (tier1 + material + KOTH)", zorder=3)
+            label="Tiered (safety gates + material)", zorder=3)
     ax.plot(tiered_gens, tiered_elos, "o", color="#2563eb", markersize=6, zorder=4)
     ax.step(vanilla_gens, vanilla_elos, where="post", color="#dc2626", linewidth=2,
-            label="Vanilla (KOTH only)", zorder=3)
+            label="Vanilla (NN only)", zorder=3)
     ax.plot(vanilla_gens, vanilla_elos, "s", color="#dc2626", markersize=6, zorder=4)
 
     ax.set_xlabel("Accepted Generation", fontsize=12)
     ax.set_ylabel("Elo Rating (MLE)", fontsize=12)
-    ax.set_title("Caissawary: Tiered vs Vanilla MCTS Training", fontsize=14)
+    ax.set_title("Caissawary: Tiered vs Vanilla MCTS on KOTH Chess", fontsize=14)
     ax.legend(fontsize=11)
     ax.grid(True, alpha=0.3)
     ax.set_xlim(-1, max(max(tiered_gens), max(vanilla_gens)) + 2)
