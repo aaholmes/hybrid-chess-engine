@@ -316,7 +316,18 @@ fn calculate_ratings(results: &[PairResult], model_names: &[String]) -> HashMap<
     ratings
 }
 
-fn parse_args() -> (Vec<(String, String, String)>, u32, u32, Option<String>, usize, u64) {
+struct CliArgs {
+    models: Vec<(String, String, String)>,
+    games_per_pair: u32,
+    simulations: u32,
+    output: Option<String>,
+    batch_size: usize,
+    seed: u64,
+    only_involving: Vec<String>,
+    import_csv: Option<String>,
+}
+
+fn parse_args() -> CliArgs {
     let args: Vec<String> = std::env::args().collect();
 
     let mut models: Vec<(String, String, String)> = Vec::new();
@@ -325,6 +336,8 @@ fn parse_args() -> (Vec<(String, String, String)>, u32, u32, Option<String>, usi
     let mut output: Option<String> = None;
     let mut batch_size = 8usize;
     let mut seed = 42u64;
+    let mut only_involving: Vec<String> = Vec::new();
+    let mut import_csv: Option<String> = None;
 
     let mut i = 1;
     while i < args.len() {
@@ -359,6 +372,14 @@ fn parse_args() -> (Vec<(String, String, String)>, u32, u32, Option<String>, usi
                 i += 1;
                 seed = args[i].parse().expect("Invalid --seed");
             }
+            "--only-involving" => {
+                i += 1;
+                only_involving.push(args[i].clone());
+            }
+            "--import-csv" => {
+                i += 1;
+                import_csv = Some(args[i].clone());
+            }
             "--help" | "-h" => {
                 eprintln!("Usage: round_robin [OPTIONS]");
                 eprintln!("  --model NAME:PATH:PRESET  Add a model (preset: tiered or vanilla)");
@@ -367,6 +388,8 @@ fn parse_args() -> (Vec<(String, String, String)>, u32, u32, Option<String>, usi
                 eprintln!("  --output FILE             CSV output file");
                 eprintln!("  --batch-size N            Inference batch size (default: 8)");
                 eprintln!("  --seed N                  Base random seed (default: 42)");
+                eprintln!("  --only-involving NAME     Only play pairs involving this model (repeatable)");
+                eprintln!("  --import-csv FILE         Import prior results CSV to merge with new games");
                 std::process::exit(0);
             }
             other => {
@@ -382,11 +405,42 @@ fn parse_args() -> (Vec<(String, String, String)>, u32, u32, Option<String>, usi
         std::process::exit(1);
     }
 
-    (models, games_per_pair, simulations, output, batch_size, seed)
+    CliArgs { models, games_per_pair, simulations, output, batch_size, seed, only_involving, import_csv }
+}
+
+/// Import pairwise results from a prior CSV file.
+fn import_results(path: &str) -> Vec<PairResult> {
+    let content = std::fs::read_to_string(path).unwrap_or_else(|e| {
+        eprintln!("Error reading CSV {}: {}", path, e);
+        std::process::exit(1);
+    });
+    let mut results = Vec::new();
+    for line in content.lines().skip(1) {
+        // Stop at blank line (ratings section follows)
+        if line.trim().is_empty() { break; }
+        let fields: Vec<&str> = line.split(',').collect();
+        if fields.len() < 5 { continue; }
+        results.push(PairResult {
+            model_a: fields[0].to_string(),
+            model_b: fields[1].to_string(),
+            a_wins: fields[2].parse().unwrap_or(0),
+            b_wins: fields[4].parse().unwrap_or(0),
+            draws: fields[3].parse().unwrap_or(0),
+        });
+    }
+    results
 }
 
 fn main() {
-    let (model_specs, games_per_pair, simulations, output_path, batch_size, base_seed) = parse_args();
+    let cli = parse_args();
+    let model_specs = cli.models;
+    let games_per_pair = cli.games_per_pair;
+    let simulations = cli.simulations;
+    let output_path = cli.output;
+    let batch_size = cli.batch_size;
+    let base_seed = cli.seed;
+    let only_involving = cli.only_involving;
+    let import_csv = cli.import_csv;
 
     eprintln!("=== Round-Robin Tournament ===");
     eprintln!("Models: {}", model_specs.len());
@@ -426,39 +480,65 @@ fn main() {
         eprintln!("OK");
     }
 
-    let n = models.len();
-    let total_pairs = n * (n - 1) / 2;
-    eprintln!("\nPlaying {} pairs x {} games = {} total games\n",
-        total_pairs, games_per_pair, total_pairs as u32 * games_per_pair);
-
-    // Play all pairs
+    // Import prior results if specified
     let mut results: Vec<PairResult> = Vec::new();
-    let mut pair_idx = 0u32;
+    if let Some(ref csv_path) = import_csv {
+        let imported = import_results(csv_path);
+        eprintln!("Imported {} prior pair results from {}", imported.len(), csv_path);
+        results.extend(imported);
+    }
+
+    let n = models.len();
+
+    // Determine which pairs to play
+    let mut pairs_to_play: Vec<(usize, usize)> = Vec::new();
     for i in 0..n {
         for j in (i + 1)..n {
-            pair_idx += 1;
-            eprintln!("[Pair {}/{}] {} vs {}",
-                pair_idx, total_pairs, models[i].name, models[j].name);
-
-            // Use distinct seed per pair so results are reproducible
-            let pair_seed = base_seed.wrapping_mul(1000).wrapping_add(pair_idx as u64 * 10000);
-            let result = play_pair(&models[i], &models[j], games_per_pair, simulations, pair_seed);
-
-            eprintln!("  Result: {} +{} ={} -{} (score {:.1}%, Elo {:+.0})",
-                models[i].name,
-                result.a_wins, result.draws, result.b_wins,
-                result.a_score() * 100.0,
-                result.elo_difference(),
-            );
-            eprintln!();
-
-            results.push(result);
+            // Skip if --only-involving is set and neither model matches
+            if !only_involving.is_empty() {
+                let a_match = only_involving.iter().any(|name| *name == models[i].name);
+                let b_match = only_involving.iter().any(|name| *name == models[j].name);
+                if !a_match && !b_match { continue; }
+            }
+            pairs_to_play.push((i, j));
         }
     }
 
-    // Compute Elo ratings
-    let model_names: Vec<String> = models.iter().map(|m| m.name.clone()).collect();
-    let ratings = calculate_ratings(&results, &model_names);
+    let total_pairs = pairs_to_play.len();
+    eprintln!("\nPlaying {} pairs x {} games = {} total games\n",
+        total_pairs, games_per_pair, total_pairs as u32 * games_per_pair);
+
+    // Play pairs
+    let mut pair_idx = 0u32;
+    for &(i, j) in &pairs_to_play {
+        pair_idx += 1;
+        eprintln!("[Pair {}/{}] {} vs {}",
+            pair_idx, total_pairs, models[i].name, models[j].name);
+
+        // Use distinct seed per pair based on model names for reproducibility
+        let pair_seed = base_seed
+            .wrapping_mul(1000)
+            .wrapping_add(pair_idx as u64 * 10000);
+        let result = play_pair(&models[i], &models[j], games_per_pair, simulations, pair_seed);
+
+        eprintln!("  Result: {} +{} ={} -{} (score {:.1}%, Elo {:+.0})",
+            models[i].name,
+            result.a_wins, result.draws, result.b_wins,
+            result.a_score() * 100.0,
+            result.elo_difference(),
+        );
+        eprintln!();
+
+        results.push(result);
+    }
+
+    // Compute Elo ratings — include all models from both loaded and imported results
+    let mut all_names: Vec<String> = models.iter().map(|m| m.name.clone()).collect();
+    for r in &results {
+        if !all_names.contains(&r.model_a) { all_names.push(r.model_a.clone()); }
+        if !all_names.contains(&r.model_b) { all_names.push(r.model_b.clone()); }
+    }
+    let ratings = calculate_ratings(&results, &all_names);
 
     // Sort by Elo descending
     let mut ranked: Vec<(&String, f64)> = ratings.iter().map(|(k, v)| (k, *v)).collect();

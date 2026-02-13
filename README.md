@@ -45,6 +45,43 @@ OracleNet is a configurable SE-ResNet (default: 6 blocks, 128 channels, ~2M para
 
 The $k$ head uses domain knowledge rather than learned convolutions: 12 scalar features (pawn counts, piece counts, queen presence, pawn contacts, castling rights, king rank, and bishop square-color presence for detecting opposite-colored bishop endgames and bishop pair advantage) plus two 5x5 spatial patches centered on each king, combined via small FC layers (~21.8k parameters). This lets $k$ reason about king safety, material convertibility, and piece-specific endgame dynamics without needing to learn these patterns from scratch.
 
+## Tournament Results: Tiered vs Vanilla
+
+A 14-model round-robin tournament compared two training runs using the same small architecture (2 blocks, 64 channels, ~240K parameters):
+- **Tiered** (6 models): trained with all three tiers (safety gates + material + KOTH)
+- **Vanilla** (8 models): trained with KOTH only (no tier 1, no material — pure AlphaZero-style)
+
+Each pair played 30 games at 100 MCTS simulations per move (C(14,2) = 91 pairs, 2,730 total games). Move selection used proportional sampling for the first 10 plies and greedy (most-visited child) thereafter.
+
+| Rank | Model | Elo | Type |
+|------|-------|-----|------|
+| 1 | tiered_gen9 | 1640 | Tiered |
+| 2 | tiered_gen14 | 1635 | Tiered |
+| 3 | tiered_gen19 | 1632 | Tiered |
+| 4 | tiered_gen5 | 1607 | Tiered |
+| 5 | tiered_gen2 | 1581 | Tiered |
+| 6 | vanilla_gen33 | 1550 | Vanilla |
+| 7 | vanilla_gen40 | 1548 | Vanilla |
+| 8 | tiered_gen0 | 1492 | Tiered |
+| 9 | vanilla_gen28 | 1467 | Vanilla |
+| 10 | vanilla_gen25 | 1424 | Vanilla |
+| 11 | vanilla_gen8 | 1406 | Vanilla |
+| 12 | vanilla_gen1 | 1370 | Vanilla |
+| 13 | vanilla_gen2 | 1370 | Vanilla |
+| 14 | vanilla_gen0 | 1280 | Vanilla |
+
+**Key findings:**
+- All five trained tiered models outrank all vanilla models. Even tiered_gen2 (1581) beats vanilla_gen33 (1550), the best vanilla model after 33 accepted generations.
+- Vanilla training improved substantially (+270 Elo from gen0 to gen33), but the tiered system's classical components provide a head start that pure NN training cannot overcome with this architecture and compute budget.
+- Tiered training plateaus early: gen9 (1640) through gen19 (1632) are statistically indistinguishable, suggesting the safety gates and material evaluation front-load much of the playing strength.
+- tiered_gen0 (1492), with a *zero-initialized* NN, already outperforms all vanilla models through gen8 (1406). The classical fallback $\tanh(0.5 \cdot \Delta M)$ alone provides meaningful play.
+
+### Elo Methodology
+
+Pairwise Elo differences are computed from each pair's win/draw/loss record: $\Delta\text{Elo} = -400 \cdot \log_{10}(1/s - 1)$ where $s = (W + D/2) / N$ is the score fraction. 95% confidence intervals use the Wilson score interval on $s$, then convert both bounds to Elo.
+
+Global ratings use iterative adjustment: all models start at 1500, then for each pair the difference between its observed pairwise Elo and the current rating gap is applied as a correction (10 iterations, learning rate 0.1). The 1500 anchor is arbitrary — only relative differences matter. Full pairwise results are in [`tournament_results_14way.csv`](tournament_results_14way.csv).
+
 ## Example: Material-Aware Evaluation at Initialization
 
 After White plays 1.b4 (100 MCTS iterations, zero-initialized OracleNet with all logits at 0), Black's root children:
@@ -149,13 +186,14 @@ cd python && python -m pytest test_*.py -v        # Python pipeline tests
 | `caissawary` | Main UCI chess engine |
 | `self_play` | Self-play data generation with SAN game logs |
 | `evaluate_models` | Head-to-head model evaluation with SPRT |
+| `round_robin` | Round-robin tournament with per-player tier configs and Elo estimation |
 | `mcts_inspector` | MCTS search tree visualization (Graphviz DOT) |
 | `verbose_search` | Real-time search narration |
 | `verbose_game` | Full game between two classical MCTS agents |
 | `benchmark` | Performance testing and NPS measurement |
 | `strength_test` | Engine strength assessment |
 | `run_experiments` | Ablation studies framework |
-| `elo_tournament` | Elo rating estimation |
+| `elo_tournament` | Elo rating estimation (classical engines) |
 | `texel_tune` | Evaluation weight optimization |
 | `generate_training_data` | Standalone training data generation |
 
