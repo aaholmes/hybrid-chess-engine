@@ -258,6 +258,7 @@ class Orchestrator:
 
         if not os.path.exists(gen0_pt):
             print("Initializing Generation 0...")
+            torch.manual_seed(0)
             model = OracleNet(num_blocks=self.config.num_blocks, hidden_dim=self.config.hidden_dim)
             # Move to CUDA so TorchScript traces device-dependent ops correctly
             device = "cuda" if torch.cuda.is_available() else "cpu"
