@@ -92,7 +92,9 @@ The current design uses **handcrafted scalar features + king patches**, consiste
 
 **King patches (2 × 32 features):** 5×5 windows of all 12 piece planes centered on each king, padded for edge kings. Each 300-dim patch is compressed by a separate FC(300→32) + ReLU — separate weights for STM and opponent kings since they have different semantics (king safety vs. attack potential). This captures local piece configurations around each king without global average pooling's dilution.
 
-**Combination:** `[12 scalars | 32 STM patch features | 32 opp patch features]` → FC(76→32) → ReLU → FC(32→1) → k_logit. Only the final FC(32→1) is zero-initialized; patch FCs and combine layer use standard He init. Total: ~21.8k parameters (tiny vs ~2M model total).
+**Q-search completion flag (1 value):** A binary flag indicating whether the depth-8 quiescence search resolved naturally (ran out of captures or hit a stand-pat cutoff) or hit the depth limit with captures remaining. When incomplete, deltaM may be unreliable — this flag lets k learn to discount material in deeply tactical positions where the Q-search couldn't fully resolve.
+
+**Combination:** `[12 scalars | 1 qsearch flag | 32 STM patch features | 32 opp patch features]` → FC(77→32) → ReLU → FC(32→1) → k_logit. Only the final FC(32→1) is zero-initialized; patch FCs and combine layer use standard He init. Total: ~22k parameters (tiny vs ~2M model total).
 
 ### Classical fallback: V\_logit=0, k=0.5
 
@@ -124,7 +126,7 @@ When Black is to move, ranks are flipped so STM pieces always appear at the "bot
 
 ### k head: handcrafted features + king patches
 
-12 scalar features (pawn count, piece counts, queen presence, pawn contacts, castling rights, king rank, bishop square-color presence) + two 5×5 king-centered patches compressed via FC(300→32). Scalars + compressed patches → FC(76→32) → FC(32→1). Operates on raw input, independent of the backbone. See Section 4 for the rationale.
+12 scalar features (pawn count, piece counts, queen presence, pawn contacts, castling rights, king rank, bishop square-color presence) + 1 Q-search completion flag + two 5×5 king-centered patches compressed via FC(300→32). Scalars + flag + compressed patches → FC(77→32) → FC(32→1). Operates on raw input, independent of the backbone. See Section 4 for the rationale.
 
 ### Zero initialization
 

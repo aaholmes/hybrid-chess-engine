@@ -27,7 +27,7 @@ The key insight: gate-resolved nodes are **terminal** — they are never expande
 
 **Tier 1** runs ultra-fast safety gates before expansion: a checks-only mate search and KOTH geometric pruning. When a gate fires, the node receives an exact cached value and becomes terminal — identical to checkmate/stalemate.
 
-**Tier 2** runs `forced_material_balance()` at every leaf: a material-only alpha-beta quiescence search (depth 8) that resolves all forced captures and promotions to compute $\Delta M$ — the true material balance after tactical dust settles. This is a classical tree search whose results no neural network can easily replicate, since it explores variable-depth exchange sequences. Additionally, captures are visited in MVV-LVA order on first visit (PxQ before QxP), though this is a minor optimization.
+**Tier 2** runs `forced_material_balance()` at every leaf: a material-only alpha-beta quiescence search (depth 8) that resolves all forced captures and promotions to compute $\Delta M$ — the true material balance after tactical dust settles — along with a completion flag indicating whether the search resolved naturally or hit the depth limit. This is a classical tree search whose results no neural network can easily replicate, since it explores variable-depth exchange sequences. The completion flag feeds into the $k$ head, letting the NN discount unreliable material when the Q-search couldn't fully resolve. Additionally, captures are visited in MVV-LVA order on first visit (PxQ before QxP), though this is a minor optimization.
 
 **Tier 3** provides the neural component. OracleNet outputs a policy prior over moves (for PUCT selection) and $V_{logit}$ (positional assessment). The Tier 2 and Tier 3 outputs combine in the leaf value function:
 
@@ -43,7 +43,7 @@ OracleNet is a configurable SE-ResNet (default: 6 blocks, 128 channels, ~2M para
 - **Value head ($V_{logit}$):** Unbounded positional assessment
 - **Confidence head ($k$):** Handcrafted features + 5x5 king patches
 
-The $k$ head uses domain knowledge rather than learned convolutions: 12 scalar features (pawn counts, piece counts, queen presence, pawn contacts, castling rights, king rank, and bishop square-color presence for detecting opposite-colored bishop endgames and bishop pair advantage) plus two 5x5 spatial patches centered on each king, combined via small FC layers (~21.8k parameters). This lets $k$ reason about king safety, material convertibility, and piece-specific endgame dynamics without needing to learn these patterns from scratch.
+The $k$ head uses domain knowledge rather than learned convolutions: 12 scalar features (pawn counts, piece counts, queen presence, pawn contacts, castling rights, king rank, and bishop square-color presence for detecting opposite-colored bishop endgames and bishop pair advantage), a Q-search completion flag (indicating whether the depth-8 quiescence search resolved naturally or hit its depth limit — letting $k$ discount unreliable material in deeply tactical positions), plus two 5x5 spatial patches centered on each king, combined via small FC layers (~22k parameters). This lets $k$ reason about king safety, material convertibility, Q-search reliability, and piece-specific endgame dynamics without needing to learn these patterns from scratch.
 
 ## Tournament Results: Tiered vs Vanilla
 
@@ -174,7 +174,7 @@ cargo build --release --features neural  # With neural network support
 
 ## Testing
 
-~850 tests (660 Rust + 185 Python). See [TESTING.md](TESTING.md) for details.
+~860 tests (660 Rust + 195 Python). See [TESTING.md](TESTING.md) for details.
 
 ```bash
 cargo test                                        # Fast Rust tests (~50s)
