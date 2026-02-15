@@ -8,13 +8,13 @@ All tunable parameters for the Caissawary training pipeline, organized by stage.
 |-----------|-------|----------|-------|
 | Residual blocks | 6 | `--num-blocks` | SE-ResNet blocks |
 | Hidden dim | 128 | `--hidden-dim` | ~2M params total |
-| Input channels | 17 | -- | 12 piece planes + 4 castling + 1 side-to-move |
+| Input channels | 17 | -- | 12 piece planes + 1 en passant + 4 castling |
 | Policy planes | 73 | -- | AlphaZero encoding (4672 = 73x8x8) |
 | SE reduction | 16 | -- | Squeeze-and-excitation ratio |
 | Value head FC | 64 -> 256 -> 1 | -- | 1x1 conv then 2-layer MLP |
-| K head scalars | 12 | -- | Handcrafted features (pawns, pieces, castling, etc.) |
+| K head scalars | 12 + 1 qsearch flag | -- | Handcrafted features (pawns, pieces, castling, etc.) + Q-search completion |
 | K head patches | 5x5 | -- | Window around each king, FC(300->32) |
-| K head combine | 76 -> 32 -> 1 | -- | [12 scalars \| 32 STM patch \| 32 opp patch] |
+| K head combine | 77 -> 32 -> 1 | -- | [12 scalars \| 1 qsearch flag \| 32 STM patch \| 32 opp patch] |
 | K scale | softplus(x) / (2 ln 2) | -- | Ensures k(init) = 0.5 |
 
 ## MCTS Search

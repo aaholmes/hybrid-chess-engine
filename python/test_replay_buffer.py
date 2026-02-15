@@ -14,7 +14,7 @@ from replay_buffer import ReplayBuffer
 INPUT_CHANNELS = 17
 BOARD_SIZE = 64
 POLICY_SIZE = 4672
-SAMPLE_SIZE_FLOATS = (INPUT_CHANNELS * BOARD_SIZE) + 1 + 1 + POLICY_SIZE  # 5762
+SAMPLE_SIZE_FLOATS = (INPUT_CHANNELS * BOARD_SIZE) + 1 + 1 + 1 + POLICY_SIZE  # 5763 (board + material + qsearch_flag + value + policy)
 
 
 def make_fake_bin(path, num_positions):
@@ -110,9 +110,9 @@ class TestReplayBuffer:
         buf.add_games(source_dir)
 
         batch_size = 8
-        boards, materials, values, policies = buf.sample_batch(batch_size)
+        boards, scalars, values, policies = buf.sample_batch(batch_size)
         assert boards.shape == (batch_size, INPUT_CHANNELS, 8, 8)
-        assert materials.shape == (batch_size, 1)
+        assert scalars.shape == (batch_size, 2)
         assert values.shape == (batch_size, 1)
         assert policies.shape == (batch_size, POLICY_SIZE)
 
@@ -194,7 +194,7 @@ class TestReplayBuffer:
         buf = ReplayBuffer(capacity_positions=100000, buffer_dir=buffer_dir)
         buf.add_games(source_dir)
 
-        boards, materials, values, policies = buf.sample_batch(10)
+        boards, scalars, values, policies = buf.sample_batch(10)
         assert boards.shape[0] == 10
 
     def test_sample_batch_single_position(self, tmp_dirs):
@@ -205,7 +205,7 @@ class TestReplayBuffer:
         buf = ReplayBuffer(capacity_positions=100000, buffer_dir=buffer_dir)
         buf.add_games(source_dir)
 
-        boards, materials, values, policies = buf.sample_batch(5)
+        boards, scalars, values, policies = buf.sample_batch(5)
         assert boards.shape[0] == 5
 
     def test_evict_on_empty_buffer(self, tmp_dirs):
@@ -291,9 +291,9 @@ class TestReplayBuffer:
         buf = ReplayBuffer(capacity_positions=100000, buffer_dir=buffer_dir)
         buf.add_games(source_dir)
 
-        boards, materials, values, policies = buf.sample_batch(3)
+        boards, scalars, values, policies = buf.sample_batch(3)
         assert np.all(np.isfinite(boards))
-        assert np.all(np.isfinite(materials))
+        assert np.all(np.isfinite(scalars))
         assert np.all(np.isfinite(values))
         assert np.all(np.isfinite(policies))
 
@@ -417,7 +417,7 @@ class TestEloWeighting:
             make_fake_bin(os.path.join(src, "game.bin"), 20)
             buf.add_games(src, model_elo=100.0)
 
-            boards, materials, values, policies = buf.sample_batch(8)
+            boards, scalars, values, policies = buf.sample_batch(8)
             assert boards.shape == (8, INPUT_CHANNELS, 8, 8)
             assert np.all(np.isfinite(boards))
         finally:
