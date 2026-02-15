@@ -38,19 +38,19 @@ Full-width mate search is too expensive to run at every MCTS expansion. The comp
 
 In King of the Hill, a king that can reach {d4, e4, d5, e5} wins. The gate computes: can the side-to-move's king reach any center square in at most 3 moves, considering blocking pieces and opponent interception? This is pure geometry — no search needed.
 
-## 3. Tier 2: From Grafting to MVV-LVA Visit Ordering
+## 3. Tier 2: Quiescence Search and Tactical Ordering
 
-### v1: Q-search grafting at expansion
+Tier 2's core contribution is `forced_material_balance()` — a material-only quiescence search (depth 8) that runs at every MCTS leaf evaluation to compute $\Delta M$, the material balance after all forced captures and promotions resolve. This is a classical alpha-beta tree search whose results no neural network can easily replicate: it explores variable-depth exchange sequences to detect hanging pieces, discovered attacks, and forced promotion lines. $\Delta M$ feeds directly into the value function (see Section 4), providing the foundation that the NN builds on top of.
 
-The first approach was ambitious: at every MCTS expansion, run a quiescence search (Q-search) rooted at the expanded position. The Q-search tree was then "grafted" onto the MCTS tree — Q-search leaf values became initial values for MCTS children.
+The visit-ordering component (MVV-LVA) is a minor addition: captures are visited in Most-Valuable-Victim / Least-Valuable-Attacker order on their first visit. After the first visit, normal UCB selection takes over.
 
-**What went wrong.** Q-search at every expansion was expensive (~10x slower expansions), and the grafted values were noisy — Q-search with alpha-beta in a random MCTS leaf often had poor alpha/beta bounds. The complexity was high (converting Q-search nodes to MCTS nodes, handling transpositions between the two trees) and the benefit was marginal over simpler approaches.
+### Earlier attempt: Q-search grafting at expansion
 
-### v2: MVV-LVA visit ordering
+The first approach was more ambitious: at every MCTS expansion, run a Q-search rooted at the expanded position and "graft" the Q-search tree onto the MCTS tree — Q-search leaf values became initial values for MCTS children.
 
-The simple alternative: at expansion, score each capture/promotion child with `10*victim - attacker` (Most Valuable Victim - Least Valuable Attacker). On their first visit, tactical children are visited in MVV-LVA order — PxQ (score = 39) before QxP (score = 5). No Q-values are initialized; after the first visit, normal UCB selection takes over based on the actual backpropagated values.
+**What went wrong.** Q-search at every expansion was expensive (~10x slower expansions), and the grafted values were noisy — Q-search with alpha-beta in a random MCTS leaf often had poor alpha/beta bounds. The complexity was high (converting Q-search nodes to MCTS nodes, handling transpositions between the two trees) and the benefit was marginal.
 
-**The lesson:** The material dynamics are fully handled by the Tier 3 leaf value function ($\tanh(V_{logit} + k \cdot \Delta M)$), which runs `forced_material_balance()` — a material-only Q-search at evaluation time. Tier 2 only needs to control the *order* of first visits to captures. A simple heuristic suffices.
+**The lesson:** The Q-search doesn't need to run at expansion time or graft into the tree structure. Running it once at leaf evaluation time — as `forced_material_balance()` — is simpler, cheaper, and gives the value function a clean material signal. MVV-LVA visit ordering handles the remaining tactical concern (which captures to try first).
 
 ## 4. The Value Function: V = tanh(V\_logit + k * DeltaM)
 
@@ -283,7 +283,7 @@ The three-tier decomposition is not chess-specific. The pattern — injecting ex
 
 | Domain | Tier 1 (Exact) | Tier 2 (Heuristic) | Tier 3 (Learned) |
 |--------|---------------|-------------------|-----------------|
-| **Chess** | Mate search, KOTH geometry | MVV-LVA tactical visit ordering | Neural position evaluation |
+| **Chess** | Mate search, KOTH geometry | Quiescence search (forced material balance) + MVV-LVA ordering | Neural positional evaluation |
 | **Mathematical reasoning** | Automated theorem provers (e.g., Lean's `decide`, `omega`) resolving subgoals | Lemma relevance ranking, proof-term similarity | Neural proof step prediction |
 | **Program synthesis** | Type checking, partial evaluation, SMT solvers | API frequency heuristics | Code generation model |
 | **Game playing** | Endgame tablebases, solved subgames | Domain heuristics | Value/policy networks |

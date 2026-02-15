@@ -18,8 +18,8 @@ The name is a hybrid, like the engine: **Caissa** (the mythical goddess of chess
 | Tier | Mechanism | Property | Cost |
 |------|-----------|----------|------|
 | **Tier 1** | Safety Gates (mate search, KOTH geometry) | Provably correct, exact values | ~microseconds |
-| **Tier 2** | MVV-LVA tactical move ordering | Prioritizes good captures on first visit | Zero (integer scores) |
-| **Tier 3** | Neural network (OracleNet) | Learned evaluation for uncertain positions | ~milliseconds |
+| **Tier 2** | Quiescence search + MVV-LVA ordering | Classical tree search computes material after forced exchanges | ~microseconds |
+| **Tier 3** | Neural network (OracleNet) | Learned positional evaluation for uncertain positions | ~milliseconds |
 
 The key insight: gate-resolved nodes are **terminal** — they are never expanded, so proven values cannot be diluted by approximate child evaluations. This is the critical difference from using exact values as priors.
 
@@ -27,13 +27,13 @@ The key insight: gate-resolved nodes are **terminal** — they are never expande
 
 **Tier 1** runs ultra-fast safety gates before expansion: a checks-only mate search and KOTH geometric pruning. When a gate fires, the node receives an exact cached value and becomes terminal — identical to checkmate/stalemate.
 
-**Tier 2** orders capture/promotion children by MVV-LVA scores on their first visit (e.g., PxQ = 39 is visited before QxP = 5). This is purely visit ordering — no Q-values are initialized. After the first visit, normal UCB selection takes over.
+**Tier 2** runs `forced_material_balance()` at every leaf: a material-only alpha-beta quiescence search (depth 8) that resolves all forced captures and promotions to compute $\Delta M$ — the true material balance after tactical dust settles. This is a classical tree search whose results no neural network can easily replicate, since it explores variable-depth exchange sequences. Additionally, captures are visited in MVV-LVA order on first visit (PxQ before QxP), though this is a minor optimization.
 
-**Tier 3** evaluates leaf nodes with a factored value function (the symbolic component is classical chess algorithms — material-only quiescence search and piece values — not a formal system):
+**Tier 3** provides the neural component. OracleNet outputs a policy prior over moves (for PUCT selection) and $V_{logit}$ (positional assessment). The Tier 2 and Tier 3 outputs combine in the leaf value function:
 
 $$V_{final} = \tanh(V_{logit} + k \cdot \Delta M)$$
 
-Where $V_{logit}$ is the NN's positional assessment (unbounded), $k$ is a learned material confidence scalar, and $\Delta M$ is the material balance after forced captures computed by `forced_material_balance()`. The NN also provides a policy prior over moves, cached on each node after evaluation and used for PUCT selection on subsequent visits. Without a neural network, the classical fallback uses $V_{logit}=0$, $k=0.5$: $V_{final} = \tanh(0.5 \cdot \Delta M)$ with uniform policy priors.
+Where $\Delta M$ is from the Tier 2 Q-search, $V_{logit}$ is the NN's positional assessment (unbounded), and $k$ is a learned material confidence scalar. The NN only needs to learn what the Q-search can't compute: piece activity, king safety, pawn structure, and how much to trust material in each position. Without a neural network, the classical fallback uses $V_{logit}=0$, $k=0.5$: $V_{final} = \tanh(0.5 \cdot \Delta M)$ with uniform policy priors.
 
 ### OracleNet Architecture
 

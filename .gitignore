@@ -29,5 +29,6 @@ bundle.xml
 # Training runs (large, not for git)
 runs/
 
-# Claude Code session files
+# Claude Code
 .claude/
+CLAUDE.md
