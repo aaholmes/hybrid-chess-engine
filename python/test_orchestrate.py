@@ -648,8 +648,8 @@ class TestSlidingWindowBuffer:
         total = orch.update_buffer(game_dir)
         assert total <= 30  # Eviction should keep it under capacity
 
-    def test_acceptance_does_not_clear_buffer(self, tmp_workspace):
-        """Acceptance should NOT clear the buffer (sliding window instead)."""
+    def test_acceptance_clears_buffer(self, tmp_workspace):
+        """Acceptance should clear the buffer — old data already trained on."""
         orch = self._make_orch(tmp_workspace, buffer_capacity=500_000)
         orch.state.current_best_pt = "weights/gen_3.pt"
         orch.state.current_best_pth = "weights/gen_3.pth"
@@ -679,10 +679,60 @@ class TestSlidingWindowBuffer:
             eval_results={"wins": 60, "losses": 30, "draws": 10},
         )
 
-        # Buffer should still have data
+        # Buffer should be cleared
         buf2 = ReplayBuffer(capacity_positions=500_000, buffer_dir=orch.config.buffer_dir)
         buf2.load_manifest()
-        assert buf2.total_positions() == positions_before
+        assert buf2.total_positions() == 0
+
+    def test_reject_ingests_both_sides_eval_data(self, tmp_workspace):
+        """Rejection should ingest eval data from both sides with Elo tags.
+
+        Tests the dual-ingestion pattern used in run_generation by calling
+        _add_eval_data_to_buffer directly (the integration is in run_generation).
+        """
+        orch = self._make_orch(tmp_workspace, buffer_capacity=500_000)
+        current_elo = 100.0
+
+        # Add some existing buffer data
+        game_dir = os.path.join(tmp_workspace, "games")
+        os.makedirs(game_dir)
+        make_fake_bin(os.path.join(game_dir, "game.bin"), 50)
+        orch.update_buffer(game_dir)
+
+        buf = ReplayBuffer(capacity_positions=500_000, buffer_dir=orch.config.buffer_dir)
+        buf.load_manifest()
+        positions_before = buf.total_positions()
+        assert positions_before > 0
+
+        # Create eval data dirs with fake .bin files
+        current_eval_dir = os.path.join(tmp_workspace, "eval_current")
+        candidate_eval_dir = os.path.join(tmp_workspace, "eval_candidate")
+        os.makedirs(current_eval_dir)
+        os.makedirs(candidate_eval_dir)
+        make_fake_bin(os.path.join(current_eval_dir, "game.bin"), 30)
+        make_fake_bin(os.path.join(candidate_eval_dir, "game.bin"), 30)
+
+        # Simulate reject path: WR=47% → elo_delta ≈ -21
+        import math
+        winrate = 0.47
+        elo_delta = -400 * math.log10(1.0 / winrate - 1.0)
+        winner_elo = current_elo
+        loser_elo = current_elo + elo_delta  # ~79
+
+        # Ingest both sides (same logic as run_generation reject path)
+        orch._add_eval_data_to_buffer(current_eval_dir, winner_elo)
+        orch._add_eval_data_to_buffer(candidate_eval_dir, loser_elo)
+
+        # Buffer should have old data + both sides' eval data
+        buf2 = ReplayBuffer(capacity_positions=500_000, buffer_dir=orch.config.buffer_dir)
+        buf2.load_manifest()
+        assert buf2.total_positions() == positions_before + 60
+
+        # Check Elo tags: the last two entries should be winner (100.0) and loser (~79)
+        # (first entry is the pre-existing data with elo=0.0)
+        elos = sorted([e.get("model_elo", 0.0) for e in buf2.entries])
+        assert elos[-1] == pytest.approx(100.0, abs=0.1)  # winner side
+        assert elos[-2] == pytest.approx(loser_elo, abs=0.1)  # loser side
 
     def test_default_buffer_capacity(self):
         """Default buffer capacity should be ~18 generations worth."""

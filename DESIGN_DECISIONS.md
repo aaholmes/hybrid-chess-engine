@@ -161,6 +161,8 @@ $$w_i = n_i \cdot 2 \cdot \frac{1}{1 + 10^{(Elo_{max} - Elo_i) / 400}}$$
 
 This produces sampling ratios proportional to actual measured strength differences. A 55% winrate gap (~35 Elo) yields a ~1.2:1 ratio (not 7:1). A 200 Elo gap yields ~0.48x weight. No data is ever fully discarded — even data from much weaker models contributes at a reduced rate. The weighting adapts automatically: rapid improvement produces steeper gradients, while plateaus produce near-uniform sampling.
 
+**v5: Clear-on-accept with dual-sided eval ingestion (current).** The accepted model has already trained on the buffer, so continuing to use that data wastes gradient updates on already-converged positions. On acceptance, the buffer is cleared and only the fresh eval data (from both sides of the SPRT evaluation) seeds the next generation's training. The losing side's data is tagged with a lower Elo based on the measured winrate, so the existing odds-ratio inclusion automatically downweights it. Between accepts, rejected eval data from both sides accumulates normally. This differs from v1's clear-on-accept because eval data reuse (v5 of eval pipeline) ensures ~40K fresh positions are always available after clearing.
+
 ### Training data scheduling: from fixed minibatches to epoch-based inclusion
 
 **v1: Fixed minibatch count.** Every generation trained for the same number of minibatches regardless of buffer size. This caused overfitting in early generations (small buffer, many passes over same data) and underfitting in late generations (large buffer, most positions never seen).

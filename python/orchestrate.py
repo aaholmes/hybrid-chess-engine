@@ -307,6 +307,9 @@ class Orchestrator:
                 os.remove(latest_pt)
             os.symlink(os.path.abspath(gen_pt), latest_pt)
 
+            # Clear buffer — accepted model already trained on old data
+            self.clear_buffer()
+
             print(f"Generation {generation} ACCEPTED (W:{eval_results['wins']} "
                   f"L:{eval_results['losses']} D:{eval_results['draws']} "
                   f"Elo: {self.state.model_elos[str(self.state.accepted_count)]:.1f})")
@@ -764,11 +767,31 @@ class Orchestrator:
             current_eval_dir = os.path.join(eval_data_dir, "current")
             candidate_eval_dir = os.path.join(eval_data_dir, "candidate")
             eval_added = 0
-            if os.path.isdir(current_eval_dir):
-                eval_added += self._add_eval_data_to_buffer(current_eval_dir, current_elo)
-            if accepted and os.path.isdir(candidate_eval_dir):
-                new_elo = self.state.model_elos.get(str(self.state.accepted_count), 0.0)
-                eval_added += self._add_eval_data_to_buffer(candidate_eval_dir, new_elo)
+
+            # Compute Elo delta from measured winrate
+            winrate_clamped = max(0.01, min(0.99, eval_results.get("winrate", 0.5)))
+            elo_delta = -400 * math.log10(1.0 / winrate_clamped - 1.0)
+
+            if accepted:
+                # Buffer was cleared in handle_eval_result
+                buffer_size = 0
+                # Winner = candidate (new_elo), Loser = current (current_elo)
+                winner_elo = self.state.model_elos.get(str(self.state.accepted_count), 0.0)
+                loser_elo = current_elo
+                winner_dir, loser_dir = candidate_eval_dir, current_eval_dir
+            else:
+                # Don't clear — accumulate between accepts
+                # Winner = current, Loser = candidate (current_elo + negative delta)
+                winner_elo = current_elo
+                loser_elo = current_elo + elo_delta  # negative since WR < 0.5
+                winner_dir, loser_dir = current_eval_dir, candidate_eval_dir
+
+            # Ingest both sides
+            if os.path.isdir(winner_dir):
+                eval_added += self._add_eval_data_to_buffer(winner_dir, winner_elo)
+            if os.path.isdir(loser_dir):
+                eval_added += self._add_eval_data_to_buffer(loser_dir, loser_elo)
+
             if eval_added > 0:
                 print(f"Buffer: +{eval_added} eval positions ingested")
                 buffer_size += eval_added
