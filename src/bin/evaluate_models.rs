@@ -64,12 +64,12 @@ pub struct EvalGameData {
     pub current_samples: Vec<TrainingSample>,
 }
 
-/// Number of half-moves using proportional sampling for opening diversity.
-/// After this, switch to greedy (most-visited) for strength measurement.
-const EVAL_EXPLORATION_PLIES: u32 = 10;
+/// Base for top-p decay: p = TOP_P_BASE^move_number.
+/// Move number = (ply / 2) + 1 (same for both white and black on the same turn).
+const TOP_P_BASE: f64 = 0.95;
 
 /// Select a move for evaluation: deterministic for forced wins,
-/// proportional sampling for the first few moves, then greedy.
+/// top-p sampling (decaying with move number) otherwise.
 fn select_eval_move(
     root: &Rc<RefCell<MctsNode>>,
     rng: &mut impl Rng,
@@ -112,34 +112,61 @@ fn select_eval_move(
         })
         .collect();
 
-    if move_count < EVAL_EXPLORATION_PLIES {
-        // Early game: proportional sampling for opening diversity
-        sample_proportional(&visit_pairs, rng)
-    } else {
-        // Rest of game: greedy (most-visited) for strength measurement
-        visit_pairs
-            .iter()
-            .max_by_key(|(_, v)| *v)
-            .map(|(mv, _)| *mv)
-    }
+    // Top-p decays with move number (1-indexed, same for both sides)
+    // p = 0.95^(move_number - 1), so move 1 gets p=1.0 (full sampling)
+    let move_number = (move_count / 2) + 1;
+    let top_p = TOP_P_BASE.powi((move_number - 1) as i32);
+    sample_top_p(&visit_pairs, top_p, rng)
 }
 
-/// Sample a move proportionally from visit counts (temperature = 1, counts-1).
-fn sample_proportional(policy: &[(Move, u32)], rng: &mut impl Rng) -> Option<Move> {
-    let total: u32 = policy.iter().map(|(_, v)| v.saturating_sub(1)).sum();
+/// Sample a move using top-p (nucleus) sampling on the counts-1 distribution.
+///
+/// Sorts moves by visit count descending, accumulates probability mass until
+/// it reaches `top_p`, then samples proportionally among the included moves.
+/// When `top_p` is very low, this naturally becomes greedy.
+fn sample_top_p(policy: &[(Move, u32)], top_p: f64, rng: &mut impl Rng) -> Option<Move> {
+    if policy.is_empty() {
+        return None;
+    }
+
+    // Build (move, adjusted_count) sorted by count descending
+    let mut sorted: Vec<(Move, u32)> = policy
+        .iter()
+        .map(|(mv, v)| (*mv, v.saturating_sub(1)))
+        .collect();
+    sorted.sort_by(|a, b| b.1.cmp(&a.1));
+
+    let total: u32 = sorted.iter().map(|(_, c)| c).sum();
     if total == 0 {
         // All moves have 0 or 1 visit — fall back to most-visited
         return policy.iter().max_by_key(|(_, v)| *v).map(|(mv, _)| *mv);
     }
-    let threshold = rng.gen_range(0..total);
+
+    // Find the nucleus: include moves until cumulative mass >= top_p
+    let mut cumulative_mass = 0.0;
+    let mut nucleus: Vec<(Move, u32)> = Vec::new();
+    for (mv, count) in &sorted {
+        nucleus.push((*mv, *count));
+        cumulative_mass += *count as f64 / total as f64;
+        if cumulative_mass >= top_p {
+            break;
+        }
+    }
+
+    // Sample proportionally within the nucleus
+    let nucleus_total: u32 = nucleus.iter().map(|(_, c)| c).sum();
+    if nucleus_total == 0 {
+        return Some(nucleus[0].0);
+    }
+    let threshold = rng.gen_range(0..nucleus_total);
     let mut cumulative = 0u32;
-    for (mv, visits) in policy {
-        cumulative += visits.saturating_sub(1);
+    for (mv, count) in &nucleus {
+        cumulative += count;
         if cumulative > threshold {
             return Some(*mv);
         }
     }
-    policy.last().map(|(mv, _)| *mv)
+    Some(nucleus.last().unwrap().0)
 }
 
 /// Play a single evaluation game between two models.
@@ -936,5 +963,130 @@ fn main() {
         );
 
         std::process::exit(if accepted { 0 } else { 1 });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand::rngs::StdRng;
+    use rand::SeedableRng;
+
+    fn make_move(from: usize, to: usize) -> Move {
+        Move::new(from, to, None)
+    }
+
+    #[test]
+    fn test_top_p_1_samples_all_moves() {
+        // With p=1.0, all moves are in the nucleus
+        let policy = vec![
+            (make_move(0, 8), 100),  // ~50%
+            (make_move(1, 9), 60),   // ~30%
+            (make_move(2, 10), 40),  // ~20%
+        ];
+        let mut rng = StdRng::seed_from_u64(42);
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..200 {
+            let mv = sample_top_p(&policy, 1.0, &mut rng).unwrap();
+            seen.insert((mv.from, mv.to));
+        }
+        // All 3 moves should appear with p=1.0
+        assert_eq!(seen.len(), 3, "All moves should be sampled with p=1.0");
+    }
+
+    #[test]
+    fn test_top_p_tiny_is_greedy() {
+        // With very small p, only the top move should be selected
+        let policy = vec![
+            (make_move(0, 8), 200),
+            (make_move(1, 9), 100),
+            (make_move(2, 10), 50),
+        ];
+        let mut rng = StdRng::seed_from_u64(42);
+        for _ in 0..50 {
+            let mv = sample_top_p(&policy, 0.01, &mut rng).unwrap();
+            assert_eq!(mv.from, 0, "Only top move should be selected with tiny p");
+            assert_eq!(mv.to, 8);
+        }
+    }
+
+    #[test]
+    fn test_top_p_excludes_low_count_moves() {
+        // p=0.5 should include only the top move (which has ~57% mass)
+        let policy = vec![
+            (make_move(0, 8), 201),  // 200 adjusted, ~57%
+            (make_move(1, 9), 101),  // 100 adjusted, ~29%
+            (make_move(2, 10), 51),  // 50 adjusted, ~14%
+        ];
+        let mut rng = StdRng::seed_from_u64(42);
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..100 {
+            let mv = sample_top_p(&policy, 0.5, &mut rng).unwrap();
+            seen.insert((mv.from, mv.to));
+        }
+        // Only the top move should appear (57% >= 50%)
+        assert_eq!(seen.len(), 1, "Only top move should appear with p=0.5 when top has 57%");
+    }
+
+    #[test]
+    fn test_top_p_includes_second_move_when_needed() {
+        // Two moves with equal counts — p=0.5 needs both (each is 50%)
+        // First move reaches exactly 50%, so it gets included and loop breaks
+        let policy = vec![
+            (make_move(0, 8), 101),  // 100 adjusted, 50%
+            (make_move(1, 9), 101),  // 100 adjusted, 50%
+        ];
+        let mut rng = StdRng::seed_from_u64(42);
+        let mut count_first = 0;
+        let trials = 200;
+        for _ in 0..trials {
+            let mv = sample_top_p(&policy, 0.5, &mut rng).unwrap();
+            if mv.from == 0 { count_first += 1; }
+        }
+        // With p=0.5 and first move at 50%, only first move is in nucleus
+        assert_eq!(count_first, trials, "First move at exactly 50% should satisfy p=0.5");
+    }
+
+    #[test]
+    fn test_top_p_fallback_on_zero_counts() {
+        // All moves with 1 visit (0 adjusted) — should fall back to most-visited
+        let policy = vec![
+            (make_move(0, 8), 1),
+            (make_move(1, 9), 1),
+        ];
+        let mut rng = StdRng::seed_from_u64(42);
+        let mv = sample_top_p(&policy, 1.0, &mut rng);
+        assert!(mv.is_some());
+    }
+
+    #[test]
+    fn test_top_p_empty_policy() {
+        let mut rng = StdRng::seed_from_u64(42);
+        assert!(sample_top_p(&[], 1.0, &mut rng).is_none());
+    }
+
+    #[test]
+    fn test_top_p_decay_formula() {
+        // p = 0.95^(move_number - 1), so move 1 gets p=1.0
+        let p_move1 = TOP_P_BASE.powi(0);   // move 1
+        let p_move2 = TOP_P_BASE.powi(1);   // move 2
+        let p_move11 = TOP_P_BASE.powi(10); // move 11
+        let p_move31 = TOP_P_BASE.powi(30); // move 31
+
+        assert!((p_move1 - 1.0).abs() < 1e-9);
+        assert!((p_move2 - 0.95).abs() < 1e-9);
+        assert!((p_move11 - 0.5987).abs() < 0.001);
+        assert!((p_move31 - 0.2146).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_move_number_from_ply() {
+        // Both sides on the same move get the same move_number
+        assert_eq!((0u32 / 2) + 1, 1);  // ply 0 (white move 1) → move 1
+        assert_eq!((1u32 / 2) + 1, 1);  // ply 1 (black move 1) → move 1
+        assert_eq!((2u32 / 2) + 1, 2);  // ply 2 (white move 2) → move 2
+        assert_eq!((3u32 / 2) + 1, 2);  // ply 3 (black move 2) → move 2
+        assert_eq!((18u32 / 2) + 1, 10); // ply 18 (white move 10) → move 10
+        assert_eq!((19u32 / 2) + 1, 10); // ply 19 (black move 10) → move 10
     }
 }
