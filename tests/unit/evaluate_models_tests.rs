@@ -439,6 +439,54 @@ fn test_koth_disabled_no_early_termination() {
     );
 }
 
+#[test]
+fn test_koth_gate_stores_move_on_root_node() {
+    // Regression test: after 1. b3 f6 2. f4 Nh6 3. Kf2 Kf7, White has KOTH center-in-2
+    // (Kf2-e3-e4). The KOTH gate should fire AND store the move on root.mate_move
+    // so that callers examining the root node (like select_eval_move) can find it.
+    // Previously, the gate returned the move as best_move but didn't store it on the
+    // root node, causing evaluate_models to see None and end the game as a false draw.
+    let fen = "rnbq1b1r/pppppkpp/5p1n/8/5P2/1P6/P1PPPKPP/RNBQ1BNR w - - 3 4";
+    let board = Board::new_from_fen(fen);
+    let move_gen = MoveGen::new();
+
+    let config = TacticalMctsConfig {
+        max_iterations: 100,
+        time_limit: Duration::from_secs(10),
+        enable_koth: true,
+        enable_tier1_gate: true,
+        ..Default::default()
+    };
+    let mut tt = TranspositionTable::new();
+
+    let (best_move, _stats, root) =
+        tactical_mcts_search_with_tt(board, &move_gen, config, &mut tt);
+
+    // The MCTS return value should have a move
+    assert!(best_move.is_some(), "MCTS should return a best move for KOTH win-in-2");
+
+    // Critical: the root node's mate_move must also be set (this is what select_eval_move reads)
+    let root_ref = root.borrow();
+    assert!(
+        root_ref.mate_move.is_some(),
+        "Root node mate_move must be set when KOTH gate fires, otherwise eval games end as false draws"
+    );
+    assert_eq!(
+        root_ref.mate_move.unwrap(),
+        best_move.unwrap(),
+        "Root mate_move should match the returned best_move"
+    );
+
+    // Also verify the game plays to completion as a KOTH win
+    let result = play_test_game_fen_koth(100, fen, true);
+    assert_eq!(
+        result,
+        GameResult::WhiteWin,
+        "White should win KOTH from this position, got {:?}",
+        result
+    );
+}
+
 // ---- SPRT tests ----
 
 fn default_sprt_config() -> SprtConfig {
