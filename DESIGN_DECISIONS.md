@@ -30,9 +30,15 @@ Gate-resolved nodes became **terminal** — treated identically to checkmate and
 
 **Key insight:** Proven values must be *cached*, not *mixed with approximations*. The terminal semantics are what make the proof sticky — once an MCTS node is proven, it stays proven forever.
 
-### Checks-only mate search
+### Exhaustive mate-in-2 + checks-only mate-in-3
 
-Full-width mate search is too expensive to run at every MCTS expansion. The compromise: search only checking moves. This catches the vast majority of short forced mates (which are always delivered through checks) while keeping the cost to microseconds. The depth limit is configurable (default: 3 plies of checks).
+Full-width mate search at all depths is too expensive to run at every MCTS expansion. The compromise uses a configurable `exhaustive_depth` parameter (default: 3 plies) that controls which depths search all legal moves vs. only checking moves:
+
+- **Mate-in-1 (depth 1):** exhaustive — all legal moves tried
+- **Mate-in-2 (depth 3):** exhaustive — catches quiet-first forced mates like 1.Kg6! Ra8# where the first move doesn't give check
+- **Mate-in-3 (depth 5):** checks-only — keeps branching manageable at deeper levels
+
+The exhaustive mate-in-2 adds ~43K nodes to the search budget (total ~76K, within the 100K node limit). This closes the gap between the KOTH-in-3 gate (which is already exhaustive, considering all opponent defenses) and the mate search (which previously missed quiet-first forced mates). The cost is modest because mate-in-2 has limited branching: the attacker's ~30 legal moves each lead to positions where the defender must have *all* replies lead to mate-in-1 — a condition that prunes aggressively.
 
 ### KOTH geometric pruning
 

@@ -23,7 +23,8 @@ All tunable parameters for the Caissawary training pipeline, organized by stage.
 |-----------|-------|----------|-------|
 | Simulations | 800 | `--simulations-per-move` | Per-move budget (self-play and eval) |
 | Exploration (c) | 1.414 | -- | PUCT constant (sqrt(2)) |
-| Mate search depth | 5 | -- | Checks-only; disabled if `--disable-tier1` |
+| Mate search depth | 5 | -- | Max depth in plies; disabled if `--disable-tier1` |
+| Exhaustive mate depth | 3 | -- | Depths ≤ 3: all legal moves; > 3: checks-only |
 | Mate search nodes | 100,000 | -- | Node budget per search |
 | Q-search depth | 8 | -- | For `forced_material_balance()` |
 | Time limit | 120s | -- | Per-move hard cutoff (eval games) |

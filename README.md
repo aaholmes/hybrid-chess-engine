@@ -17,7 +17,7 @@ The name is a hybrid, like the engine: **Caissa** (the mythical goddess of chess
 
 | Tier | Mechanism | Property | Cost |
 |------|-----------|----------|------|
-| **Tier 1** | Safety Gates (mate search, KOTH geometry) | Provably correct, exact values | ~microseconds |
+| **Tier 1** | Safety Gates (exhaustive mate-in-2 + checks-only mate-in-3, KOTH geometry) | Provably correct, exact values | ~microseconds |
 | **Tier 2** | Quiescence search + MVV-LVA ordering | Classical tree search computes material after forced exchanges | ~microseconds |
 | **Tier 3** | Neural network (OracleNet) | Learned positional evaluation for uncertain positions | ~milliseconds |
 
@@ -25,7 +25,7 @@ Gate-resolved nodes are **terminal** — identical to checkmate or stalemate —
 
 ## How It Works
 
-**Tier 1** runs ultra-fast safety gates before expansion: a checks-only mate search and KOTH geometric pruning. When a gate fires, the node receives an exact cached value and becomes terminal — identical to checkmate/stalemate.
+**Tier 1** runs ultra-fast safety gates before expansion: a mate search (exhaustive for mate-in-1 and mate-in-2, checks-only for mate-in-3) and KOTH geometric pruning. When a gate fires, the node receives an exact cached value and becomes terminal — identical to checkmate/stalemate. The exhaustive mate-in-2 catches quiet-first forced mates (e.g., 1.Kg6! followed by Ra8#) that a purely checks-only search would miss.
 
 **Tier 2** runs `forced_material_balance()` at every leaf: a material-only alpha-beta quiescence search (depth 8) that resolves all forced captures and promotions to compute $\Delta M$ — the true material balance after tactical dust settles — along with a completion flag indicating whether the search resolved naturally or hit the depth limit. This is a classical tree search whose results no neural network can easily replicate, since it explores variable-depth exchange sequences. The completion flag feeds into the $k$ head, letting the NN discount unreliable material when the Q-search couldn't fully resolve. Additionally, captures are visited in MVV-LVA order on first visit (PxQ before QxP), though this is a minor optimization.
 
