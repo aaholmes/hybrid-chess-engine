@@ -461,7 +461,7 @@ class Orchestrator:
 
         lr = self.config.initial_lr
 
-        resume_path = self.state.current_best_pth
+        resume_path = self.state.latest_pth
         cmd = [
             "python3", "python/train.py",
             "--buffer-dir", self.config.buffer_dir,
