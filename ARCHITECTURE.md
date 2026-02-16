@@ -8,7 +8,7 @@ Decompose MCTS evaluation into three tiers: **compute what you can exactly, orde
 
 ## Three-Tier MCTS
 
-**Tier 1 — Safety Gates (exact).** Mate search (exhaustive for mate-in-1/2, checks-only for mate-in-3) and KOTH geometric pruning (can king reach center in 3?). Resolved nodes become **terminal** — never expanded, value is exact. Terminal semantics prevent proven values from being diluted by approximate child evaluations. The exhaustive mate-in-2 catches quiet-first forced mates that checks-only search misses, controlled by `exhaustive_mate_depth` (default 3).
+**Tier 1 — Safety Gates (exact).** Mate search (checks-only for mate-in-1/2/3) and KOTH geometric pruning (can king reach center in 3?). Resolved nodes become **terminal** — never expanded, value is exact. Terminal semantics prevent proven values from being diluted by approximate child evaluations. An `exhaustive_mate_depth` parameter (default 0) can enable exhaustive search at shallower depths to catch quiet-first forced mates, but checks-only is sufficient in practice.
 
 **Tier 2 — Quiescence Search (classical tree search).** Every MCTS leaf evaluation runs `forced_material_balance()`: a material-only alpha-beta Q-search (depth 8) that resolves all forced captures and promotions. This produces deltaM — the true material balance after tactical dust settles — and a completion flag indicating whether the search resolved naturally or hit the depth limit with captures remaining. A position may look equal (P=P) but after forced exchanges be +3. No neural network can easily replicate this because it requires a classical tree search over variable-depth exchange sequences. deltaM feeds directly into the value function (see below), and the completion flag feeds into the k head so the NN can discount unreliable material when the Q-search couldn't fully resolve. Q-search runs before NN inference so the completion flag is available for the inference request. Additionally, captures are visited in MVV-LVA order on their first visit (PxQ before QxP), though this is a minor optimization.
 
@@ -45,11 +45,11 @@ A freshly initialized network produces meaningful behavior: uniform exploration 
 
 **Self-play**: Games against self using current best model. Proportional move selection from MCTS visit counts. Training targets: visit-count policy distribution + game outcome.
 
-**Replay buffer**: Sliding window (100K positions, FIFO eviction). Elo-based strength weighting: data from stronger models sampled more. Cleared on model acceptance (old data already trained on). Eval game data from both sides ingested after each evaluation.
+**Replay buffer**: Sliding window (100K positions, FIFO eviction). Elo-based strength weighting: data from stronger models sampled more. Buffer accumulates across acceptances — Elo weighting and early stopping handle data staleness without clearing. Eval game data from both sides ingested after each evaluation.
 
-**Training**: Muon optimizer (lr=0.02). Up to 10 epochs with validation-based early stopping (patience=1, 90/10 split). Policy loss: KL divergence. Value loss: MSE. Equal weight. Always trains from last accepted checkpoint (not rejected candidates — avoids cumulative overfitting).
+**Training**: Muon optimizer (lr=0.02). Up to 10 epochs with validation-based early stopping (patience=1, 90/10 split). Policy loss: KL divergence. Value loss: MSE. Equal weight. Always trains from the latest candidate (accepted or rejected), so rejected candidates' incremental learning is preserved.
 
-**Evaluation**: SPRT with elo0=0, elo1=10, alpha=beta=0.05. Up to 400 games. Top-p move selection decaying with move number (p=0.95^(move-1)): full sampling early, nearly greedy late. Forced wins always played deterministically.
+**Evaluation**: SPRT with elo0=0, elo1=10, alpha=beta=0.05. Up to 400 games. Proportional-or-greedy move selection: with probability p=0.90^(move-1) sample proportionally from visit counts, otherwise play greedy (most-visited). This decays from full proportional sampling on move 1 to ~88% greedy by move 20. Forced wins always played deterministically.
 
 **Eval-only mode** (`--skip-self-play`): After gen 1, eval games (up to 400/gen) provide training data at zero marginal cost, replacing self-play. Cuts wall time ~50%.
 

@@ -17,7 +17,7 @@ The name is a hybrid, like the engine: **Caissa** (the mythical goddess of chess
 
 | Tier | Mechanism | Property | Cost |
 |------|-----------|----------|------|
-| **Tier 1** | Safety Gates (exhaustive mate-in-2 + checks-only mate-in-3, KOTH geometry) | Provably correct, exact values | ~microseconds |
+| **Tier 1** | Safety Gates (checks-only mate search, KOTH geometry) | Provably correct, exact values | ~microseconds |
 | **Tier 2** | Quiescence search + MVV-LVA ordering | Classical tree search computes material after forced exchanges | ~microseconds |
 | **Tier 3** | Neural network (OracleNet) | Learned positional evaluation for uncertain positions | ~milliseconds |
 
@@ -25,7 +25,7 @@ Gate-resolved nodes are **terminal** — identical to checkmate or stalemate —
 
 ## How It Works
 
-**Tier 1** runs ultra-fast safety gates before expansion: a mate search (exhaustive for mate-in-1 and mate-in-2, checks-only for mate-in-3) and KOTH geometric pruning. When a gate fires, the node receives an exact cached value and becomes terminal — identical to checkmate/stalemate. The exhaustive mate-in-2 catches quiet-first forced mates (e.g., 1.Kg6! followed by Ra8#) that a purely checks-only search would miss.
+**Tier 1** runs ultra-fast safety gates before expansion: a checks-only mate search (up to mate-in-3) and KOTH geometric pruning. When a gate fires, the node receives an exact cached value and becomes terminal — identical to checkmate/stalemate. An `exhaustive_depth` parameter can optionally enable exhaustive search at shallower depths to catch quiet-first forced mates, but checks-only is sufficient in practice and keeps the node budget low.
 
 **Tier 2** runs `forced_material_balance()` at every leaf: a material-only alpha-beta quiescence search (depth 8) that resolves all forced captures and promotions to compute $\Delta M$ — the true material balance after tactical dust settles — along with a completion flag indicating whether the search resolved naturally or hit the depth limit. This is a classical tree search whose results no neural network can easily replicate, since it explores variable-depth exchange sequences. The completion flag feeds into the $k$ head, letting the NN discount unreliable material when the Q-search couldn't fully resolve. Additionally, captures are visited in MVV-LVA order on first visit (PxQ before QxP), though this is a minor optimization.
 
@@ -114,7 +114,7 @@ With zero training, the engine already plays intelligently. All four top moves (
 
 AlphaZero-style loop: self-play → replay buffer → train → export → evaluate → gate (SPRT).
 
-Each generation trains all heads jointly, exports the candidate, and evaluates it against the current best via SPRT (up to 400 games with early stopping). Evaluation uses greedy move selection (most-visited child) after the first 10 plies, with proportional sampling only in the opening for diversity. Evaluation games also produce training data by default — each move's MCTS visit counts and material balance are recorded and fed back into the replay buffer. If the candidate is accepted, both sides' data is kept; if rejected, only the current model's data is retained (the candidate may be overfit).
+Each generation trains from the latest candidate (accepted or rejected, so incremental learning is preserved), exports, and evaluates against the current best via SPRT (up to 400 games with early stopping). Evaluation uses proportional-or-greedy move selection: with probability $p = 0.90^{(\text{move}-1)}$, sample proportionally from visit counts; otherwise play greedy (most-visited). This decays from full proportional sampling on move 1 to ~88% greedy by move 20, balancing game diversity against SPRT signal quality. Forced wins are always played deterministically. Evaluation games produce training data by default — both sides' data is ingested into the replay buffer with Elo-based strength tags.
 
 Since evaluation games produce training data, self-play is optional after gen 1. With `--skip-self-play`, the loop becomes: train on buffer → eval (producing new training data) → gate → ingest eval data. Gen 1 always runs self-play to seed the buffer.
 
@@ -146,7 +146,7 @@ python python/orchestrate.py \
   --max-epochs 1 --eval-max-games 4 --buffer-capacity 1000
 ```
 
-Training uses epoch-based iteration with Elo-weighted probabilistic inclusion: each position's inclusion probability per epoch is the odds ratio of its model's expected score against the strongest model in the buffer, so max-Elo data is always fully included while weaker data is proportionally downsampled (200 Elo gap → ~32% inclusion, 400 Elo gap → ~10%). The number of training epochs is determined adaptively: a 90/10 train/validation split with patience-1 early stopping automatically selects the right epoch count per generation (`--max-epochs` sets the ceiling, default 10). This avoids both underfitting (too few epochs for a large model) and overfitting (too many epochs on a small buffer). The orchestrator uses the Muon optimizer by default. Model architecture is configurable via `--num-blocks` and `--hidden-dim`.
+Training uses Elo-weighted sampling: each position's weight is proportional to the odds ratio of its model's expected score against the strongest model in the buffer, so max-Elo data is always fully included while weaker data is proportionally downsampled (200 Elo gap → ~32% inclusion, 400 Elo gap → ~10%). The replay buffer accumulates across acceptances — Elo weighting and early stopping handle data staleness without clearing. The number of training epochs is determined adaptively: a 90/10 train/validation split with patience-1 early stopping automatically selects the right epoch count per generation (`--max-epochs` sets the ceiling, default 10). This avoids both underfitting (too few epochs for a large model) and overfitting (too many epochs on a small buffer). The orchestrator uses the Muon optimizer by default. Model architecture is configurable via `--num-blocks` and `--hidden-dim`.
 
 Evaluation uses SPRT (Sequential Probability Ratio Test) with early stopping — clear winners/losers decided in ~30 games, marginal cases use up to 400 (needed for statistical power at the ~84% draw rate typical of self-play). Data augmentation exploits board symmetry: positions without castling rights are expanded into both the original and horizontal flip (2x data), with pawnless endgames getting the full D4 dihedral group (8x data).
 

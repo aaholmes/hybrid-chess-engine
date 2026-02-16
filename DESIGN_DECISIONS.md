@@ -199,15 +199,15 @@ Rather than fixing the epoch count as a hyperparameter, the current approach use
 
 **Empirical results.** In the 2M parameter scale-up experiment, the adaptive approach consistently selected 2 epochs in early generations (gens 1-6, small buffer) and 1 epoch in later generations (gens 7+, buffer >100K positions). This matched the manually-tuned finding that "2 epochs is about right" while automatically transitioning as the buffer grew.
 
-### Train-from-latest: tried and reverted
+### Train-from-latest: reverted, then re-enabled
 
 **The hypothesis.** When a candidate is rejected by SPRT, it's probably slightly better than the current best — just not statistically provably so. Discarding it and training the next generation from the last *accepted* checkpoint wastes this incremental progress. Training from the most recent candidate (accepted or rejected) should produce a continuous improvement trajectory.
 
-**What happened.** The "train-from-latest" run (adaptive epochs + train from rejected candidates) significantly underperformed the "train-from-best" run (fixed 2 epochs + train from last accepted): 152 Elo at gen 15 vs 340 Elo at gen 27. The adaptive run showed a distinctive pattern: after a string of rejections, it consistently selected only 1 training epoch, suggesting the validation loss was already near-optimal after minimal training.
+**First attempt: reverted.** An early "train-from-latest" run with adaptive epochs underperformed a "train-from-best" run with fixed 2 epochs (152 Elo at gen 15 vs 340 Elo at gen 27). The diagnosis was cumulative overfitting: each rejection compounds training on the same data. This led to reverting to train-from-best.
 
-**The diagnosis.** A rejected candidate has already been trained on most of the buffer. Training from it again on the same (or similar) buffer is effectively adding more epochs on the same data — cumulative overfitting across generations. Each rejection compounds: gen N trains 2 epochs from best, gen N+1 trains from that rejected candidate (effectively epoch 3-4 on the same data), gen N+2 trains from *that* rejected candidate (effectively epoch 5-6), and so on. The adaptive early stopping correctly detected this by selecting 1 epoch — but even 1 additional epoch on an already-overfit checkpoint wasn't enough to overcome the accumulated staleness.
+**Re-evaluation.** Later analysis revealed the comparison was confounded — the two runs differed in epoch count (adaptive vs fixed 2), not just resume strategy. A controlled comparison showed train-from-best caused candidates to repeatedly train from the same base without building on previous learning. In one run, gens 3-5 all resumed from gen_2.pth and produced progressively worse candidates (0.482, 0.449 winrate). Meanwhile, runs that used train-from-latest showed the expected pattern: gen 1 rejected at 0.511, gen 2 built on it and jumped to +50.5 Elo with 0.572 winrate.
 
-**The lesson.** "Always train from the last accepted checkpoint" is not just a safety measure — it's actively beneficial. Each new training run starts from a clean baseline, avoiding cumulative overfitting. The "wasted" progress from rejected candidates is genuinely wasted: the information that made them slightly better is already encoded in the buffer data, and a fresh training run from the accepted checkpoint will rediscover it (along with newer data).
+**Current approach (train-from-latest).** Always resume from the most recent candidate, whether accepted or rejected. Early stopping prevents cumulative overfitting — if the latest candidate is already well-trained on the buffer, validation loss won't improve and training stops after 1 epoch. The key insight: a rejected candidate at 51% winrate is almost certainly better than the current best, just not provably so. Starting over from the accepted checkpoint throws away real learning.
 
 ### Data augmentation: exploiting board symmetries
 
@@ -243,11 +243,15 @@ Each variant was evaluated independently via SPRT. The best passing variant was 
 
 **Current default: single-variant (all-heads only).** Joint training is the default (`--multi-variant` flag available to opt back in). This cuts per-generation wall time by ~60% while losing no measurable strength. The lesson: with a well-designed value function ($V_{logit} + k \cdot \Delta M$), joint training is stable — the feared interference between heads didn't materialize.
 
-### Evaluation: greedy selection after opening diversity
+### Evaluation: proportional-or-greedy mixing
 
 **The problem.** AlphaZero-style proportional move selection (sampling from visit counts) adds noise that obscures model differences. Two models might produce very different search trees but — by random sampling — end up playing similar moves, making SPRT evaluation less sensitive.
 
-**The solution.** Use proportional sampling only for the first 10 plies (opening diversity), then switch to greedy selection (most-visited child) for the rest of the game. Forced wins are always played deterministically regardless of move number. This gives evaluation games a diverse opening book while measuring pure strength in the middlegame and endgame.
+**v1: Fixed cutoff.** Proportional sampling for the first 10 plies, then pure greedy (most-visited child). Simple and effective, but the hard discontinuity is arbitrary and greedy play after ply 10 produces identical games from identical positions — reducing training data diversity.
+
+**v2: Top-p nucleus sampling (tried and replaced).** Decaying nucleus: p = 0.95^(move-1), sampling from the top-p fraction of moves by visit count. Smooth transition, but nucleus boundaries are arbitrary — with p=0.3, the 2nd-best move might be much weaker than the 1st yet still gets sampled 20% of the time. Empirically, this added too much noise: runs with top-p=0.95 showed 14+ consecutive SPRT rejections at plateaus where the old greedy approach had broken through.
+
+**v3: Proportional-or-greedy mix (current).** With probability p = 0.90^(move-1), play a proportional move (visits-1 distribution over all moves); with probability 1-p, play greedy (most-visited). This has clean semantics: greedy moves provide strong SPRT signal (directly testing strength), while proportional moves add diversity for training data. By move 15, ~80% of moves are greedy. No arbitrary nucleus boundaries — when you explore, you explore broadly; when you exploit, you play the best move. Forced wins are always played deterministically regardless of move number.
 
 ### Evaluation game data reuse
 

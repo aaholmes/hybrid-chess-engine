@@ -24,7 +24,7 @@ All tunable parameters for the Caissawary training pipeline, organized by stage.
 | Simulations | 800 | `--simulations-per-move` | Per-move budget (self-play and eval) |
 | Exploration (c) | 1.414 | -- | PUCT constant (sqrt(2)) |
 | Mate search depth | 5 | -- | Max depth in plies; disabled if `--disable-tier1` |
-| Exhaustive mate depth | 3 | -- | Depths ≤ 3: all legal moves; > 3: checks-only |
+| Exhaustive mate depth | 0 | -- | Depths ≤ N: all legal moves; > N: checks-only. Default 0 = all checks-only |
 | Mate search nodes | 100,000 | -- | Node budget per search |
 | Q-search depth | 8 | -- | For `forced_material_balance()` |
 | Time limit | 120s | -- | Per-move hard cutoff (eval games) |
@@ -37,11 +37,11 @@ All tunable parameters for the Caissawary training pipeline, organized by stage.
 
 | Parameter | Value | CLI Flag | Notes |
 |-----------|-------|----------|-------|
-| Top-p base | 0.95 | `--eval-top-p-base` / `--top-p-base` | p = base^(move_number - 1) |
-| Move 1 p | 1.0 | -- | Full sampling |
-| Move 11 p | ~0.60 | -- | Moderate nucleus |
-| Move 31 p | ~0.21 | -- | Nearly greedy |
-| Distribution | visits - 1 | -- | Proportional to adjusted visit counts |
+| Explore base | 0.90 | `--eval-explore-base` / `--explore-base` | p = base^(move_number - 1) |
+| Move 1 p | 1.0 | -- | Always proportional |
+| Move 11 p | ~0.35 | -- | 65% greedy, 35% proportional |
+| Move 21 p | ~0.12 | -- | 88% greedy, 12% proportional |
+| Explore mode | Proportional (visits-1) | -- | With prob p: sample proportionally; with prob 1-p: greedy |
 | Forced wins | Deterministic | -- | Terminal/mate children picked greedily |
 
 ## Self-Play
@@ -80,7 +80,7 @@ All tunable parameters for the Caissawary training pipeline, organized by stage.
 |-----------|-------|----------|-------|
 | Capacity | 100,000 | `--buffer-capacity` | Positions; oldest evicted FIFO |
 | Sampling weight | count * 2 * E(score) | -- | Elo-based: E = 1/(1+10^((max_elo-elo)/400)) |
-| Clear on accept | Yes | -- | Buffer cleared when model accepted |
+| Clear on accept | No | -- | Buffer accumulates; Elo weighting handles staleness |
 | Eval data ingestion | Both sides | -- | Winner at current Elo, loser at lower Elo |
 
 ## Evaluation (SPRT)
