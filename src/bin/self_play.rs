@@ -78,6 +78,13 @@ fn main() {
         .and_then(|v| v.parse().ok())
         .unwrap_or(0);
 
+    let explore_base: f64 = args
+        .iter()
+        .position(|a| a == "--explore-base")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0.80);
+
     println!("Self-Play Generator Starting...");
     println!("   Games: {}", num_games);
     println!("   Simulations/Move: {}", simulations);
@@ -88,6 +95,7 @@ fn main() {
     println!("   Material Value: {}", enable_material);
     println!("   Log Games: {}", log_games);
     println!("   Inference Batch Size: {}", inference_batch_size);
+    println!("   Explore Base: {}", explore_base);
 
     // Set thread count if specified (overrides RAYON_NUM_THREADS env var)
     if let Some(threads) = num_threads {
@@ -137,6 +145,7 @@ fn main() {
             enable_tier1,
             enable_material,
             verbose,
+            explore_base,
         );
 
         if !samples.is_empty() {
@@ -177,6 +186,7 @@ fn play_game(
     enable_tier1: bool,
     enable_material: bool,
     verbose: bool,
+    explore_base: f64,
 ) -> Vec<TrainingSample> {
     let mut rng = StdRng::seed_from_u64(seed);
     let move_gen = MoveGen::new();
@@ -305,9 +315,16 @@ fn play_game(
             w_to_move: board.w_to_move,
         });
 
-        // Play Move — sample proportionally from visit counts for exploration
-        let selected_move = sample_proportional(&result.root_policy, &mut rng)
-            .unwrap_or_else(|| result.best_move.unwrap());
+        // Play Move — proportional-or-greedy with decaying exploration
+        let move_number = (move_count / 2) + 1;
+        let explore_prob = explore_base.powi((move_number as i32) - 1);
+        let selected_move = if rng.gen::<f64>() < explore_prob {
+            sample_proportional(&result.root_policy, &mut rng)
+                .unwrap_or_else(|| result.best_move.unwrap())
+        } else {
+            select_greedy(&result.root_policy)
+                .unwrap_or_else(|| result.best_move.unwrap())
+        };
 
         if verbose {
             game_moves.push(selected_move.to_san(&board, &move_gen));
@@ -581,11 +598,15 @@ fn play_game(
     samples
 }
 
-/// Sample a move proportionally from visit counts (temperature = 1).
+/// Sample a move proportionally from visit counts (visits-1 distribution).
+/// Falls back to greedy if all moves have 0 or 1 visit.
 fn sample_proportional(policy: &[(Move, u32)], rng: &mut impl Rng) -> Option<Move> {
+    if policy.is_empty() {
+        return None;
+    }
     let total: u32 = policy.iter().map(|(_, v)| v.saturating_sub(1)).sum();
     if total == 0 {
-        return None;
+        return select_greedy(policy);
     }
     let threshold = rng.gen_range(0..total);
     let mut cumulative = 0u32;
@@ -596,4 +617,9 @@ fn sample_proportional(policy: &[(Move, u32)], rng: &mut impl Rng) -> Option<Mov
         }
     }
     policy.last().map(|(mv, _)| *mv)
+}
+
+/// Select the most-visited move.
+fn select_greedy(policy: &[(Move, u32)]) -> Option<Move> {
+    policy.iter().max_by_key(|(_, v)| *v).map(|(mv, _)| *mv)
 }

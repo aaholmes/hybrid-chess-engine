@@ -365,6 +365,7 @@ class Orchestrator:
         ]
         if self.config.game_threads > 0:
             cmd.extend(["--threads", str(self.config.game_threads)])
+        cmd.extend(["--explore-base", str(self.config.eval_explore_base)])
 
         print(f"Self-play: {self.config.games_per_generation} games, "
               f"{sims} sims, "
