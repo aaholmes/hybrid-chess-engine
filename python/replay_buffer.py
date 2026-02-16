@@ -6,6 +6,7 @@ providing random sampling and FIFO eviction.
 
 import os
 import json
+import hashlib
 import shutil
 import time
 import glob
@@ -32,9 +33,16 @@ class ReplayBuffer:
         model_elo: cumulative Elo of the model that produced this data. Used for
         Elo-based strength weighting — data from stronger models is weighted
         higher using expected score formula.
+
+        Duplicate files (by content hash) are skipped and reported.
         """
         bin_files = sorted(glob.glob(os.path.join(bin_dir, "*.bin")))
         total_added = 0
+        duplicates_skipped = 0
+        positions_skipped = 0
+
+        # Build set of existing hashes
+        existing_hashes = {e["content_hash"] for e in self.entries if "content_hash" in e}
 
         for src_path in bin_files:
             file_size = os.path.getsize(src_path)
@@ -43,6 +51,14 @@ class ReplayBuffer:
             num_positions = file_size // BYTES_PER_SAMPLE
             if num_positions == 0:
                 continue
+
+            # Hash file content to detect duplicates
+            content_hash = hashlib.md5(open(src_path, "rb").read()).hexdigest()
+            if content_hash in existing_hashes:
+                duplicates_skipped += 1
+                positions_skipped += num_positions
+                continue
+            existing_hashes.add(content_hash)
 
             # Copy file into buffer directory with unique name
             basename = os.path.basename(src_path)
@@ -55,8 +71,13 @@ class ReplayBuffer:
                 "num_positions": num_positions,
                 "timestamp": time.time(),
                 "model_elo": model_elo,
+                "content_hash": content_hash,
             })
             total_added += num_positions
+
+        if duplicates_skipped > 0:
+            print(f"  Duplicates skipped: {duplicates_skipped} files "
+                  f"({positions_skipped} positions)")
 
         self.save_manifest()
         return total_added
