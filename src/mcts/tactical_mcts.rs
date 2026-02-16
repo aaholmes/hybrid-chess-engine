@@ -178,6 +178,7 @@ pub fn tactical_mcts_search_with_tt(
                 stats.search_time = start_time.elapsed();
                 let root_node = MctsNode::new_root(board, move_gen);
                 root_node.borrow_mut().origin = NodeOrigin::Gate;
+                root_node.borrow_mut().mate_move = Some(best);
                 return (Some(best), stats, root_node);
             }
         }
