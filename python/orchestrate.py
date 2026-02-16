@@ -311,8 +311,9 @@ class Orchestrator:
                 os.remove(latest_pt)
             os.symlink(os.path.abspath(gen_pt), latest_pt)
 
-            # Clear buffer — accepted model already trained on old data
-            self.clear_buffer()
+            # Note: we do NOT clear the buffer on accept. Elo-weighted sampling
+            # already downweights old data, and early stopping prevents overfitting.
+            # Clearing causes data starvation at small data scales.
 
             print(f"Generation {generation} ACCEPTED (W:{eval_results['wins']} "
                   f"L:{eval_results['losses']} D:{eval_results['draws']} "

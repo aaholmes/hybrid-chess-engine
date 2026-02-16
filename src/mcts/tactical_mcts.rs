@@ -64,7 +64,7 @@ impl Default for TacticalMctsConfig {
             max_iterations: 1000,
             time_limit: Duration::from_secs(5),
             mate_search_depth: 5,
-            exhaustive_mate_depth: 3,
+            exhaustive_mate_depth: 0,
             exploration_constant: 1.414,
             use_neural_policy: true,
             inference_server: None,
