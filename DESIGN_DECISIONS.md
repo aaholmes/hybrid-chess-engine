@@ -287,7 +287,45 @@ Each move XOR-updates the hash rather than recomputing from scratch. This makes 
 
 Static Exchange Evaluation (SEE) uses a lightweight `SeeBoard` struct instead of cloning the full `Board`. `SeeBoard` contains only the minimum state needed for exchange evaluation — occupancy bitboards and piece types.
 
-## 8. Applicability Beyond Chess
+## 8. Tournament Design: Adaptive CI-Targeted Pairing
+
+### The problem: uniform round-robins waste games
+
+A standard round-robin plays equal games across all pairings. With 10 models (45 pairs), playing 200 games each costs 9,000 games total — but most of that budget is spent on lopsided matchups (tiered_gen17 vs vanilla_gen0) where the outcome is obvious after 10 games. Meanwhile, the close matchups that actually determine rankings (tiered_gen4 vs tiered_gen17) remain statistically uncertain.
+
+### Solution: seed then focus
+
+The tournament runs in two phases:
+
+**Seed phase.** An interleaved round-robin plays a small number of games per pair (default 10). This establishes rough rankings cheaply — 450 games for 10 models. Interleaving (playing one batch per pair before starting the next round) means preliminary Elo ratings are available after the first pass through all 45 pairs.
+
+**Focus phase.** The remaining budget targets *ranking uncertainty* directly:
+
+1. Compute MLE Elo ratings, rank models
+2. Bootstrap resample all pairwise results (200 iterations), recompute Elo each time
+3. For each consecutive-rank pair (#1 vs #2, #2 vs #3, ...), measure the 95% CI width of their Elo gap
+4. Play the next batch of games for the consecutive pair with the **widest CI**
+5. Repeat until all consecutive CIs fall below a target (default 50 Elo) or the total game budget is exhausted
+
+This focuses games exactly where they matter for ranking confidence. A pair separated by 400 Elo with CI±30 doesn't need more games — their relative ranking is settled. But a pair separated by 25 Elo with CI±160 needs many more games before we can confidently order them.
+
+### Why consecutive pairs, not all pairs
+
+Ranking confidence depends on *adjacent* comparisons. If #1 vs #2 is settled and #2 vs #3 is settled, then #1 vs #3 is transitively settled — playing more #1 vs #3 games adds no ranking information. By focusing exclusively on consecutive-rank gaps, the algorithm targets exactly the comparisons that could change the final ordering. This also means lopsided cross-type matchups (tiered vs vanilla) naturally get deprioritized once the tiered-vanilla boundary is established.
+
+### Bootstrap details
+
+Each bootstrap iteration resamples every pairwise result independently: given (w, l, d) outcomes for a pair, draw `w+l+d` outcomes from a multinomial with probabilities `(w/total, l/total, d/total)`. This preserves the total game count per pair while varying outcomes. MLE Elo is recomputed from scratch for each resample (1000 iterations, fast in pure Python). The consecutive gaps are measured using the *current* ranking order (not the bootstrap ranking), so the CI reflects uncertainty about whether a specific pair's gap might be negative (i.e., whether their ranking should swap).
+
+### Resume support
+
+Results are saved to JSON after every batch. The adaptive phase picks up where it left off — re-run bootstrap on existing results, find the widest CI, continue. No special checkpointing needed.
+
+### Model-mode pairing
+
+Each model plays with the search configuration it was trained with. Tiered models use all three tiers; vanilla models disable Tier 1 and material evaluation. The tournament script enforces this via per-side flags (`--candidate-disable-tier1`, `--current-disable-tier1`), so mixed matchups are valid comparisons of the full training+search systems.
+
+## 9. Applicability Beyond Chess
 
 The three-tier decomposition is not chess-specific. The pattern — injecting exact solutions for tractable subproblems as terminal MCTS nodes — applies wherever a domain has classical solvers for subproblems:
 
@@ -302,7 +340,7 @@ The key requirement: exactly resolved nodes must be **terminal** in the MCTS tre
 
 The value function factorization ($V = \tanh(V_{learned} + k \cdot V_{computed})$) also transfers: any domain where part of the evaluation can be computed exactly benefits from separating the learnable residual from the computable component. The learned confidence scalar $k$ modulates trust in the exact component based on context — in chess, $k$ adapts to how convertible a material advantage is; in mathematical reasoning, an analogous scalar could modulate trust in a theorem prover's assessment based on how prover-friendly the current subgoal is.
 
-## Related Work
+## 10. Related Work
 
 Caissawary draws on and extends several lines of prior work:
 
