@@ -15,6 +15,7 @@ import itertools
 import json
 import math
 import os
+import random
 import re
 import subprocess
 import sys
@@ -256,9 +257,173 @@ def load_partial_results(output_dir):
     return results, games_played
 
 
+def bootstrap_consecutive_ci(results, model_names, n_bootstrap=200):
+    """Bootstrap consecutive-rank Elo gaps to find the most uncertain pairing.
+
+    Returns list of (idx_higher, idx_lower, gap_mean, gap_ci_width, games_played)
+    sorted by gap_ci_width descending (most uncertain first).
+    """
+    n = len(model_names)
+
+    # Build per-pair game counts for resampling
+    pair_data = {}
+    for (i, j), (w, l, d) in results.items():
+        total = w + l + d
+        if total > 0:
+            pair_data[(i, j)] = (w, l, d, total)
+
+    if not pair_data:
+        return []
+
+    # Current MLE ranking to define consecutive pairs
+    elos = compute_elo_mle(results, model_names)
+    ranked = sorted(range(n), key=lambda i: elos[i], reverse=True)
+
+    # Bootstrap: resample results, compute Elo, record consecutive gaps
+    gap_samples = {k: [] for k in range(n - 1)}  # gap_samples[k] = list of gap values
+
+    for _ in range(n_bootstrap):
+        # Resample results
+        resampled = {}
+        for (i, j), (w, l, d, total) in pair_data.items():
+            outcomes = random.choices(['w', 'l', 'd'], weights=[w, l, d], k=total)
+            rw = outcomes.count('w')
+            rl = outcomes.count('l')
+            rd = outcomes.count('d')
+            resampled[(i, j)] = (rw, rl, rd)
+
+        # Compute Elo from resampled
+        boot_elos = compute_elo_mle(resampled, model_names)
+        boot_ranked = sorted(range(n), key=lambda i: boot_elos[i], reverse=True)
+
+        # Record consecutive gaps (using current ranking order, not bootstrap ranking)
+        for k in range(n - 1):
+            higher = ranked[k]
+            lower = ranked[k + 1]
+            gap = boot_elos[higher] - boot_elos[lower]
+            gap_samples[k].append(gap)
+
+    # Compute mean and CI width for each consecutive gap
+    consecutive_gaps = []
+    for k in range(n - 1):
+        samples = gap_samples[k]
+        if not samples:
+            continue
+        mean_gap = sum(samples) / len(samples)
+        std_gap = (sum((s - mean_gap) ** 2 for s in samples) / len(samples)) ** 0.5
+        ci_width = 1.96 * std_gap  # 95% CI half-width
+
+        higher = ranked[k]
+        lower = ranked[k + 1]
+
+        # Count games between this pair
+        if (higher, lower) in results:
+            gp = sum(results[(higher, lower)])
+        elif (lower, higher) in results:
+            gp = sum(results[(lower, higher)])
+        else:
+            gp = 0
+
+        consecutive_gaps.append((higher, lower, mean_gap, ci_width, gp))
+
+    # Sort by CI width descending (most uncertain first)
+    consecutive_gaps.sort(key=lambda x: x[3], reverse=True)
+    return consecutive_gaps
+
+
+def print_ci_table(consecutive_gaps, model_names, elos, focus_pair=None):
+    """Print the consecutive Elo gap CI table."""
+    ranked = sorted(range(len(model_names)), key=lambda i: elos[i], reverse=True)
+    rank_of = {idx: r + 1 for r, idx in enumerate(ranked)}
+
+    print(f"\n  {'Gap':<8} {'Higher':<18} {'Lower':<18} {'Elo Gap':>8} {'CI±':>7} {'Games':>6}")
+    print(f"  {'-'*69}")
+
+    for higher, lower, gap_mean, ci_width, gp in consecutive_gaps:
+        marker = "  <-- NEXT" if focus_pair and (higher, lower) == focus_pair else ""
+        rh, rl = rank_of[higher], rank_of[lower]
+        print(f"  #{rh}-#{rl}  {model_names[higher]:<18} {model_names[lower]:<18} "
+              f"{gap_mean:>+8.1f} {ci_width:>6.1f} {gp:>6}{marker}")
+
+
+def run_adaptive_phase(model_names, results, games_played, args, output_dir, tournament_start):
+    """Focus games on consecutive-rank pairs with widest CI."""
+    n = len(model_names)
+
+    while True:
+        # Check total games limit
+        total_games = sum(sum(v) for v in results.values())
+        if total_games >= args.max_total_games:
+            print(f"\n  Reached max total games ({total_games}/{args.max_total_games}). Stopping.")
+            break
+
+        # Bootstrap to find most uncertain consecutive pair
+        consecutive_gaps = bootstrap_consecutive_ci(results, model_names)
+        if not consecutive_gaps:
+            print("  No consecutive gaps to analyze.")
+            break
+
+        # Check stopping condition: max CI < target
+        max_ci = consecutive_gaps[0][3]
+        if max_ci < args.ci_target:
+            print(f"\n  All consecutive CIs below target ({max_ci:.1f} < {args.ci_target}). Stopping.")
+            break
+
+        # Select pair with widest CI
+        higher, lower, gap_mean, ci_width, gp = consecutive_gaps[0]
+
+        # Print CI table
+        elos = compute_elo_mle(results, model_names)
+        elapsed = time.time() - tournament_start
+        print(f"\n{'#'*70}")
+        print(f"  ADAPTIVE FOCUS — {total_games} total games, {elapsed/60:.0f}min")
+        print(f"{'#'*70}")
+        print_ratings(model_names, elos, results, games_played)
+        print_ci_table(consecutive_gaps, model_names, elos, focus_pair=(higher, lower))
+
+        # Determine which is candidate/current in results dict
+        # We need a canonical key — use (min, max) ordering matching pairings
+        i, j = (min(higher, lower), max(higher, lower))
+        played = games_played.get((i, j), 0)
+        seed_offset = i * 10000 + j * 100 + played
+
+        cand_name, cand_path, cand_type = MODELS[i]
+        curr_name, curr_path, curr_type = MODELS[j]
+
+        batch_games = min(args.batch, args.max_total_games - total_games)
+        if batch_games <= 0:
+            break
+
+        print(f"\n  Playing {batch_games} games: {cand_name} vs {curr_name}")
+        sys.stdout.flush()
+
+        result = run_batch(
+            cand_name, cand_path, cand_type,
+            curr_name, curr_path, curr_type,
+            batch_games, args.sims, args.batch_size, args.threads,
+            args.explore_base, seed_offset,
+        )
+
+        if result is not None:
+            w, l, d = result
+            if (i, j) in results:
+                pw, pl, pd = results[(i, j)]
+                results[(i, j)] = (pw + w, pl + l, pd + d)
+            else:
+                results[(i, j)] = (w, l, d)
+            games_played[(i, j)] = played + batch_games
+
+            elos = compute_elo_mle(results, model_names)
+            save_results(model_names, elos, results, games_played, output_dir)
+        else:
+            print(f"    FAILED: {cand_name} vs {curr_name}")
+
+        sys.stdout.flush()
+
+
 def main():
     parser = argparse.ArgumentParser(description="Round-robin tournament")
-    parser.add_argument("--games", type=int, default=200, help="Total games per match")
+    parser.add_argument("--games", type=int, default=200, help="Total games per match (non-adaptive mode)")
     parser.add_argument("--batch", type=int, default=10, help="Games per batch before rotating to next pairing")
     parser.add_argument("--sims", type=int, default=200, help="Simulations per move")
     parser.add_argument("--batch-size", type=int, default=128, help="Inference batch size")
@@ -266,6 +431,11 @@ def main():
     parser.add_argument("--explore-base", type=float, default=1.0, help="Explore base (1.0=always proportional)")
     parser.add_argument("--output-dir", type=str, default=None, help="Output directory")
     parser.add_argument("--resume", action="store_true", help="Resume from partial results")
+    # Adaptive mode arguments
+    parser.add_argument("--adaptive", action="store_true", help="Enable adaptive mode: seed then focus on uncertain pairs")
+    parser.add_argument("--seed-games", type=int, default=10, help="Games per pair in seed phase (adaptive mode)")
+    parser.add_argument("--ci-target", type=float, default=50.0, help="Stop when max consecutive CI < this (adaptive mode)")
+    parser.add_argument("--max-total-games", type=int, default=9000, help="Max total games across all pairs (adaptive mode)")
     args = parser.parse_args()
 
     output_dir = args.output_dir or os.path.join(RESULTS_DIR, "round_robin_10model")
@@ -273,7 +443,10 @@ def main():
 
     model_names = [m[0] for m in MODELS]
     n = len(model_names)
-    num_batches = (args.games + args.batch - 1) // args.batch  # ceiling division
+
+    # In adaptive mode, seed phase uses --seed-games; otherwise use --games
+    seed_games = args.seed_games if args.adaptive else args.games
+    num_batches = (seed_games + args.batch - 1) // args.batch  # ceiling division
 
     # Verify all model files exist
     for name, path, mtype in MODELS:
@@ -297,8 +470,13 @@ def main():
     pairings = list(itertools.combinations(range(n), 2))
     total_pairings = len(pairings)
 
-    print(f"Tournament: {n} models, {total_pairings} pairings, {args.games} games each")
-    print(f"Batch size: {args.batch} games/pairing, {num_batches} rounds to complete")
+    if args.adaptive:
+        print(f"Tournament (adaptive): {n} models, {total_pairings} pairings")
+        print(f"Seed phase: {seed_games} games/pair, then focus on uncertain consecutive pairs")
+        print(f"CI target: {args.ci_target} Elo, max total games: {args.max_total_games}")
+    else:
+        print(f"Tournament: {n} models, {total_pairings} pairings, {args.games} games each")
+        print(f"Batch size: {args.batch} games/pairing, {num_batches} rounds to complete")
     print(f"Models: {', '.join(model_names)}")
     if games_played:
         min_g = min(games_played.get(p, 0) for p in pairings)
@@ -308,17 +486,18 @@ def main():
 
     tournament_start = time.time()
 
+    # --- Seed phase (interleaved round-robin) ---
     for round_num in range(num_batches):
-        # Check if any pairings still need games this round
-        remaining = [(i, j) for (i, j) in pairings if games_played.get((i, j), 0) < args.games]
+        remaining = [(i, j) for (i, j) in pairings if games_played.get((i, j), 0) < seed_games]
         if not remaining:
             break
 
         games_so_far = min(games_played.get(p, 0) for p in pairings)
-        games_target = min(games_so_far + args.batch, args.games)
+        games_target = min(games_so_far + args.batch, seed_games)
 
+        phase_label = "SEED" if args.adaptive else "ROUND"
         print(f"\n{'#'*70}")
-        print(f"  ROUND {round_num + 1}/{num_batches} — playing to {games_target} games/pairing")
+        print(f"  {phase_label} {round_num + 1}/{num_batches} — playing to {games_target} games/pairing")
         print(f"{'#'*70}")
         sys.stdout.flush()
 
@@ -331,7 +510,6 @@ def main():
             cand_name, cand_path, cand_type = MODELS[i]
             curr_name, curr_path, curr_type = MODELS[j]
 
-            # Seed offset: unique per pairing + offset by games already played
             seed_offset = i * 10000 + j * 100 + played
 
             result = run_batch(
@@ -343,7 +521,6 @@ def main():
 
             if result is not None:
                 w, l, d = result
-                # Accumulate into existing results
                 if (i, j) in results:
                     pw, pl, pd = results[(i, j)]
                     results[(i, j)] = (pw + w, pl + l, pd + d)
@@ -358,10 +535,17 @@ def main():
             elos = compute_elo_mle(results, model_names)
             total_games = sum(sum(v) for v in results.values())
             elapsed = time.time() - tournament_start
-            print(f"\n  === RATINGS after round {round_num + 1} ({total_games} total games, {elapsed/60:.0f}min) ===")
+            print(f"\n  === RATINGS after {phase_label.lower()} {round_num + 1} ({total_games} total games, {elapsed/60:.0f}min) ===")
             print_ratings(model_names, elos, results, games_played)
             save_results(model_names, elos, results, games_played, output_dir)
             sys.stdout.flush()
+
+    # --- Focus phase (adaptive only) ---
+    if args.adaptive and results:
+        print(f"\n\n{'='*70}")
+        print(f"  ENTERING ADAPTIVE FOCUS PHASE")
+        print(f"{'='*70}")
+        run_adaptive_phase(model_names, results, games_played, args, output_dir, tournament_start)
 
     # Final results
     if results:
@@ -372,6 +556,10 @@ def main():
         print(f"{'='*70}")
         print_ratings(model_names, elos, results, games_played)
         print_cross_table(model_names, elos, results)
+        if args.adaptive:
+            consecutive_gaps = bootstrap_consecutive_ci(results, model_names)
+            if consecutive_gaps:
+                print_ci_table(consecutive_gaps, model_names, elos)
         path = save_results(model_names, elos, results, games_played, output_dir)
         print(f"\nResults saved to {path}")
     else:
