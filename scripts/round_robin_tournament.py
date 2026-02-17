@@ -152,7 +152,7 @@ def compute_elo_mle(results, model_names, anchor_idx=0, iterations=1000):
                 numerator += score_i
                 denominator += total * expected
 
-            if denominator > 0:
+            if denominator > 0 and numerator > 0:
                 # Update: Elo_i += 400 * log10(numerator / denominator)
                 elos[i] += 400.0 * math.log10(numerator / denominator)
 
