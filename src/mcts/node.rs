@@ -70,6 +70,9 @@ pub struct MctsNode {
     /// Stores the exact value if determined by terminal state check or mate search (1.0 for White Win, -1.0 for White Loss).
     /// Also used as a flag to indicate if mate search has been performed. None = not checked, Some(-999.0) = checked, no mate.
     pub terminal_or_mate_value: Option<f64>,
+    /// Distance (in STM moves) to the forced result: KOTH-in-N or mate-in-N.
+    /// Used for tie-breaking when all moves are forced losses (prefer longest distance).
+    pub terminal_distance: Option<u8>,
     /// If mate search found a mate, stores the mating move
     pub mate_move: Option<Move>,
     /// Stores the final combined value ([-1, 1]) = tanh(v_logit + k * delta_M).
@@ -135,6 +138,7 @@ impl MctsNode {
             parent: None,
             children: Vec::new(),
             terminal_or_mate_value: initial_terminal_value,
+            terminal_distance: if is_checkmate { Some(0) } else { None },
             mate_move: None,
             nn_value: None,
             v_logit: None,
@@ -181,6 +185,7 @@ impl MctsNode {
             parent: Some(parent),
             children: Vec::new(),
             terminal_or_mate_value: initial_terminal_value,
+            terminal_distance: if is_checkmate { Some(0) } else { None },
             mate_move: None,
             nn_value: None,
             v_logit: None,

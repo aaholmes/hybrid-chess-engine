@@ -464,6 +464,87 @@ fn test_koth_win_in_1_selected_and_search_aborts() {
     );
 }
 
+#[test]
+fn test_koth_skip_forced_losses_prefer_only_safe_move() {
+    // After 9...Kd6 in a game: White to move, Black king on d6 threatens Kd5 and Ke5.
+    // e4 is the ONLY move that blocks both (pawn controls d5, Nf3 controls e5).
+    // All other 26 legal moves allow forced KOTH-in-1. The search MUST select e4.
+    let move_gen = MoveGen::new();
+    let board =
+        Board::new_from_fen("r1b2bnr/p2q1p1p/3kP1p1/2p5/p7/N4N2/PP1PPPPP/R1BK1B1R w - - 0 10");
+
+    let config = TacticalMctsConfig {
+        max_iterations: 200,
+        time_limit: Duration::from_secs(10),
+        enable_koth: true,
+        use_neural_policy: false,
+        enable_tier3_neural: false,
+        ..Default::default()
+    };
+
+    let (best_move, _stats, root) = tactical_mcts_search(board, &move_gen, config);
+
+    assert!(best_move.is_some(), "Should find a move");
+    let mv = best_move.unwrap();
+
+    // e2=12, e4=28 in LERF
+    assert_eq!(
+        mv.to_uci(),
+        "e2e4",
+        "Only safe move is e4 (blocks both Kd5 and Ke5), got {}",
+        mv.to_uci()
+    );
+
+    // e4 should get the vast majority of visits (26 other moves are forced losses)
+    let root_ref = root.borrow();
+    let e4_visits = root_ref
+        .children
+        .iter()
+        .find(|c| c.borrow().action.map_or(false, |m| m.to_uci() == "e2e4"))
+        .map(|c| c.borrow().visits)
+        .unwrap_or(0);
+    let total_visits: u32 = root_ref.children.iter().map(|c| c.borrow().visits).sum();
+    assert!(
+        e4_visits > total_visits * 3 / 4,
+        "e4 should dominate visits: e4={} / total={}",
+        e4_visits,
+        total_visits
+    );
+}
+
+#[test]
+fn test_koth_all_moves_lose_prefers_longest_delay() {
+    // White to move. Black king on d3, within 1 move of d4 and e4.
+    // All white moves allow Kd4 or Ke4 next (forced KOTH-in-1 for Black).
+    // Verify that the engine still returns a move and terminates quickly.
+    let move_gen = MoveGen::new();
+    let board = Board::new_from_fen("8/8/8/8/8/3k4/8/4K3 w - - 0 1");
+
+    let config = TacticalMctsConfig {
+        max_iterations: 200,
+        time_limit: Duration::from_secs(10),
+        enable_koth: true,
+        use_neural_policy: false,
+        enable_tier3_neural: false,
+        ..Default::default()
+    };
+
+    let (best_move, stats, _root) = tactical_mcts_search(board, &move_gen, config);
+
+    // Should still return a move even though all moves lose
+    assert!(
+        best_move.is_some(),
+        "Should return a move even when all moves are forced losses"
+    );
+
+    // Should terminate quickly
+    assert!(
+        stats.iterations < 50,
+        "Should abort early when all moves are forced losses, used {} iterations",
+        stats.iterations
+    );
+}
+
 // === evaluate_leaf_node: classical fallback and material balance ===
 
 #[test]

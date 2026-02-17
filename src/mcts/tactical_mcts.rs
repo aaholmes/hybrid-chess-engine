@@ -169,6 +169,19 @@ pub fn tactical_mcts_search_with_tt(
     let logger = config.logger.as_ref();
 
     if config.enable_koth && config.enable_tier1_gate {
+        // Check if opponent already occupies a center square (instant loss)
+        let (w_won, b_won) = board.is_koth_win();
+        let opponent_won = (board.w_to_move && b_won) || (!board.w_to_move && w_won);
+        if opponent_won {
+            stats.tier1_solutions += 1;
+            stats.search_time = start_time.elapsed();
+            let root_node = MctsNode::new_root(board, move_gen);
+            root_node.borrow_mut().terminal_or_mate_value = Some(-1.0);
+            root_node.borrow_mut().terminal_distance = Some(0);
+            root_node.borrow_mut().is_terminal = true;
+            return (None, stats, root_node);
+        }
+
         if let Some(dist) = koth_center_in_3(&board, move_gen) {
             if let Some(best) = koth_best_move(&board, move_gen) {
                 if let Some(log) = logger {
@@ -306,7 +319,7 @@ pub fn tactical_mcts_search_with_tt(
             break;
         }
 
-        // Early termination on forced KOTH win
+        // Early termination on forced win/loss
         if config.enable_koth {
             let root_ref = root_node.borrow();
             let has_win_in_1 = root_ref.children.iter().any(|c| {
@@ -328,6 +341,21 @@ pub fn tactical_mcts_search_with_tt(
                     drop(root_ref);
                     break;
                 }
+            }
+            // Early termination: all moves are forced losses
+            let all_visited = root_ref
+                .children
+                .iter()
+                .all(|c| c.borrow().visits > 0);
+            let all_losing = !root_ref.children.is_empty()
+                && root_ref.children.iter().all(|c| {
+                    c.borrow()
+                        .terminal_or_mate_value
+                        .map_or(false, |v| v > 0.0)
+                });
+            if all_visited && all_losing {
+                drop(root_ref);
+                break;
             }
         }
     }
@@ -411,6 +439,7 @@ fn evaluate_leaf_node(
         let opponent_won = (board.w_to_move && b_won) || (!board.w_to_move && w_won);
         if opponent_won {
             node_ref.terminal_or_mate_value = Some(-1.0);
+            node_ref.terminal_distance = Some(0);
             node_ref.is_terminal = true;
             stats.nn_saved_by_tier1 += 1;
             stats.tier1_solutions += 1;
@@ -418,14 +447,14 @@ fn evaluate_leaf_node(
         }
 
         if let Some(dist) = koth_center_in_3(board, move_gen) {
-            let win_val = 1.0; // StM wins
             if let Some(log) = logger {
                 log.log_koth_check(true, Some(dist as u32));
             }
-            node_ref.terminal_or_mate_value = Some(win_val);
+            node_ref.terminal_or_mate_value = Some(1.0);
+            node_ref.terminal_distance = Some(dist);
             stats.nn_saved_by_tier1 += 1;
             stats.tier1_solutions += 1;
-            return win_val;
+            return 1.0;
         }
     }
 
@@ -451,6 +480,7 @@ fn evaluate_leaf_node(
                     }
                     let mate_value = if mate_depth > 0 { 1.0 } else { -1.0 };
                     node_ref.terminal_or_mate_value = Some(mate_value);
+                    node_ref.terminal_distance = Some(mate_depth.unsigned_abs() as u8);
                     node_ref.origin = NodeOrigin::Gate;
                     stats.nn_saved_by_tier1 += 1;
                     return mate_value;
@@ -479,6 +509,7 @@ fn evaluate_leaf_node(
                 }
                 let mate_value = if mate_result.0 > 0 { 1.0 } else { -1.0 };
                 node_ref.terminal_or_mate_value = Some(mate_value);
+                node_ref.terminal_distance = Some(mate_result.0.unsigned_abs() as u8);
                 stats.nn_saved_by_tier1 += 1;
                 stats.tier1_solutions += 1;
                 return mate_value;
@@ -685,7 +716,7 @@ pub fn tactical_mcts_search_for_training(
             log.log_iteration_summary(iteration + 1, best, root_node.borrow().visits);
         }
 
-        // Early termination on forced KOTH win
+        // Early termination on forced win/loss
         if config.enable_koth {
             let root_ref = root_node.borrow();
             let has_win_in_1 = root_ref.children.iter().any(|c| {
@@ -707,6 +738,21 @@ pub fn tactical_mcts_search_for_training(
                     drop(root_ref);
                     break;
                 }
+            }
+            // Early termination: all moves are forced losses
+            let all_visited = root_ref
+                .children
+                .iter()
+                .all(|c| c.borrow().visits > 0);
+            let all_losing = !root_ref.children.is_empty()
+                && root_ref.children.iter().all(|c| {
+                    c.borrow()
+                        .terminal_or_mate_value
+                        .map_or(false, |v| v > 0.0)
+                });
+            if all_visited && all_losing {
+                drop(root_ref);
+                break;
             }
         }
     }
@@ -760,6 +806,7 @@ pub fn tactical_mcts_search_for_training_with_reuse(
             let mut node = reused.borrow_mut();
             if !node.is_terminal {
                 node.terminal_or_mate_value = None;
+                node.terminal_distance = None;
                 node.mate_move = None;
             }
         }
@@ -815,7 +862,7 @@ pub fn tactical_mcts_search_for_training_with_reuse(
             log.log_iteration_summary(iteration + 1, best, root_node.borrow().visits);
         }
 
-        // Early termination on forced KOTH win
+        // Early termination on forced win/loss
         if config.enable_koth {
             let root_ref = root_node.borrow();
             let has_win_in_1 = root_ref.children.iter().any(|c| {
@@ -837,6 +884,21 @@ pub fn tactical_mcts_search_for_training_with_reuse(
                     drop(root_ref);
                     break;
                 }
+            }
+            // Early termination: all moves are forced losses
+            let all_visited = root_ref
+                .children
+                .iter()
+                .all(|c| c.borrow().visits > 0);
+            let all_losing = !root_ref.children.is_empty()
+                && root_ref.children.iter().all(|c| {
+                    c.borrow()
+                        .terminal_or_mate_value
+                        .map_or(false, |v| v > 0.0)
+                });
+            if all_visited && all_losing {
+                drop(root_ref);
+                break;
             }
         }
     }

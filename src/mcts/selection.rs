@@ -171,14 +171,22 @@ fn select_ucb_with_policy(
     let mut best_child = None;
     let mut best_ucb = f64::NEG_INFINITY;
     let mut best_details = (0.0, 0.0, 0.0); // Q, U, Total
+    // Track least-bad losing child (for fallback when all moves are forced losses)
+    let mut best_losing_child: Option<Rc<RefCell<MctsNode>>> = None;
+    let mut best_losing_dist: u8 = 0;
 
     for child in &node_ref.children {
         let child_ref = child.borrow();
 
-        // Skip proven losses — child's STM wins means parent loses
-        // (defensive guard; gate-resolved nodes already get Q=-1.0 and aren't expanded)
-        #[cfg(debug_assertions)]
+        // Skip proven losses — child's STM wins means parent loses.
+        // Among skipped children, track the one with the highest terminal_distance
+        // (opponent takes longest to win) for fallback when ALL moves are forced losses.
         if child_ref.terminal_or_mate_value.map_or(false, |v| v > 0.0) {
+            let dist = child_ref.terminal_distance.unwrap_or(0);
+            if best_losing_child.is_none() || dist > best_losing_dist {
+                best_losing_dist = dist;
+                best_losing_child = Some(child.clone());
+            }
             continue;
         }
 
@@ -233,6 +241,11 @@ fn select_ucb_with_policy(
 
     // Children are already legality-checked during expansion, so no
     // redundant gen_pseudo_legal_moves validation needed here.
+    // Fallback: if all children are forced losses, pick the one that delays
+    // the loss longest (highest terminal_distance = opponent takes most moves to win).
+    if best_child.is_none() {
+        return best_losing_child;
+    }
     best_child
 }
 

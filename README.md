@@ -78,6 +78,27 @@ Each pair played 30 games at 100 MCTS simulations per move (C(14,2) = 91 pairs, 
 - Tiered training plateaus early: gen9 (1623) through gen19 (1627) are statistically indistinguishable, suggesting the safety gates and material evaluation front-load much of the playing strength.
 - tiered_gen0 (1495), with a *zero-initialized* NN, already outperforms all vanilla models through gen8 (1419). The classical fallback $\tanh(0.5 \cdot \Delta M)$ alone provides meaningful play.
 
+### Scale-Up: 2M Parameters, 400 Simulations
+
+A follow-up 10-model adaptive tournament used a larger architecture (6 blocks, 128 channels, ~2M parameters) at 400 MCTS simulations per move — 8x the compute per move and 8x the model capacity. The adaptive tournament uses bootstrap CI to focus games on consecutive-rank pairs with the most uncertain Elo gaps, achieving all CIs below 50 Elo.
+
+![Elo vs Generation (2M params)](tournament_results_10model_elo_plot.png)
+
+| Rank | Model | Elo | 95% CI | Type |
+|------|-------|-----|--------|------|
+| 1 | tiered_gen17 | 2198 | [2107, 2284] | Caissawary |
+| 2 | tiered_gen4 | 2122 | [2040, 2201] | Caissawary |
+| 3 | tiered_gen1 | 2021 | [1953, 2086] | Caissawary |
+| 4 | tiered_gen0 | 1844 | [1778, 1906] | Caissawary |
+| 5 | vanilla_gen18 | 1726 | [1667, 1786] | Vanilla |
+| 6 | vanilla_gen13 | 1651 | [1600, 1708] | Vanilla |
+| 7 | vanilla_gen9 | 1646 | [1596, 1696] | Vanilla |
+| 8 | vanilla_gen2 | 1618 | [1572, 1664] | Vanilla |
+| 9 | vanilla_gen6 | 1616 | [1569, 1667] | Vanilla |
+| 10 | vanilla_gen0 | 1500 | (anchor) | Vanilla |
+
+The gap widens with scale: tiered_gen0 (1844) with a *zero-initialized* NN exceeds vanilla_gen18 (1726), the best vanilla model after 18 accepted generations. Tiered continues gaining through gen17 (+354 Elo over tiered_gen0), while vanilla plateaus around 1620 from gen2–13 before a late bump to 1726 at gen18.
+
 ### Elo Methodology
 
 Ratings are computed via Maximum Likelihood Estimation on the Bradley-Terry model. Each game outcome contributes to the log-likelihood: $\log L = \sum_{\text{pairs}} \left[ s_{ij} \log(E_i) + (n_{ij} - s_{ij}) \log(1 - E_i) \right]$ where $s_{ij}$ is the observed score (wins + draws/2), $n_{ij}$ is the number of games, and $E_i = 1/(1 + 10^{(r_j - r_i)/400})$ is the expected score given ratings $r_i, r_j$. Gradient ascent finds the ratings maximizing this joint probability (2000 iterations, lr=10, mean anchored at 1500). The ± values are 95% bootstrap confidence intervals from 1000 resamples — for each resample, individual games within each pair are drawn with replacement, and MLE Elo is recomputed. Full pairwise results are in [`tournament_results_14way.csv`](tournament_results_14way.csv).
