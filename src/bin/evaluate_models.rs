@@ -407,10 +407,9 @@ pub fn play_evaluation_game_with_servers(
         } else {
             GameResult::CurrentWin
         };
-        let s = if white_wins {
-            "White wins (KOTH)"
-        } else {
-            "Black wins (KOTH)"
+        let s = match r {
+            GameResult::CandidateWin => "Candidate wins (KOTH)",
+            _ => "Current wins (KOTH)",
         };
         (r, s)
     } else if mate {
@@ -420,10 +419,9 @@ pub fn play_evaluation_game_with_servers(
         } else {
             GameResult::CurrentWin
         };
-        let s = if white_wins {
-            "White wins (checkmate)"
-        } else {
-            "Black wins (checkmate)"
+        let s = match r {
+            GameResult::CandidateWin => "Candidate wins (checkmate)",
+            _ => "Current wins (checkmate)",
         };
         (r, s)
     } else if stalemate {

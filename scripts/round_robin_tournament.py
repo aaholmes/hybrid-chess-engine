@@ -44,6 +44,21 @@ MODELS = [
 
 RESULTS_DIR = os.path.join(ROOT, "runs", "tournaments")
 
+# Anchor model for Elo normalization (vanilla_gen0 = 1500)
+ANCHOR_IDX = next(i for i, (name, _, _) in enumerate(MODELS) if name == "vanilla_gen0")
+ANCHOR_ELO = 1500
+
+
+def tournament_elos(results, model_names):
+    """Compute Elo ratings anchored at vanilla_gen0 = 1500.
+
+    Falls back to anchor_idx=0, anchor_elo=0 if ANCHOR_IDX is out of range
+    (e.g. when called from tests with small model lists).
+    """
+    if ANCHOR_IDX < len(model_names):
+        return compute_elo_mle(results, model_names, anchor_idx=ANCHOR_IDX, anchor_elo=ANCHOR_ELO)
+    return compute_elo_mle(results, model_names)
+
 
 def build_cmd(cand_path, curr_path, cand_type, curr_type, num_games, simulations,
               batch_size, threads, explore_base, seed_offset):
@@ -111,11 +126,12 @@ def run_batch(cand_name, cand_path, cand_type, curr_name, curr_path, curr_type,
     return w, l, d
 
 
-def compute_elo_mle(results, model_names, anchor_idx=0, iterations=1000):
+def compute_elo_mle(results, model_names, anchor_idx=0, anchor_elo=0, iterations=1000):
     """Compute Elo ratings via iterative maximum likelihood estimation.
 
     results: dict of (i, j) -> (wins_i, wins_j, draws) where i is "candidate", j is "current"
-    anchor_idx: index of the model anchored at Elo 0
+    anchor_idx: index of the model anchored at anchor_elo
+    anchor_elo: the Elo value assigned to the anchor model (default 0)
     """
     n = len(model_names)
     elos = [0.0] * n
@@ -156,9 +172,9 @@ def compute_elo_mle(results, model_names, anchor_idx=0, iterations=1000):
                 # Update: Elo_i += 400 * log10(numerator / denominator)
                 elos[i] += 400.0 * math.log10(numerator / denominator)
 
-    # Re-anchor
-    anchor_elo = elos[anchor_idx]
-    elos = [e - anchor_elo for e in elos]
+    # Re-anchor at the specified Elo
+    offset = anchor_elo - elos[anchor_idx]
+    elos = [e + offset for e in elos]
 
     return elos
 
@@ -276,7 +292,7 @@ def bootstrap_consecutive_ci(results, model_names, n_bootstrap=200):
         return []
 
     # Current MLE ranking to define consecutive pairs
-    elos = compute_elo_mle(results, model_names)
+    elos = tournament_elos(results, model_names)
     ranked = sorted(range(n), key=lambda i: elos[i], reverse=True)
 
     # Bootstrap: resample results, compute Elo, record consecutive gaps
@@ -293,7 +309,7 @@ def bootstrap_consecutive_ci(results, model_names, n_bootstrap=200):
             resampled[(i, j)] = (rw, rl, rd)
 
         # Compute Elo from resampled
-        boot_elos = compute_elo_mle(resampled, model_names)
+        boot_elos = tournament_elos(resampled, model_names)
         boot_ranked = sorted(range(n), key=lambda i: boot_elos[i], reverse=True)
 
         # Record consecutive gaps (using current ranking order, not bootstrap ranking)
@@ -373,7 +389,7 @@ def run_adaptive_phase(model_names, results, games_played, args, output_dir, tou
         higher, lower, gap_mean, ci_width, gp = consecutive_gaps[0]
 
         # Print CI table
-        elos = compute_elo_mle(results, model_names)
+        elos = tournament_elos(results, model_names)
         elapsed = time.time() - tournament_start
         print(f"\n{'#'*70}")
         print(f"  ADAPTIVE FOCUS — {total_games} total games, {elapsed/60:.0f}min")
@@ -413,7 +429,7 @@ def run_adaptive_phase(model_names, results, games_played, args, output_dir, tou
                 results[(i, j)] = (w, l, d)
             games_played[(i, j)] = played + batch_games
 
-            elos = compute_elo_mle(results, model_names)
+            elos = tournament_elos(results, model_names)
             save_results(model_names, elos, results, games_played, output_dir)
         else:
             print(f"    FAILED: {cand_name} vs {curr_name}")
@@ -532,7 +548,7 @@ def main():
 
         # Print ratings after each round
         if results:
-            elos = compute_elo_mle(results, model_names)
+            elos = tournament_elos(results, model_names)
             total_games = sum(sum(v) for v in results.values())
             elapsed = time.time() - tournament_start
             print(f"\n  === RATINGS after {phase_label.lower()} {round_num + 1} ({total_games} total games, {elapsed/60:.0f}min) ===")
@@ -549,7 +565,7 @@ def main():
 
     # Final results
     if results:
-        elos = compute_elo_mle(results, model_names)
+        elos = tournament_elos(results, model_names)
         elapsed = time.time() - tournament_start
         print(f"\n\n{'='*70}")
         print(f"  FINAL RESULTS ({elapsed/60:.0f} minutes)")
