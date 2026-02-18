@@ -5,8 +5,8 @@ Each model plays with its training search configuration:
 - Tiered models: tiers enabled (default)
 - Vanilla models: --candidate-disable-tier1 --candidate-disable-material (or --current-)
 
-10 models from the first ~20 generations of each run.
-45 pairings, played in interleaved batches (default 10 games per batch)
+Model list and weights directories are specified via CLI arguments.
+Pairings played in interleaved batches (default 10 games per batch)
 so preliminary ratings are available early.
 """
 
@@ -24,29 +24,26 @@ import time
 # Project root
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BINARY = os.path.join(ROOT, "target", "release", "evaluate_models")
-
-TIERED_DIR = os.path.join(ROOT, "runs", "long_run", "scaleup_2m_tiered_propgreedy", "weights")
-VANILLA_DIR = os.path.join(ROOT, "runs", "long_run", "scaleup_2m_vanilla_propgreedy", "weights")
-
-# Model definitions: (name, path, type)
-MODELS = [
-    ("tiered_gen0",  os.path.join(TIERED_DIR, "gen_0.pt"),  "tiered"),
-    ("tiered_gen1",  os.path.join(TIERED_DIR, "gen_1.pt"),  "tiered"),
-    ("tiered_gen4",  os.path.join(TIERED_DIR, "gen_4.pt"),  "tiered"),
-    ("tiered_gen17", os.path.join(TIERED_DIR, "gen_17.pt"), "tiered"),
-    ("vanilla_gen0",  os.path.join(VANILLA_DIR, "gen_0.pt"),  "vanilla"),
-    ("vanilla_gen2",  os.path.join(VANILLA_DIR, "gen_2.pt"),  "vanilla"),
-    ("vanilla_gen6",  os.path.join(VANILLA_DIR, "gen_6.pt"),  "vanilla"),
-    ("vanilla_gen9",  os.path.join(VANILLA_DIR, "gen_9.pt"),  "vanilla"),
-    ("vanilla_gen13", os.path.join(VANILLA_DIR, "gen_13.pt"), "vanilla"),
-    ("vanilla_gen18", os.path.join(VANILLA_DIR, "gen_18.pt"), "vanilla"),
-]
-
 RESULTS_DIR = os.path.join(ROOT, "runs", "tournaments")
 
-# Anchor model for Elo normalization (vanilla_gen0 = 1500)
-ANCHOR_IDX = next(i for i, (name, _, _) in enumerate(MODELS) if name == "vanilla_gen0")
 ANCHOR_ELO = 1500
+
+# Built dynamically in main() from CLI args
+MODELS = []
+ANCHOR_IDX = 0
+
+
+def build_models(tiered_dir, tiered_gens, vanilla_dir, vanilla_gens):
+    """Build MODELS list from CLI arguments.
+
+    Returns list of (name, path, type) tuples with tiered models first.
+    """
+    models = []
+    for g in tiered_gens:
+        models.append((f"tiered_gen{g}", os.path.join(tiered_dir, f"gen_{g}.pt"), "tiered"))
+    for g in vanilla_gens:
+        models.append((f"vanilla_gen{g}", os.path.join(vanilla_dir, f"gen_{g}.pt"), "vanilla"))
+    return models
 
 
 def tournament_elos(results, model_names):
@@ -362,8 +359,10 @@ def print_ci_table(consecutive_gaps, model_names, elos, focus_pair=None):
               f"{gap_mean:>+8.1f} {ci_width:>6.1f} {gp:>6}{marker}")
 
 
-def run_adaptive_phase(model_names, results, games_played, args, output_dir, tournament_start):
+def run_adaptive_phase(model_names, results, games_played, args, output_dir, tournament_start,
+                       models=None):
     """Focus games on consecutive-rank pairs with widest CI."""
+    models = models or MODELS
     n = len(model_names)
 
     while True:
@@ -403,8 +402,8 @@ def run_adaptive_phase(model_names, results, games_played, args, output_dir, tou
         played = games_played.get((i, j), 0)
         seed_offset = i * 10000 + j * 100 + played
 
-        cand_name, cand_path, cand_type = MODELS[i]
-        curr_name, curr_path, curr_type = MODELS[j]
+        cand_name, cand_path, cand_type = models[i]
+        curr_name, curr_path, curr_type = models[j]
 
         batch_games = min(args.batch, args.max_total_games - total_games)
         if batch_games <= 0:
@@ -439,6 +438,18 @@ def run_adaptive_phase(model_names, results, games_played, args, output_dir, tou
 
 def main():
     parser = argparse.ArgumentParser(description="Round-robin tournament")
+    # Model specification
+    parser.add_argument("--tiered-dir", type=str, required=True,
+                        help="Path to tiered weights directory")
+    parser.add_argument("--tiered-gens", type=str, required=True,
+                        help="Comma-separated accepted gen numbers for tiered (e.g. 0,1,4,17)")
+    parser.add_argument("--vanilla-dir", type=str, required=True,
+                        help="Path to vanilla weights directory")
+    parser.add_argument("--vanilla-gens", type=str, required=True,
+                        help="Comma-separated accepted gen numbers for vanilla (e.g. 0,2,6,9,13,18)")
+    parser.add_argument("--anchor", type=str, default="vanilla_gen0",
+                        help="Model name to anchor Elo at 1500 (default: vanilla_gen0)")
+    # Game settings
     parser.add_argument("--games", type=int, default=200, help="Total games per match (non-adaptive mode)")
     parser.add_argument("--batch", type=int, default=10, help="Games per batch before rotating to next pairing")
     parser.add_argument("--sims", type=int, default=200, help="Simulations per move")
@@ -454,7 +465,22 @@ def main():
     parser.add_argument("--max-total-games", type=int, default=9000, help="Max total games across all pairs (adaptive mode)")
     args = parser.parse_args()
 
-    output_dir = args.output_dir or os.path.join(RESULTS_DIR, "round_robin_10model")
+    # Build model list from CLI args
+    tiered_gens = [int(x) for x in args.tiered_gens.split(",") if x.strip()]
+    vanilla_gens = [int(x) for x in args.vanilla_gens.split(",") if x.strip()]
+
+    global MODELS, ANCHOR_IDX
+    MODELS = build_models(args.tiered_dir, tiered_gens, args.vanilla_dir, vanilla_gens)
+
+    # Find anchor model
+    anchor_matches = [i for i, (name, _, _) in enumerate(MODELS) if name == args.anchor]
+    if anchor_matches:
+        ANCHOR_IDX = anchor_matches[0]
+    else:
+        print(f"WARNING: Anchor model '{args.anchor}' not found, using index 0")
+        ANCHOR_IDX = 0
+
+    output_dir = args.output_dir or os.path.join(RESULTS_DIR, "round_robin")
     os.makedirs(output_dir, exist_ok=True)
 
     model_names = [m[0] for m in MODELS]
@@ -561,7 +587,8 @@ def main():
         print(f"\n\n{'='*70}")
         print(f"  ENTERING ADAPTIVE FOCUS PHASE")
         print(f"{'='*70}")
-        run_adaptive_phase(model_names, results, games_played, args, output_dir, tournament_start)
+        run_adaptive_phase(model_names, results, games_played, args, output_dir, tournament_start,
+                           models=MODELS)
 
     # Final results
     if results:

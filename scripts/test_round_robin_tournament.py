@@ -450,6 +450,9 @@ class TestRunAdaptivePhase(unittest.TestCase):
         random.seed(42)
         mock_run_batch.return_value = (5, 3, 2)
 
+        models = [("A", "/a.pt", "tiered"), ("B", "/b.pt", "tiered"),
+                  ("C", "/c.pt", "tiered"), ("D", "/d.pt", "tiered")]
+
         # 4 models, pair (0,1) has fewer games -> more uncertain
         results = {
             (0, 1): (5, 5, 0),    # 10 games, uncertain
@@ -471,7 +474,7 @@ class TestRunAdaptivePhase(unittest.TestCase):
         sys.stdout = captured
         with tempfile.TemporaryDirectory() as tmpdir:
             rrt.run_adaptive_phase(["A", "B", "C", "D"], results, games_played,
-                                   args, tmpdir, 0)
+                                   args, tmpdir, 0, models=models)
         sys.stdout = sys.__stdout__
 
         # Should have called run_batch at least once
@@ -484,6 +487,7 @@ class TestRunAdaptivePhase(unittest.TestCase):
         random.seed(42)
         mock_run_batch.return_value = (7, 2, 1)
 
+        models = [("A", "/a.pt", "tiered"), ("B", "/b.pt", "tiered")]
         results = {(0, 1): (10, 10, 0)}
         games_played = {(0, 1): 20}
         args = self._make_args(max_total_games=35, batch=5)
@@ -491,7 +495,8 @@ class TestRunAdaptivePhase(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             captured = StringIO()
             sys.stdout = captured
-            rrt.run_adaptive_phase(["A", "B"], results, games_played, args, tmpdir, 0)
+            rrt.run_adaptive_phase(["A", "B"], results, games_played, args, tmpdir, 0,
+                                   models=models)
             sys.stdout = sys.__stdout__
 
         # Results should have been updated
@@ -506,6 +511,7 @@ class TestRunAdaptivePhase(unittest.TestCase):
         # First call fails, second would succeed but we hit game limit
         mock_run_batch.side_effect = [None, (5, 3, 2)]
 
+        models = [("A", "/a.pt", "tiered"), ("B", "/b.pt", "tiered")]
         results = {(0, 1): (10, 10, 0)}
         games_played = {(0, 1): 20}
         # After failed batch, total stays at 20. Next iteration plays 5 -> 25 -> stops
@@ -514,7 +520,8 @@ class TestRunAdaptivePhase(unittest.TestCase):
         captured = StringIO()
         sys.stdout = captured
         with tempfile.TemporaryDirectory() as tmpdir:
-            rrt.run_adaptive_phase(["A", "B"], results, games_played, args, tmpdir, 0)
+            rrt.run_adaptive_phase(["A", "B"], results, games_played, args, tmpdir, 0,
+                                   models=models)
         sys.stdout = sys.__stdout__
 
         self.assertIn("FAILED", captured.getvalue())
