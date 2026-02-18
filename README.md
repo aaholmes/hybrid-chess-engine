@@ -47,7 +47,7 @@ The $k$ head uses domain knowledge rather than learned convolutions: 12 scalar f
 
 ## Tournament Results: Caissawary vs Vanilla MCTS
 
-A 10-model adaptive round-robin tournament compared two training runs — both using 6 blocks, 128 channels (~2M parameters), trained with 200 MCTS simulations per move, SPRT gating (up to 400 eval games), Muon optimizer (lr=0.02), and adaptive epochs with early stopping:
+A 10-model adaptive round-robin tournament compared two training runs — both using 6 blocks, 128 channels (~2M parameters), trained with 200 MCTS simulations per move, SPRT gating (up to 800 eval games), Muon optimizer (lr=0.02), and adaptive epochs with early stopping:
 - **Caissawary** (4 models: gen 0, 1, 4, 17): trained with all three tiers (safety gates + quiescence search + neural network)
 - **Vanilla** (6 models: gen 0, 2, 6, 9, 13, 18): trained with KOTH only (no tier 1, no material — pure AlphaZero-style)
 
@@ -109,7 +109,7 @@ With zero training, the engine already plays intelligently. All four top moves (
 
 AlphaZero-style loop: self-play → replay buffer → train → export → evaluate → gate (SPRT).
 
-Each generation trains from the latest candidate (accepted or rejected, so incremental learning is preserved), exports, and evaluates against the current best via SPRT (up to 400 games with early stopping). Evaluation uses proportional-or-greedy move selection: with probability $p = 0.80^{(\text{move}-1)}$, sample proportionally from visit counts minus one; otherwise play greedy (most-visited). The $\text{visits}-1$ weighting ensures that a move visited exactly once (and found losing) receives zero sampling weight and can never be selected. This decays from full proportional sampling on move 1 to ~99% greedy by move 20, balancing game diversity against SPRT signal quality. Forced wins are always played deterministically. Evaluation games produce training data by default — both sides' data is ingested into the replay buffer with Elo-based strength tags.
+Each generation trains from the latest candidate (accepted or rejected, so incremental learning is preserved), exports, and evaluates against the current best via SPRT (up to 800 games with early stopping). Evaluation uses proportional-or-greedy move selection: with probability $p = 0.80^{(\text{move}-1)}$, sample proportionally from visit counts minus one; otherwise play greedy (most-visited). The $\text{visits}-1$ weighting ensures that a move visited exactly once (and found losing) receives zero sampling weight and can never be selected. This decays from full proportional sampling on move 1 to ~99% greedy by move 20, balancing game diversity against SPRT signal quality. Forced wins are always played deterministically. Evaluation games produce training data by default — both sides' data is ingested into the replay buffer with Elo-based strength tags.
 
 Since evaluation games produce training data, self-play is optional after gen 1. With `--skip-self-play`, the loop becomes: train on buffer → eval (producing new training data) → gate → ingest eval data. Gen 1 always runs self-play to seed the buffer.
 
@@ -143,7 +143,7 @@ python python/orchestrate.py \
 
 Training uses Elo-weighted sampling: each position's weight is proportional to the odds ratio of its model's expected score against the strongest model in the buffer, so max-Elo data is always fully included while weaker data is proportionally downsampled (200 Elo gap → ~32% inclusion, 400 Elo gap → ~10%). The replay buffer accumulates across acceptances — Elo weighting and early stopping handle data staleness without clearing. The number of training epochs is determined adaptively: a 90/10 train/validation split with patience-1 early stopping automatically selects the right epoch count per generation (`--max-epochs` sets the ceiling, default 10). This avoids both underfitting (too few epochs for a large model) and overfitting (too many epochs on a small buffer). The orchestrator uses the Muon optimizer by default. Model architecture is configurable via `--num-blocks` and `--hidden-dim`.
 
-Evaluation uses SPRT (Sequential Probability Ratio Test) with early stopping — clear winners/losers decided in ~30 games, marginal cases use up to 400 (needed for statistical power at the ~84% draw rate typical of self-play). Data augmentation exploits board symmetry: positions without castling rights are expanded into both the original and horizontal flip (2x data), with pawnless endgames getting the full D4 dihedral group (8x data).
+Evaluation uses SPRT (Sequential Probability Ratio Test) with early stopping — clear winners/losers decided in ~30 games, marginal cases use up to 800 (needed for statistical power at the ~84% draw rate typical of self-play). Data augmentation exploits board symmetry: positions without castling rights are expanded into both the original and horizontal flip (2x data), with pawnless endgames getting the full D4 dihedral group (8x data).
 
 ## Building and Running
 

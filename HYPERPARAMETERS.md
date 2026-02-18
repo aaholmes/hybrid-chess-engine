@@ -87,7 +87,7 @@ All tunable parameters for the Caissawary training pipeline, organized by stage.
 
 | Parameter | Value | CLI Flag | Notes |
 |-----------|-------|----------|-------|
-| Max games | 400 | `--eval-max-games` | Per evaluation round |
+| Max games | 800 | `--eval-max-games` | Per evaluation round |
 | Eval simulations | 800 | `--eval-simulations` | Can follow sims schedule |
 | SPRT elo0 | 0.0 | `--sprt-elo0` | Null hypothesis |
 | SPRT elo1 | 10.0 | `--sprt-elo1` | Alternative hypothesis |

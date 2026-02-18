@@ -49,9 +49,9 @@ A freshly initialized network produces meaningful behavior: uniform exploration 
 
 **Training**: Muon optimizer (lr=0.02). Up to 10 epochs with validation-based early stopping (patience=1, 90/10 split). Policy loss: KL divergence. Value loss: MSE. Equal weight. Always trains from the latest candidate (accepted or rejected), so rejected candidates' incremental learning is preserved.
 
-**Evaluation**: SPRT with elo0=0, elo1=10, alpha=beta=0.05. Up to 400 games. Proportional-or-greedy move selection: with probability p=0.90^(move-1) sample proportionally from visit counts, otherwise play greedy (most-visited). This decays from full proportional sampling on move 1 to ~88% greedy by move 20. Forced wins always played deterministically.
+**Evaluation**: SPRT with elo0=0, elo1=10, alpha=beta=0.05. Up to 800 games. Proportional-or-greedy move selection: with probability p=0.90^(move-1) sample proportionally from visit counts, otherwise play greedy (most-visited). This decays from full proportional sampling on move 1 to ~88% greedy by move 20. Forced wins always played deterministically.
 
-**Eval-only mode** (`--skip-self-play`): After gen 1, eval games (up to 400/gen) provide training data at zero marginal cost, replacing self-play. Cuts wall time ~50%.
+**Eval-only mode** (`--skip-self-play`): After gen 1, eval games (up to 800/gen) provide training data at zero marginal cost, replacing self-play. Cuts wall time ~50%.
 
 **Data augmentation**: Horizontal flip when no castling rights (2x). Full D4 dihedral for pawnless+no-castling positions (8x). Both board and policy vector transformed consistently.
 

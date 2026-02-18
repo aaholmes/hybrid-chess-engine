@@ -44,7 +44,7 @@ class TestTrainingConfig:
         assert cfg.batch_size == 64
         assert cfg.optimizer == "muon"
         assert cfg.initial_lr == 0.02
-        assert cfg.eval_max_games == 400
+        assert cfg.eval_max_games == 800
         assert cfg.eval_simulations == 800
         assert cfg.sprt_elo0 == 0.0
         assert cfg.sprt_elo1 == 10.0
@@ -891,7 +891,7 @@ class TestSPRT:
         assert cfg.sprt_elo1 == 10.0
         assert cfg.sprt_alpha == 0.05
         assert cfg.sprt_beta == 0.05
-        assert cfg.eval_max_games == 400
+        assert cfg.eval_max_games == 800
 
     def test_sprt_config_from_args(self):
         """Verify CLI parsing of SPRT args."""
@@ -978,7 +978,7 @@ class TestSPRT:
             sprt_elo1=10.0,
             sprt_alpha=0.05,
             sprt_beta=0.05,
-            eval_max_games=400,
+            eval_max_games=800,
         )
         orch.state.current_best_pt = "current.pt"
 

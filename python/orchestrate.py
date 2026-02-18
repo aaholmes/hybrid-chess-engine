@@ -44,7 +44,7 @@ class TrainingConfig:
     initial_lr: float = 0.02
 
     # Evaluation (SPRT)
-    eval_max_games: int = 400
+    eval_max_games: int = 800
     eval_simulations: int = 800
     eval_explore_base: float = 0.90
     sprt_elo0: float = 0.0
@@ -91,8 +91,8 @@ class TrainingConfig:
                             choices=["adam", "adamw", "muon"])
         parser.add_argument("--lr-schedule", type=str, default="")
         parser.add_argument("--initial-lr", type=float, default=0.02)
-        parser.add_argument("--eval-max-games", type=int, default=400,
-                            help="Max games for SPRT evaluation (default: 400)")
+        parser.add_argument("--eval-max-games", type=int, default=800,
+                            help="Max games for SPRT evaluation (default: 800)")
         parser.add_argument("--eval-simulations", type=int, default=800)
         parser.add_argument("--eval-explore-base", "--eval-top-p-base", type=float, default=0.90,
                             help="Explore probability base for eval moves: p=base^(move-1) (default: 0.90)")

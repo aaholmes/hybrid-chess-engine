@@ -151,9 +151,9 @@ This means a freshly initialized network immediately produces meaningful behavio
 
 **v2: One-sided binomial test (p < 0.05).** Better statistical rigor but still problematic with small sample sizes. A candidate winning 6/10 games would be rejected, while one winning 30/50 might be accepted despite similar effect sizes.
 
-**v3: SPRT early stopping (current).** Sequential Probability Ratio Test with trinomial GSPRT matching fishtest's implementation. Tests "candidate is ≥ elo1 Elo stronger" vs. "candidate is ≤ elo0 Elo stronger." Clear improvements terminate in ~30 games; marginal cases use up to 400. This saves significant wall-clock time while maintaining statistical rigor.
+**v3: SPRT early stopping (current).** Sequential Probability Ratio Test with trinomial GSPRT matching fishtest's implementation. Tests "candidate is ≥ elo1 Elo stronger" vs. "candidate is ≤ elo0 Elo stronger." Clear improvements terminate in ~30 games; marginal cases use up to 800. This saves significant wall-clock time while maintaining statistical rigor.
 
-**Why 400 eval games.** With 100 eval games and a high draw rate (~84% at 100 sims), even a WR of 0.575 yields p ≈ 0.067 — not enough to reject the null hypothesis. A one-sided binomial test needs ~275 games for 80% power to detect a 53% true WR. The default of 400 games provides comfortable statistical power while SPRT early stopping keeps the average cost much lower for clear-cut results.
+**Why 800 eval games.** With 100 eval games and a high draw rate (~84% at 100 sims), even a WR of 0.575 yields p ≈ 0.067 — not enough to reject the null hypothesis. A one-sided binomial test needs ~275 games for 80% power to detect a 53% true WR. The default of 800 games provides comfortable statistical power while SPRT early stopping keeps the average cost much lower for clear-cut results.
 
 ### Replay buffer: from clear-on-accept to sliding window
 
@@ -237,7 +237,7 @@ Adam was the initial default. Muon (Momentum + Newton-Schulz orthogonalization) 
 
 Each variant was evaluated independently via SPRT. The best passing variant was promoted.
 
-**What the data showed.** Over 23 generations of local testing, policy-only was consistently the weakest variant (average WR 0.474 — *worse* than the previous generation). Value-only and all-heads tied for best. Policy-only never outperformed all-heads in a single generation. The diagnostic value was real but the compute cost was not justified: 3 variants × 400 eval games = 1,200 evaluation games per generation, tripling the eval overhead.
+**What the data showed.** Over 23 generations of local testing, policy-only was consistently the weakest variant (average WR 0.474 — *worse* than the previous generation). Value-only and all-heads tied for best. Policy-only never outperformed all-heads in a single generation. The diagnostic value was real but the compute cost was not justified: 3 variants × 800 eval games = 2,400 evaluation games per generation, tripling the eval overhead.
 
 **Current default: single-variant (all-heads only).** Joint training is the default (`--multi-variant` flag available to opt back in). This cuts per-generation wall time by ~60% while losing no measurable strength. The lesson: with a well-designed value function ($V_{logit} + k \cdot \Delta M$), joint training is stable — the feared interference between heads didn't materialize.
 
@@ -253,7 +253,7 @@ Each variant was evaluated independently via SPRT. The best passing variant was 
 
 ### Evaluation game data reuse
 
-**The problem.** Each generation runs 50-400 MCTS evaluation games (candidate vs current model) purely for gating. These games run full MCTS searches with policy outputs at every move, but all position data is discarded — only W/L/D is kept. This is wasted training data. Worse, eval games actually produce *higher quality* samples than self-play: each move starts a fresh MCTS search (no subtree reuse between moves), making samples more independent.
+**The problem.** Each generation runs 50-800 MCTS evaluation games (candidate vs current model) purely for gating. These games run full MCTS searches with policy outputs at every move, but all position data is discarded — only W/L/D is kept. This is wasted training data. Worse, eval games actually produce *higher quality* samples than self-play: each move starts a fresh MCTS search (no subtree reuse between moves), making samples more independent.
 
 **The solution.** Evaluation games now collect training samples by default. At each move, the MCTS root's visit-count distribution becomes the policy target and `forced_material_balance()` provides the material scalar — the same extraction used by self-play. Samples are partitioned by which model was side-to-move: candidate's moves go to one vector, current model's moves to another.
 
@@ -265,9 +265,9 @@ Each variant was evaluated independently via SPRT. The best passing variant was 
 
 ### Eval-only mode: skipping self-play after gen 1
 
-Since eval games produce training data at zero marginal cost, self-play is redundant after the initial buffer seeding. The MCTS training signal (visit-count policy targets, game-outcome value targets) comes from the engine's own search regardless of opponent — the opponent only determines which positions arise. Eval games actually produce *more* data (up to 400 games vs 100 self-play) at higher quality (greedy play after ply 10, fresh MCTS search per move).
+Since eval games produce training data at zero marginal cost, self-play is redundant after the initial buffer seeding. The MCTS training signal (visit-count policy targets, game-outcome value targets) comes from the engine's own search regardless of opponent — the opponent only determines which positions arise. Eval games actually produce *more* data (up to 800 games vs 100 self-play) at higher quality (greedy play after ply 10, fresh MCTS search per move).
 
-With `--skip-self-play`, the loop after gen 1 becomes: train on buffer → eval (400 games, producing training data) → gate → ingest eval data. Gen 1 always runs self-play to seed the buffer. This cuts per-generation wall time roughly in half by eliminating the self-play phase.
+With `--skip-self-play`, the loop after gen 1 becomes: train on buffer → eval (800 games, producing training data) → gate → ingest eval data. Gen 1 always runs self-play to seed the buffer. This cuts per-generation wall time roughly in half by eliminating the self-play phase.
 
 ## 7. Performance Optimizations
 
@@ -319,7 +319,7 @@ Each bootstrap iteration resamples every pairwise result independently: given (w
 
 ### Pre-seeding from training eval data
 
-During training, each generation is evaluated against the current best via SPRT (up to 400 games). For consecutive accepted generations, this produces high-quality head-to-head results using the same search config as the tournament. A seed script (`scripts/seed_tournament_from_training.py`) extracts these eval pairs from training logs and writes a pre-populated results JSON. The tournament then resumes from this seeded data, skipping hundreds of games on same-type consecutive pairs and focusing its budget on cross-type matchups (tiered vs vanilla) where no training data exists.
+During training, each generation is evaluated against the current best via SPRT (up to 800 games). For consecutive accepted generations, this produces high-quality head-to-head results using the same search config as the tournament. A seed script (`scripts/seed_tournament_from_training.py`) extracts these eval pairs from training logs and writes a pre-populated results JSON. The tournament then resumes from this seeded data, skipping hundreds of games on same-type consecutive pairs and focusing its budget on cross-type matchups (tiered vs vanilla) where no training data exists.
 
 ### Resume support
 
