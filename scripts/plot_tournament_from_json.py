@@ -154,8 +154,12 @@ def main():
     vanilla_ci_high = [vanilla_ci[g][1] for g in vanilla_gens]
 
     # Extend lines to total generations (step function holds last value)
+    xlim_right = int(sys.argv[5]) if len(sys.argv) > 5 else None
     tiered_max_gen = int(sys.argv[3]) if len(sys.argv) > 3 else tiered_gens[-1]
     vanilla_max_gen = int(sys.argv[4]) if len(sys.argv) > 4 else vanilla_gens[-1]
+    if xlim_right is not None:
+        tiered_max_gen = max(tiered_max_gen, xlim_right)
+        vanilla_max_gen = max(vanilla_max_gen, xlim_right)
     if tiered_max_gen > tiered_gens[-1]:
         tiered_gens.append(tiered_max_gen)
         tiered_elos.append(tiered_elos[-1])
@@ -178,7 +182,7 @@ def main():
     ax.fill_between(tiered_gens, tiered_ci_low, tiered_ci_high,
                      step="post", alpha=0.15, color="#2563eb", zorder=1)
     ax.step(tiered_gens, tiered_elos, where="post", color="#2563eb", linewidth=2,
-            label="Caissawary (MCTS with forced win and quiescence search)", zorder=3)
+            label="Neurosymbolic MCTS", zorder=3)
     ax.plot(tiered_real, [tiered[g] for g in tiered_real], "o", color="#2563eb", markersize=6, zorder=4)
 
     # Vanilla
@@ -193,7 +197,8 @@ def main():
     ax.set_title("Caissawary: Tiered vs Vanilla MCTS on KOTH Chess", fontsize=14)
     ax.legend(fontsize=11)
     ax.grid(True, alpha=0.3)
-    ax.set_xlim(-1, max(max(tiered_gens), max(vanilla_gens)) + 2)
+    xlim_right = int(sys.argv[5]) if len(sys.argv) > 5 else max(max(tiered_gens), max(vanilla_gens)) + 2
+    ax.set_xlim(-1, xlim_right)
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=150)

@@ -141,6 +141,7 @@ def main():
     parser.add_argument("--baseline", type=str, default=None, help="Baseline log JSONL")
     parser.add_argument("--caissawary", type=str, default=None, help="Caissawary log JSONL")
     parser.add_argument("--output", type=str, default="plots/", help="Output directory")
+    parser.add_argument("--xlim", type=int, default=None, help="Max generation on x-axis")
     args = parser.parse_args()
 
     if not args.baseline and not args.caissawary:
@@ -149,6 +150,12 @@ def main():
 
     baseline = load_log(args.baseline) if args.baseline else None
     caissawary = load_log(args.caissawary) if args.caissawary else None
+
+    if args.xlim is not None:
+        if baseline:
+            baseline = [e for e in baseline if e["gen"] <= args.xlim]
+        if caissawary:
+            caissawary = [e for e in caissawary if e["gen"] <= args.xlim]
 
     os.makedirs(args.output, exist_ok=True)
 
@@ -161,6 +168,11 @@ def main():
     plot_k_evolution(axes[1, 1], baseline, caissawary)
     plot_elo(axes[2, 0], baseline, caissawary)
     axes[2, 1].axis("off")
+
+    if args.xlim is not None:
+        for row in axes:
+            for ax in row:
+                ax.set_xlim(right=args.xlim)
 
     plt.tight_layout()
     out_path = os.path.join(args.output, "training_comparison.png")
@@ -180,6 +192,8 @@ def main():
             plot_fn(ax2, baseline, caissawary)
         else:
             plot_fn(ax2, baseline, caissawary)
+        if args.xlim is not None:
+            ax2.set_xlim(right=args.xlim)
         plt.tight_layout()
         path = os.path.join(args.output, f"{name}.png")
         plt.savefig(path, dpi=150)
