@@ -620,14 +620,26 @@ fn evaluate_and_expand_node(
     }
 }
 
-fn select_best_move_from_root(root: Rc<RefCell<MctsNode>>, move_gen: &MoveGen) -> Option<Move> {
+pub fn select_best_move_from_root(root: Rc<RefCell<MctsNode>>, move_gen: &MoveGen) -> Option<Move> {
     let root_ref = root.borrow();
 
-    // Prefer win-in-1: terminal child where child's STM loses (opponent just won)
-    for child in &root_ref.children {
-        let cr = child.borrow();
-        if cr.terminal_or_mate_value.map_or(false, |v| v < -0.5) {
-            return cr.action;
+    // Prefer winning children (child STM loses = parent wins).
+    // Among multiple wins, pick the one with the shortest terminal_distance (fastest win).
+    {
+        let mut best_win: Option<(Move, u8)> = None;
+        for child in &root_ref.children {
+            let cr = child.borrow();
+            if cr.terminal_or_mate_value.map_or(false, |v| v < -0.5) {
+                let dist = cr.terminal_distance.unwrap_or(0);
+                if best_win.is_none() || dist < best_win.unwrap().1 {
+                    if let Some(action) = cr.action {
+                        best_win = Some((action, dist));
+                    }
+                }
+            }
+        }
+        if let Some((mv, _)) = best_win {
+            return Some(mv);
         }
     }
 
@@ -637,6 +649,31 @@ fn select_best_move_from_root(root: Rc<RefCell<MctsNode>>, move_gen: &MoveGen) -
             && root_ref.state.is_legal_after_move(mate_move, move_gen)
         {
             return Some(mate_move);
+        }
+    }
+
+    // If ALL children are proven losses, prefer the one with the largest terminal_distance
+    // (delay the loss as long as possible).
+    {
+        let all_losing = !root_ref.children.is_empty()
+            && root_ref
+                .children
+                .iter()
+                .all(|c| c.borrow().terminal_or_mate_value.map_or(false, |v| v > 0.0));
+        if all_losing {
+            let mut best_move: Option<(Move, u8)> = None;
+            for child in &root_ref.children {
+                let cr = child.borrow();
+                let dist = cr.terminal_distance.unwrap_or(0);
+                if best_move.is_none() || dist > best_move.unwrap().1 {
+                    if let Some(action) = cr.action {
+                        best_move = Some((action, dist));
+                    }
+                }
+            }
+            if let Some((mv, _)) = best_move {
+                return Some(mv);
+            }
         }
     }
 

@@ -1,7 +1,10 @@
 //! Tests for King of the Hill (KOTH) win detection
 
 use kingfisher::board::{Board, KOTH_CENTER};
-use kingfisher::mcts::tactical_mcts::{tactical_mcts_search, TacticalMctsConfig};
+use kingfisher::mcts::node::MctsNode;
+use kingfisher::mcts::tactical_mcts::{
+    select_best_move_from_root, tactical_mcts_search, TacticalMctsConfig,
+};
 use kingfisher::move_generation::MoveGen;
 use kingfisher::move_types::Move;
 use kingfisher::search::{koth_best_move, koth_center_in_3};
@@ -234,5 +237,104 @@ fn test_koth_in_2_blocked_by_queen_diagonal() {
     assert_eq!(
         dist, None,
         "Qh4 defense blocks forced KOTH — no forced win in 3"
+    );
+}
+
+#[test]
+fn test_select_best_move_prefers_longer_koth_loss() {
+    let move_gen = setup();
+    // Position where it's white's turn but doesn't matter — we'll manually set up children
+    let board = Board::new_from_fen("8/8/8/8/8/2K5/8/k7 w - - 0 1");
+    let root = MctsNode::new_root(board, &move_gen);
+
+    // Create three children: all are losses for the parent (child STM wins = +1.0)
+    // but with different distances
+    let parent_board = root.borrow().state.clone();
+    let legal_moves = MctsNode::get_legal_moves(&parent_board, &move_gen);
+    assert!(
+        legal_moves.len() >= 3,
+        "Need at least 3 legal moves for test"
+    );
+
+    for (i, mv) in legal_moves.iter().take(3).enumerate() {
+        let child_board = parent_board.apply_move_to_board(*mv);
+        let child = MctsNode::new_child(
+            std::rc::Rc::downgrade(&root),
+            *mv,
+            child_board,
+            &move_gen,
+        );
+        {
+            let mut cr = child.borrow_mut();
+            // All children: STM wins (+1.0 from STM's perspective = parent loses)
+            cr.terminal_or_mate_value = Some(1.0);
+            cr.visits = 1;
+            cr.total_value = 1.0;
+            // Distances: 1, 3, 2
+            cr.terminal_distance = Some(match i {
+                0 => 1,
+                1 => 3, // longest — should be picked
+                2 => 2,
+                _ => unreachable!(),
+            });
+        }
+        root.borrow_mut().children.push(child);
+    }
+
+    let best = select_best_move_from_root(root, &move_gen);
+    assert!(best.is_some());
+    // Should pick the child with distance 3 (index 1)
+    assert_eq!(
+        best.unwrap(),
+        legal_moves[1],
+        "Should prefer the longest loss (distance 3)"
+    );
+}
+
+#[test]
+fn test_select_best_move_prefers_shorter_koth_win() {
+    let move_gen = setup();
+    let board = Board::new_from_fen("8/8/8/8/8/2K5/8/k7 w - - 0 1");
+    let root = MctsNode::new_root(board, &move_gen);
+
+    let parent_board = root.borrow().state.clone();
+    let legal_moves = MctsNode::get_legal_moves(&parent_board, &move_gen);
+    assert!(
+        legal_moves.len() >= 3,
+        "Need at least 3 legal moves for test"
+    );
+
+    for (i, mv) in legal_moves.iter().take(3).enumerate() {
+        let child_board = parent_board.apply_move_to_board(*mv);
+        let child = MctsNode::new_child(
+            std::rc::Rc::downgrade(&root),
+            *mv,
+            child_board,
+            &move_gen,
+        );
+        {
+            let mut cr = child.borrow_mut();
+            // All children: STM loses (-1.0 from STM's perspective = parent wins)
+            cr.terminal_or_mate_value = Some(-1.0);
+            cr.visits = 1;
+            cr.total_value = -1.0;
+            // Distances: 3, 1, 2
+            cr.terminal_distance = Some(match i {
+                0 => 3,
+                1 => 1, // shortest — should be picked
+                2 => 2,
+                _ => unreachable!(),
+            });
+        }
+        root.borrow_mut().children.push(child);
+    }
+
+    let best = select_best_move_from_root(root, &move_gen);
+    assert!(best.is_some());
+    // Should pick the child with distance 1 (index 1) — fastest win
+    assert_eq!(
+        best.unwrap(),
+        legal_moves[1],
+        "Should prefer the shortest win (distance 1)"
     );
 }
