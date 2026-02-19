@@ -26,7 +26,7 @@ All tunable parameters for the Caissawary training pipeline, organized by stage.
 | Mate search depth | 5 | -- | Max depth in plies; disabled if `--disable-tier1` |
 | Exhaustive mate depth | 0 | -- | Depths ≤ N: all legal moves; > N: checks-only. Default 0 = all checks-only |
 | Mate search nodes | 100,000 | -- | Node budget per search |
-| Q-search depth | 8 | -- | For `forced_material_balance()` |
+| Q-search depth | 20 | -- | For `forced_material_balance()` |
 | Time limit | 120s | -- | Per-move hard cutoff (eval games) |
 | Dirichlet alpha | 0.0 | -- | Disabled; proportional sampling suffices |
 | Dirichlet epsilon | 0.0 | -- | Disabled |

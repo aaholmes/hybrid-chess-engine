@@ -151,7 +151,7 @@ pub fn material_qsearch_counted(
 /// is in pawn units (STM perspective) after optimal forced captures/promotions.
 /// `completed` is true if the Q-search resolved all captures within its depth limit.
 pub fn forced_material_balance(board: &mut BoardStack, move_gen: &MoveGen) -> (i32, bool) {
-    material_qsearch(board, move_gen, -1000, 1000, 8)
+    material_qsearch(board, move_gen, -1000, 1000, 20)
 }
 
 /// Like `forced_material_balance` but also returns the number of nodes visited
@@ -162,7 +162,7 @@ pub fn forced_material_balance_counted(
     board: &mut BoardStack,
     move_gen: &MoveGen,
 ) -> (i32, bool, u32, u8) {
-    material_qsearch_counted(board, move_gen, -1000, 1000, 8)
+    material_qsearch_counted(board, move_gen, -1000, 1000, 20)
 }
 
 /// Tactical result from Quiescence Search for MCTS grafting

@@ -64,7 +64,7 @@ In King of the Hill, a king that can reach {d4, e4, d5, e5} wins. The gate compu
 
 ## 3. Tier 2: Quiescence Search and Tactical Ordering
 
-Tier 2's core contribution is `forced_material_balance()` — a material-only quiescence search (depth 8) that runs at every MCTS leaf evaluation to compute $\Delta M$, the material balance after all forced captures and promotions resolve. This is a classical alpha-beta tree search whose results no neural network can easily replicate: it explores variable-depth exchange sequences to detect hanging pieces, discovered attacks, and forced promotion lines. $\Delta M$ feeds directly into the value function (see Section 4), providing the foundation that the NN builds on top of.
+Tier 2's core contribution is `forced_material_balance()` — a material-only quiescence search (depth 20) that runs at every MCTS leaf evaluation to compute $\Delta M$, the material balance after all forced captures and promotions resolve. This is a classical alpha-beta tree search whose results no neural network can easily replicate: it explores variable-depth exchange sequences to detect hanging pieces, discovered attacks, and forced promotion lines. $\Delta M$ feeds directly into the value function (see Section 4), providing the foundation that the NN builds on top of.
 
 The visit-ordering component (MVV-LVA) is a minor addition: captures are visited in Most-Valuable-Victim / Least-Valuable-Attacker order on their first visit. After the first visit, normal UCB selection takes over.
 
@@ -116,7 +116,7 @@ The current design uses **handcrafted scalar features + king patches**, consiste
 
 **King patches (2 × 32 features):** 5×5 windows of all 12 piece planes centered on each king, padded for edge kings. Each 300-dim patch is compressed by a separate FC(300→32) + ReLU — separate weights for STM and opponent kings since they have different semantics (king safety vs. attack potential). This captures local piece configurations around each king without global average pooling's dilution.
 
-**Q-search completion flag (1 value):** A binary flag indicating whether the depth-8 quiescence search resolved naturally (ran out of captures or hit a stand-pat cutoff) or hit the depth limit with captures remaining. When incomplete, deltaM may be unreliable — this flag lets k learn to discount material in deeply tactical positions where the Q-search couldn't fully resolve.
+**Q-search completion flag (1 value):** A binary flag indicating whether the depth-20 quiescence search resolved naturally (ran out of captures or hit a stand-pat cutoff) or hit the depth limit with captures remaining. When incomplete, deltaM may be unreliable — this flag lets k learn to discount material in deeply tactical positions where the Q-search couldn't fully resolve.
 
 **Combination:** `[12 scalars | 1 qsearch flag | 32 STM patch features | 32 opp patch features]` → FC(77→32) → ReLU → FC(32→1) → k_logit. Only the final FC(32→1) is zero-initialized; patch FCs and combine layer use standard He init. Total: ~22k parameters (tiny vs ~2M model total).
 

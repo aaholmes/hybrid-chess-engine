@@ -436,7 +436,7 @@ fn test_material_qsearch_completion_single_recapture() {
     let (_, completed) = forced_material_balance(&mut stack, &move_gen);
     assert!(
         completed,
-        "Short capture-recapture sequence within depth 8 should complete"
+        "Short capture-recapture sequence within depth 20 should complete"
     );
 }
 
@@ -445,7 +445,7 @@ fn test_material_qsearch_incomplete_deep_captures() {
     let move_gen = MoveGen::new();
     // Lots of mutual captures available in a complex middlegame with many hanging pieces.
     // Each side has many pieces that can capture: this should produce a deep capture tree
-    // that potentially exceeds depth 8.
+    // that potentially exceeds depth 20.
     // Position: pieces on every other square creating maximum cross-capture potential
     let board =
         Board::new_from_fen("r1b1k1nr/ppNpBppp/2n5/q3P3/2Bp4/4P3/PP3PPP/R2QK1NR w KQkq - 0 1");
