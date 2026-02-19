@@ -72,7 +72,6 @@ pub fn koth_best_move(board: &Board, move_gen: &MoveGen) -> Option<Move> {
     for n in 1..=3u8 {
         let max_ply = (n as i32) * 2 - 1;
 
-        // Pre-filter: target ring for root move (ply 0) matches solve_koth's ply-0 mask
         let target_mask = match n {
             1 => KOTH_CENTER,
             2 => KOTH_CENTER | RING_1,
@@ -81,32 +80,50 @@ pub fn koth_best_move(board: &Board, move_gen: &MoveGen) -> Option<Move> {
         };
         let king_must_advance = (king_bit & target_mask) == 0;
 
-        let (captures, moves) = move_gen.gen_pseudo_legal_moves(board);
-        for m in captures.iter().chain(moves.iter()) {
-            // Pre-filter: skip non-king and wrong-direction king moves
-            if king_must_advance {
-                if m.from != king_sq {
+        if king_must_advance {
+            // Direct king-move generation: skip full movegen
+            let friendly_occ = board.get_color_occupancy(side_to_move);
+            let candidates = move_gen.k_move_bitboard[king_sq] & target_mask & !friendly_occ;
+            let mut bits = candidates;
+            while bits != 0 {
+                let to_sq = bits.trailing_zeros() as usize;
+                bits &= bits - 1;
+                let m = Move::new(king_sq, to_sq, None);
+                let next_board = board.apply_move_to_board(m);
+                if !next_board.is_legal(move_gen) {
                     continue;
                 }
-                if (1u64 << m.to) & target_mask == 0 {
-                    continue;
+
+                // Check if this move immediately wins (king on center)
+                let (nw, nb) = next_board.is_koth_win();
+                if (board.w_to_move && nw) || (!board.w_to_move && nb) {
+                    return Some(m);
+                }
+
+                // For n >= 2, check if the opponent can't prevent the win
+                if n >= 2 && solve_koth(&next_board, move_gen, 1, max_ply) {
+                    return Some(m);
                 }
             }
+        } else {
+            // King already in ring — full movegen
+            let (captures, moves) = move_gen.gen_pseudo_legal_moves(board);
+            for m in captures.iter().chain(moves.iter()) {
+                let next_board = board.apply_move_to_board(*m);
+                if !next_board.is_legal(move_gen) {
+                    continue;
+                }
 
-            let next_board = board.apply_move_to_board(*m);
-            if !next_board.is_legal(move_gen) {
-                continue;
-            }
+                // Check if this move immediately wins (king on center)
+                let (nw, nb) = next_board.is_koth_win();
+                if (board.w_to_move && nw) || (!board.w_to_move && nb) {
+                    return Some(*m);
+                }
 
-            // Check if this move immediately wins (king on center)
-            let (nw, nb) = next_board.is_koth_win();
-            if (board.w_to_move && nw) || (!board.w_to_move && nb) {
-                return Some(*m);
-            }
-
-            // For n >= 2, check if the opponent can't prevent the win
-            if n >= 2 && solve_koth(&next_board, move_gen, 1, max_ply) {
-                return Some(*m);
+                // For n >= 2, check if the opponent can't prevent the win
+                if n >= 2 && solve_koth(&next_board, move_gen, 1, max_ply) {
+                    return Some(*m);
+                }
             }
         }
     }
@@ -173,78 +190,87 @@ fn solve_koth_counted(board: &Board, move_gen: &MoveGen, ply: i32, max_ply: i32)
 
     let is_root_turn = ply % 2 == 0;
 
-    // Pre-filter: on root-side turns, if king isn't already in the target ring,
-    // only try king moves whose destination is in the ring.
-    let (king_must_advance, king_sq, target_mask) = if is_root_turn {
+    if is_root_turn {
         let root_side = if root_side_is_white { WHITE } else { BLACK };
         let king_bit = board.get_piece_bitboard(root_side, KING);
-        let mask = match ply {
+        let king_sq = king_bit.trailing_zeros() as usize;
+        let target_mask = match ply {
             0 => KOTH_CENTER | RING_1 | RING_2,
             2 => KOTH_CENTER | RING_1,
             4 => KOTH_CENTER,
             _ => unreachable!(),
         };
-        let must_advance = (king_bit & mask) == 0;
-        (must_advance, king_bit.trailing_zeros() as usize, mask)
-    } else {
-        (false, 0, 0)
-    };
+        let king_must_advance = (king_bit & target_mask) == 0;
 
-    let (captures, moves) = move_gen.gen_pseudo_legal_moves(board);
-    let mut legal_move_found = false;
-
-    for m in captures.iter().chain(moves.iter()) {
-        // Pre-filter: skip non-king and wrong-direction king moves
         if king_must_advance {
-            if m.from != king_sq {
-                continue;
+            // Direct king-move generation: skip full movegen
+            let friendly_occ = board.get_color_occupancy(root_side);
+            let candidates = move_gen.k_move_bitboard[king_sq] & target_mask & !friendly_occ;
+            let mut bits = candidates;
+            while bits != 0 {
+                let to_sq = bits.trailing_zeros() as usize;
+                bits &= bits - 1;
+                let m = Move::new(king_sq, to_sq, None);
+                let next_board = board.apply_move_to_board(m);
+                if !next_board.is_legal(move_gen) {
+                    continue;
+                }
+                let (result, child_nodes) = solve_koth_counted(&next_board, move_gen, ply + 1, max_ply);
+                nodes += child_nodes;
+                if result {
+                    return (true, nodes);
+                }
             }
-            if (1u64 << m.to) & target_mask == 0 {
-                continue;
-            }
-        }
-
-        let next_board = board.apply_move_to_board(*m);
-        if !next_board.is_legal(move_gen) {
-            continue;
-        }
-
-        legal_move_found = true;
-
-        if is_root_turn {
-            let root_side = if root_side_is_white { WHITE } else { BLACK };
-            let king_bit = next_board.get_piece_bitboard(root_side, KING);
-
-            let allowed = match ply {
-                0 => (king_bit & (KOTH_CENTER | RING_1 | RING_2)) != 0,
-                2 => (king_bit & (KOTH_CENTER | RING_1)) != 0,
-                4 => (king_bit & KOTH_CENTER) != 0,
-                _ => unreachable!(),
-            };
-
-            if !allowed {
-                continue;
-            }
-
-            let (result, child_nodes) = solve_koth_counted(&next_board, move_gen, ply + 1, max_ply);
-            nodes += child_nodes;
-            if result {
-                return (true, nodes);
-            }
+            return (false, nodes);
         } else {
+            // King already in ring — full movegen with post-apply ring check
+            let (captures, moves) = move_gen.gen_pseudo_legal_moves(board);
+            for m in captures.iter().chain(moves.iter()) {
+                let next_board = board.apply_move_to_board(*m);
+                if !next_board.is_legal(move_gen) {
+                    continue;
+                }
+
+                let king_bit = next_board.get_piece_bitboard(root_side, KING);
+                let allowed = match ply {
+                    0 => (king_bit & (KOTH_CENTER | RING_1 | RING_2)) != 0,
+                    2 => (king_bit & (KOTH_CENTER | RING_1)) != 0,
+                    4 => (king_bit & KOTH_CENTER) != 0,
+                    _ => unreachable!(),
+                };
+                if !allowed {
+                    continue;
+                }
+
+                let (result, child_nodes) = solve_koth_counted(&next_board, move_gen, ply + 1, max_ply);
+                nodes += child_nodes;
+                if result {
+                    return (true, nodes);
+                }
+            }
+            return (false, nodes);
+        }
+    } else {
+        // Opponent turn
+        let (captures, moves) = move_gen.gen_pseudo_legal_moves(board);
+        let mut legal_move_found = false;
+        for m in captures.iter().chain(moves.iter()) {
+            let next_board = board.apply_move_to_board(*m);
+            if !next_board.is_legal(move_gen) {
+                continue;
+            }
+            legal_move_found = true;
             let (result, child_nodes) = solve_koth_counted(&next_board, move_gen, ply + 1, max_ply);
             nodes += child_nodes;
             if !result {
                 return (false, nodes);
             }
         }
+        if !legal_move_found {
+            return (false, nodes);
+        }
+        (true, nodes)
     }
-
-    if !legal_move_found {
-        return (false, nodes);
-    }
-
-    (!is_root_turn, nodes)
 }
 
 fn solve_koth(board: &Board, move_gen: &MoveGen, ply: i32, max_ply: i32) -> bool {
@@ -282,77 +308,83 @@ fn solve_koth(board: &Board, move_gen: &MoveGen, ply: i32, max_ply: i32) -> bool
 
     let is_root_turn = ply % 2 == 0;
 
-    // Pre-filter: on root-side turns, if king isn't already in the target ring,
-    // only try king moves whose destination is in the ring (skip all non-king moves
-    // and wrong-direction king moves BEFORE the expensive apply_move_to_board).
-    let (king_must_advance, king_sq, target_mask) = if is_root_turn {
+    if is_root_turn {
         let root_side = if root_side_is_white { WHITE } else { BLACK };
         let king_bit = board.get_piece_bitboard(root_side, KING);
-        let mask = match ply {
+        let king_sq = king_bit.trailing_zeros() as usize;
+        let target_mask = match ply {
             0 => KOTH_CENTER | RING_1 | RING_2,
             2 => KOTH_CENTER | RING_1,
             4 => KOTH_CENTER,
             _ => unreachable!(),
         };
-        let must_advance = (king_bit & mask) == 0;
-        (must_advance, king_bit.trailing_zeros() as usize, mask)
-    } else {
-        (false, 0, 0)
-    };
+        let king_must_advance = (king_bit & target_mask) == 0;
 
-    let (captures, moves) = move_gen.gen_pseudo_legal_moves(board);
-    let mut legal_move_found = false;
-
-    for m in captures.iter().chain(moves.iter()) {
-        // Pre-filter: skip non-king and wrong-direction king moves
         if king_must_advance {
-            if m.from != king_sq {
-                continue;
+            // Direct king-move generation: only enumerate king destinations
+            // that land in the target ring, skipping full movegen entirely.
+            let friendly_occ = board.get_color_occupancy(root_side);
+            let candidates = move_gen.k_move_bitboard[king_sq] & target_mask & !friendly_occ;
+            let mut bits = candidates;
+            while bits != 0 {
+                let to_sq = bits.trailing_zeros() as usize;
+                bits &= bits - 1;
+                let m = Move::new(king_sq, to_sq, None);
+                let next_board = board.apply_move_to_board(m);
+                if !next_board.is_legal(move_gen) {
+                    continue;
+                }
+                // No post-apply ring check needed: target_mask already constrains destinations
+                if solve_koth(&next_board, move_gen, ply + 1, max_ply) {
+                    return true;
+                }
             }
-            if (1u64 << m.to) & target_mask == 0 {
-                continue;
-            }
-        }
-
-        let next_board = board.apply_move_to_board(*m);
-        if !next_board.is_legal(move_gen) {
-            continue;
-        }
-
-        legal_move_found = true;
-
-        if is_root_turn {
-            // After Root Side's move, their King MUST be close enough to win in remaining plies.
-            let root_side = if root_side_is_white { WHITE } else { BLACK };
-            let king_bit = next_board.get_piece_bitboard(root_side, KING);
-
-            let allowed = match ply {
-                0 => (king_bit & (KOTH_CENTER | RING_1 | RING_2)) != 0, // After Move 1: Dist <= 2
-                2 => (king_bit & (KOTH_CENTER | RING_1)) != 0,          // After Move 2: Dist <= 1
-                4 => (king_bit & KOTH_CENTER) != 0,                     // After Move 3: Dist == 0
-                _ => unreachable!(),
-            };
-
-            if !allowed {
-                continue; // Pruned: King didn't make enough progress or was moved away
-            }
-
-            if solve_koth(&next_board, move_gen, ply + 1, max_ply) {
-                return true;
-            }
+            return false;
         } else {
-            // Opponent turn: If ANY move prevents Root from winning, this branch fails.
+            // King already in ring — need full movegen (king might move out of ring,
+            // or non-king moves might be relevant for the position)
+            let (captures, moves) = move_gen.gen_pseudo_legal_moves(board);
+            for m in captures.iter().chain(moves.iter()) {
+                let next_board = board.apply_move_to_board(*m);
+                if !next_board.is_legal(move_gen) {
+                    continue;
+                }
+
+                // Post-apply ring check: king must still be close enough
+                let king_bit = next_board.get_piece_bitboard(root_side, KING);
+                let allowed = match ply {
+                    0 => (king_bit & (KOTH_CENTER | RING_1 | RING_2)) != 0,
+                    2 => (king_bit & (KOTH_CENTER | RING_1)) != 0,
+                    4 => (king_bit & KOTH_CENTER) != 0,
+                    _ => unreachable!(),
+                };
+                if !allowed {
+                    continue;
+                }
+
+                if solve_koth(&next_board, move_gen, ply + 1, max_ply) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    } else {
+        // Opponent turn: try all moves, if ANY prevents Root from winning, branch fails.
+        let (captures, moves) = move_gen.gen_pseudo_legal_moves(board);
+        let mut legal_move_found = false;
+        for m in captures.iter().chain(moves.iter()) {
+            let next_board = board.apply_move_to_board(*m);
+            if !next_board.is_legal(move_gen) {
+                continue;
+            }
+            legal_move_found = true;
             if !solve_koth(&next_board, move_gen, ply + 1, max_ply) {
                 return false;
             }
         }
+        if !legal_move_found {
+            return false; // Mate or stalemate
+        }
+        true
     }
-
-    if !legal_move_found {
-        return false; // Mate or stalemate
-    }
-
-    // If it's Root's turn and no winning move found: false.
-    // If it's Opponent's turn and all moves were checked without failure: true.
-    !is_root_turn
 }
