@@ -5,11 +5,14 @@
 
 use kingfisher::boardstack::BoardStack;
 use kingfisher::mcts::{
-    reuse_subtree, tactical_mcts_search_for_training_with_reuse, TacticalMctsConfig,
-    TimingAccumulator,
+    reuse_subtree, tactical_mcts_search_for_training_with_reuse, StatsAccumulator,
+    TacticalMctsConfig, TimingAccumulator,
 };
 use kingfisher::move_generation::MoveGen;
+use kingfisher::move_types::Move;
 use kingfisher::transposition::TranspositionTable;
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
 use std::time::{Duration, Instant};
 
 #[cfg(feature = "neural")]
@@ -87,6 +90,9 @@ fn main() {
     let mut mate_acc = TimingAccumulator::default();
     let mut qsearch_acc = TimingAccumulator::default();
     let mut nn_acc = TimingAccumulator::default();
+    let mut koth_nodes_acc = StatsAccumulator::default();
+    let mut mate_nodes_acc = StatsAccumulator::default();
+    let mut qsearch_nodes_acc = StatsAccumulator::default();
     let mut total_moves: u64 = 0;
     let mut total_iterations: u64 = 0;
 
@@ -110,14 +116,16 @@ fn main() {
             enable_tier1_gate: !disable_tier1,
             enable_material_value: !disable_material,
             enable_tier3_neural: has_nn,
-            randomize_move_order: false,
+            randomize_move_order: true,
             ..Default::default()
         };
 
+        let mut rng = StdRng::seed_from_u64(game_idx as u64);
         let mut board_stack = BoardStack::new();
         let mut tt = TranspositionTable::new();
         let mut previous_root = None;
         let mut move_count = 0u32;
+        let explore_base: f64 = 0.80;
 
         loop {
             let board = board_stack.current_state().clone();
@@ -134,14 +142,25 @@ fn main() {
                 break;
             }
 
-            // Merge timing stats from this search
+            // Merge timing and node stats from this search
             koth_acc.merge(&result.stats.koth_timing);
             mate_acc.merge(&result.stats.mate_search_timing);
             qsearch_acc.merge(&result.stats.qsearch_timing);
             nn_acc.merge(&result.stats.nn_timing);
+            koth_nodes_acc.merge(&result.stats.koth_nodes);
+            mate_nodes_acc.merge(&result.stats.mate_search_nodes);
+            qsearch_nodes_acc.merge(&result.stats.qsearch_nodes);
             total_iterations += result.stats.iterations as u64;
 
-            let selected_move = result.best_move.unwrap();
+            // Proportional-or-greedy move selection (same as self_play)
+            let move_number = (move_count / 2) + 1;
+            let explore_prob = explore_base.powi((move_number as i32) - 1);
+            let selected_move = if rng.gen::<f64>() < explore_prob {
+                sample_proportional(&result.root_policy, &mut rng)
+                    .unwrap_or_else(|| result.best_move.unwrap())
+            } else {
+                result.best_move.unwrap()
+            };
             previous_root = reuse_subtree(result.root_node, selected_move);
 
             board_stack.make_move(selected_move);
@@ -204,6 +223,54 @@ fn main() {
     print_row("Mate search", &mate_acc);
     print_row("Q-search", &qsearch_acc);
     print_row("NN inference", &nn_acc);
+
+    println!();
+    println!("=== Nodes per call ===");
+    println!(
+        "{:<20} {:>10} {:>12} {:>12}",
+        "Operation", "Count", "Mean nodes", "Std nodes"
+    );
+    println!("{}", "-".repeat(56));
+    print_stats_row("KOTH-in-3", &koth_nodes_acc);
+    print_stats_row("Mate search", &mate_nodes_acc);
+    print_stats_row("Q-search", &qsearch_nodes_acc);
+}
+
+fn print_stats_row(name: &str, acc: &StatsAccumulator) {
+    if acc.count == 0 {
+        println!(
+            "{:<20} {:>10} {:>12} {:>12}",
+            name, 0, "-", "-"
+        );
+    } else {
+        println!(
+            "{:<20} {:>10} {:>12.1} {:>12.1}",
+            name,
+            acc.count,
+            acc.mean_val(),
+            acc.std_val()
+        );
+    }
+}
+
+/// Sample a move proportionally from visit counts (visits-1 distribution).
+fn sample_proportional(policy: &[(Move, u32)], rng: &mut impl Rng) -> Option<Move> {
+    if policy.is_empty() {
+        return None;
+    }
+    let total: u32 = policy.iter().map(|(_, v)| v.saturating_sub(1)).sum();
+    if total == 0 {
+        return policy.iter().max_by_key(|(_, v)| *v).map(|(mv, _)| *mv);
+    }
+    let threshold = rng.gen_range(0..total);
+    let mut cumulative = 0u32;
+    for (mv, visits) in policy {
+        cumulative += visits.saturating_sub(1);
+        if cumulative > threshold {
+            return Some(*mv);
+        }
+    }
+    policy.last().map(|(mv, _)| *mv)
 }
 
 fn print_row(name: &str, acc: &TimingAccumulator) {

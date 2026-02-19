@@ -83,23 +83,36 @@ pub fn material_qsearch(
     beta: i32,
     max_depth: u8,
 ) -> (i32, bool) {
+    let (score, completed, _nodes) =
+        material_qsearch_counted(board, move_gen, alpha, beta, max_depth);
+    (score, completed)
+}
+
+/// Material-only quiescence search that also returns the number of nodes visited.
+pub fn material_qsearch_counted(
+    board: &mut BoardStack,
+    move_gen: &MoveGen,
+    mut alpha: i32,
+    beta: i32,
+    max_depth: u8,
+) -> (i32, bool, u32) {
+    let mut nodes: u32 = 1;
     let stand_pat = board.current_state().material_imbalance();
     if stand_pat >= beta {
-        return (beta, true); // Stand-pat cutoff — position is quiescent from search perspective
+        return (beta, true, nodes);
     }
     alpha = alpha.max(stand_pat);
 
     let captures = move_gen.gen_pseudo_legal_captures(board.current_state());
 
     if max_depth == 0 {
-        // Check if there were legal captures we couldn't explore
         let has_legal_capture = captures.iter().any(|&cap| {
             board.make_move(cap);
             let legal = board.current_state().is_legal(move_gen);
             board.undo_move();
             legal
         });
-        return (alpha, !has_legal_capture);
+        return (alpha, !has_legal_capture, nodes);
     }
 
     let mut all_completed = true;
@@ -109,21 +122,22 @@ pub fn material_qsearch(
             board.undo_move();
             continue;
         }
-        let (score, child_completed) =
-            material_qsearch(board, move_gen, -beta, -alpha, max_depth - 1);
+        let (score, child_completed, child_nodes) =
+            material_qsearch_counted(board, move_gen, -beta, -alpha, max_depth - 1);
+        nodes += child_nodes;
         let score = -score;
         if !child_completed {
             all_completed = false;
         }
         board.undo_move();
         if score >= beta {
-            return (beta, all_completed);
+            return (beta, all_completed, nodes);
         }
         if score > alpha {
             alpha = score;
         }
     }
-    (alpha, all_completed)
+    (alpha, all_completed, nodes)
 }
 
 /// Convenience wrapper: returns `(material_balance, completed)` where material_balance
@@ -131,6 +145,14 @@ pub fn material_qsearch(
 /// `completed` is true if the Q-search resolved all captures within its depth limit.
 pub fn forced_material_balance(board: &mut BoardStack, move_gen: &MoveGen) -> (i32, bool) {
     material_qsearch(board, move_gen, -1000, 1000, 8)
+}
+
+/// Like `forced_material_balance` but also returns the number of nodes visited.
+pub fn forced_material_balance_counted(
+    board: &mut BoardStack,
+    move_gen: &MoveGen,
+) -> (i32, bool, u32) {
+    material_qsearch_counted(board, move_gen, -1000, 1000, 8)
 }
 
 /// Tactical result from Quiescence Search for MCTS grafting

@@ -15,6 +15,8 @@ use crate::mcts::selection::select_child_with_tactical_priority;
 use crate::move_generation::MoveGen;
 use crate::move_types::Move;
 use crate::search::forced_material_balance;
+use crate::search::forced_material_balance_counted;
+use crate::search::koth_center_in_3_counted;
 use crate::search::mate_search;
 use crate::search::{koth_best_move, koth_center_in_3};
 use crate::transposition::TranspositionTable;
@@ -128,6 +130,52 @@ impl TimingAccumulator {
     }
 }
 
+/// Welford's online algorithm for streaming mean/variance of arbitrary f64 values.
+#[derive(Debug, Clone, Default)]
+pub struct StatsAccumulator {
+    pub count: u64,
+    pub total: f64,
+    mean: f64,
+    m2: f64,
+}
+
+impl StatsAccumulator {
+    pub fn record(&mut self, value: f64) {
+        self.total += value;
+        self.count += 1;
+        let delta = value - self.mean;
+        self.mean += delta / self.count as f64;
+        let delta2 = value - self.mean;
+        self.m2 += delta * delta2;
+    }
+
+    pub fn mean_val(&self) -> f64 {
+        self.mean
+    }
+
+    pub fn std_val(&self) -> f64 {
+        if self.count < 2 {
+            0.0
+        } else {
+            (self.m2 / (self.count - 1) as f64).sqrt()
+        }
+    }
+
+    pub fn merge(&mut self, other: &StatsAccumulator) {
+        if other.count == 0 {
+            return;
+        }
+        let combined_count = self.count + other.count;
+        let delta = other.mean - self.mean;
+        self.mean = (self.mean * self.count as f64 + other.mean * other.count as f64)
+            / combined_count as f64;
+        self.m2 += other.m2
+            + delta * delta * (self.count as f64 * other.count as f64) / combined_count as f64;
+        self.count = combined_count;
+        self.total += other.total;
+    }
+}
+
 /// Statistics collected during tactical-first MCTS search
 #[derive(Debug, Default)]
 pub struct TacticalMctsStats {
@@ -153,6 +201,11 @@ pub struct TacticalMctsStats {
     pub mate_search_timing: TimingAccumulator,
     pub qsearch_timing: TimingAccumulator,
     pub nn_timing: TimingAccumulator,
+
+    // Per-operation node counts
+    pub mate_search_nodes: StatsAccumulator,
+    pub qsearch_nodes: StatsAccumulator,
+    pub koth_nodes: StatsAccumulator,
 }
 
 impl TacticalMctsStats {
@@ -501,8 +554,9 @@ fn evaluate_leaf_node(
             return -1.0;
         }
 
-        let koth_result = koth_center_in_3(board, move_gen);
+        let (koth_result, koth_nodes) = koth_center_in_3_counted(board, move_gen);
         stats.koth_timing.record(koth_start.elapsed());
+        stats.koth_nodes.record(koth_nodes as f64);
         if let Some(dist) = koth_result {
             if let Some(log) = logger {
                 log.log_koth_check(true, Some(dist as u32));
@@ -555,6 +609,7 @@ fn evaluate_leaf_node(
                 config.exhaustive_mate_depth,
             );
             stats.mate_search_timing.record(mate_start.elapsed());
+            stats.mate_search_nodes.record(mate_result.2 as f64);
             transposition_table.store_mate_result(
                 board,
                 mate_result.0.abs(),
@@ -584,9 +639,11 @@ fn evaluate_leaf_node(
         let (delta_m, qsearch_completed) = if config.enable_material_value {
             let qsearch_start = Instant::now();
             let mut board_stack = BoardStack::with_board(node_ref.state.clone());
-            let result = forced_material_balance(&mut board_stack, move_gen);
+            let (score, completed, nodes) =
+                forced_material_balance_counted(&mut board_stack, move_gen);
             stats.qsearch_timing.record(qsearch_start.elapsed());
-            result
+            stats.qsearch_nodes.record(nodes as f64);
+            (score, completed)
         } else {
             (0, true)
         };

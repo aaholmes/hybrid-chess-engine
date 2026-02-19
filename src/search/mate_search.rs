@@ -201,6 +201,9 @@ fn iterative_deepening_wrapper(
 /// When `checks_only` is true, only checking moves are considered on the
 /// attacker's plies. When false, all legal moves are tried (exhaustive).
 /// On the defender's plies, all legal moves are always searched.
+///
+/// Single-pass design: generates moves once, and does a single make/undo per
+/// candidate (legality check + recursion in the same make/undo cycle).
 fn mate_search_recursive(
     ctx: &SearchContext,
     board: &mut BoardStack,
@@ -216,61 +219,66 @@ fn mate_search_recursive(
         return (0, Move::null());
     }
 
-    // --- Base Case: Checkmate/Stalemate ---
-    let (is_checkmate, is_stalemate) = board.current_state().is_checkmate_or_stalemate(move_gen);
-    if is_checkmate {
-        return (-1_000_000 - depth, Move::null());
-    }
-    if is_stalemate || board.is_draw_by_repetition() {
+    // Draw check before depth check — repetition is always terminal
+    if board.is_draw_by_repetition() {
         return (0, Move::null());
     }
 
-    // --- Base Case: Depth 0 ---
+    // Depth 0: no mate found on this path, but still detect terminal positions.
+    // Only checkmate matters here (stalemate = 0, same as default return).
     if depth <= 0 {
-        return (0, Move::null());
-    }
-
-    // --- Move Generation ---
-    // On attacker's turn: only keep moves that give check.
-    // On defender's turn: try all legal moves (opponent tries to escape).
-    let (captures, moves) = move_gen.gen_pseudo_legal_moves(&board.current_state());
-    let mut legal_moves = Vec::new();
-
-    let mut process_candidates = |candidates: Vec<Move>| {
-        for m in candidates {
-            if board.current_state().get_piece(m.from).is_none() {
-                continue;
-            }
-            board.make_move(m);
-            if board.current_state().is_legal(move_gen) {
-                if is_attackers_turn {
-                    // In checks-only mode, only keep checking moves
-                    // In exhaustive mode, keep all legal moves
-                    if !checks_only || board.current_state().is_check(move_gen) {
-                        legal_moves.push(m);
-                    }
-                } else {
-                    // Defender: all legal moves
-                    legal_moves.push(m);
+        if board.current_state().is_check(move_gen) {
+            // Might be checkmate — verify no legal escape exists
+            let (captures, moves) = move_gen.gen_pseudo_legal_moves(&board.current_state());
+            let mut has_legal = false;
+            for m in captures.iter().chain(moves.iter()) {
+                if board.current_state().get_piece(m.from).is_none() {
+                    continue;
                 }
+                board.make_move(*m);
+                if board.current_state().is_legal(move_gen) {
+                    board.undo_move();
+                    has_legal = true;
+                    break;
+                }
+                board.undo_move();
             }
-            board.undo_move();
+            if !has_legal {
+                return (-1_000_000 - depth, Move::null()); // Checkmate
+            }
         }
-    };
-
-    process_candidates(captures);
-    process_candidates(moves);
-
-    if legal_moves.is_empty() {
         return (0, Move::null());
     }
 
+    // Single-pass: generate moves, make each, check legality,
+    // optionally filter for checks, and recurse — all in one loop.
+    let (captures, moves) = move_gen.gen_pseudo_legal_moves(&board.current_state());
     let mut best_move = Move::null();
     let mut best_score = -1_000_001;
+    let mut has_legal_move = false;
 
-    for m in legal_moves {
-        board.make_move(m);
+    for m in captures.iter().chain(moves.iter()) {
+        if board.current_state().get_piece(m.from).is_none() {
+            continue;
+        }
 
+        board.make_move(*m);
+
+        // Check legality (lightweight — just is_square_attacked on king)
+        if !board.current_state().is_legal(move_gen) {
+            board.undo_move();
+            continue;
+        }
+
+        has_legal_move = true;
+
+        // On attacker's turn in checks-only mode, skip non-checking moves
+        if is_attackers_turn && checks_only && !board.current_state().is_check(move_gen) {
+            board.undo_move();
+            continue;
+        }
+
+        // Recurse (move is already made)
         let (mut score, _) = mate_search_recursive(
             ctx,
             board,
@@ -281,8 +289,8 @@ fn mate_search_recursive(
             !is_attackers_turn,
             checks_only,
         );
-
         score = -score;
+
         board.undo_move();
 
         if ctx.should_stop() {
@@ -291,15 +299,29 @@ fn mate_search_recursive(
 
         if score > best_score {
             best_score = score;
-            best_move = m;
+            best_move = *m;
         }
-
         if score > alpha {
             alpha = score;
         }
         if alpha >= beta {
             break;
         }
+    }
+
+    // No legal moves at all = checkmate or stalemate
+    if !has_legal_move {
+        let in_check = board.current_state().is_check(move_gen);
+        if in_check {
+            return (-1_000_000 - depth, Move::null()); // Checkmate
+        } else {
+            return (0, Move::null()); // Stalemate
+        }
+    }
+
+    // Legal moves exist but none passed checks-only filter (or no improvement found)
+    if best_score == -1_000_001 {
+        return (0, Move::null());
     }
 
     (best_score, best_move)

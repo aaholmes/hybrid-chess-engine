@@ -89,6 +89,112 @@ pub fn koth_best_move(board: &Board, move_gen: &MoveGen) -> Option<Move> {
     None
 }
 
+/// Like `koth_center_in_3` but also returns the number of nodes visited.
+pub fn koth_center_in_3_counted(board: &Board, move_gen: &MoveGen) -> (Option<u8>, u32) {
+    let side_to_move = if board.w_to_move { WHITE } else { BLACK };
+    let king_bit = board.get_piece_bitboard(side_to_move, KING);
+
+    if king_bit == 0 {
+        return (None, 1);
+    }
+
+    let (w_won, b_won) = board.is_koth_win();
+    if (board.w_to_move && w_won) || (!board.w_to_move && b_won) {
+        return (Some(0), 1);
+    }
+
+    let mut total_nodes: u32 = 1;
+    for n in 1..=3u8 {
+        let max_ply = (n as i32) * 2 - 1;
+        let (result, nodes) = solve_koth_counted(board, move_gen, 0, max_ply);
+        total_nodes += nodes;
+        if result {
+            return (Some(n), total_nodes);
+        }
+    }
+    (None, total_nodes)
+}
+
+fn solve_koth_counted(board: &Board, move_gen: &MoveGen, ply: i32, max_ply: i32) -> (bool, u32) {
+    let mut nodes: u32 = 1;
+    let (white_won, black_won) = board.is_koth_win();
+
+    let am_i_root_side = ply % 2 == 0;
+    let current_side_is_white = board.w_to_move;
+    let root_side_is_white = if am_i_root_side {
+        current_side_is_white
+    } else {
+        !current_side_is_white
+    };
+
+    if root_side_is_white {
+        if white_won {
+            return (true, nodes);
+        }
+        if black_won {
+            return (false, nodes);
+        }
+    } else {
+        if black_won {
+            return (true, nodes);
+        }
+        if white_won {
+            return (false, nodes);
+        }
+    }
+
+    if ply > max_ply {
+        return (false, nodes);
+    }
+
+    let is_root_turn = ply % 2 == 0;
+    let (captures, moves) = move_gen.gen_pseudo_legal_moves(board);
+    let mut legal_move_found = false;
+
+    for m in captures.iter().chain(moves.iter()) {
+        let next_board = board.apply_move_to_board(*m);
+        if !next_board.is_legal(move_gen) {
+            continue;
+        }
+
+        legal_move_found = true;
+
+        if is_root_turn {
+            let root_side = if root_side_is_white { WHITE } else { BLACK };
+            let king_bit = next_board.get_piece_bitboard(root_side, KING);
+
+            let allowed = match ply {
+                0 => (king_bit & (KOTH_CENTER | RING_1 | RING_2)) != 0,
+                2 => (king_bit & (KOTH_CENTER | RING_1)) != 0,
+                4 => (king_bit & KOTH_CENTER) != 0,
+                _ => unreachable!(),
+            };
+
+            if !allowed {
+                continue;
+            }
+
+            let (result, child_nodes) = solve_koth_counted(&next_board, move_gen, ply + 1, max_ply);
+            nodes += child_nodes;
+            if result {
+                return (true, nodes);
+            }
+        } else {
+            let (result, child_nodes) = solve_koth_counted(&next_board, move_gen, ply + 1, max_ply);
+            nodes += child_nodes;
+            if !result {
+                return (false, nodes);
+            }
+        }
+    }
+
+    if !legal_move_found {
+        return (false, nodes);
+    }
+
+    (!is_root_turn, nodes)
+}
+
 fn solve_koth(board: &Board, move_gen: &MoveGen, ply: i32, max_ply: i32) -> bool {
     let (white_won, black_won) = board.is_koth_win();
 
