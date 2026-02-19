@@ -118,3 +118,7 @@ path = "src/bin/round_robin.rs"
 [[bin]]
 name = "play_engine"
 path = "src/bin/play_engine.rs"
+
+[[bin]]
+name = "profile_engine"
+path = "src/bin/profile_engine.rs"

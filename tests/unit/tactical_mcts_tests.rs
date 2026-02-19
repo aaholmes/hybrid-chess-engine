@@ -1255,6 +1255,97 @@ fn test_enable_material_value_toggle() {
     );
 }
 
+// === Timing stats ===
+
+#[test]
+fn test_timing_stats_populated() {
+    let move_gen = MoveGen::new();
+    let board = Board::new();
+
+    let config = TacticalMctsConfig {
+        max_iterations: 100,
+        time_limit: Duration::from_secs(30),
+        enable_koth: true,
+        ..Default::default()
+    };
+
+    let (_, stats, _) = tactical_mcts_search(board, &move_gen, config);
+
+    // Mate search timing should be populated (tier1 enabled, mate_search_depth > 0)
+    assert!(
+        stats.mate_search_timing.count > 0,
+        "Mate search timing should have non-zero count, got {}",
+        stats.mate_search_timing.count
+    );
+    assert!(
+        stats.mate_search_timing.total.as_nanos() > 0,
+        "Mate search total time should be non-zero"
+    );
+
+    // Q-search timing should be populated (material value enabled by default)
+    assert!(
+        stats.qsearch_timing.count > 0,
+        "Q-search timing should have non-zero count, got {}",
+        stats.qsearch_timing.count
+    );
+    assert!(
+        stats.qsearch_timing.total.as_nanos() > 0,
+        "Q-search total time should be non-zero"
+    );
+
+    // Mean should be positive
+    assert!(
+        stats.mate_search_timing.mean_us() > 0.0,
+        "Mate search mean should be positive"
+    );
+    assert!(
+        stats.qsearch_timing.mean_us() > 0.0,
+        "Q-search mean should be positive"
+    );
+}
+
+#[test]
+fn test_timing_stats_koth_populated() {
+    let move_gen = MoveGen::new();
+    // KOTH position where center-in-3 fires for child nodes
+    let board =
+        Board::new_from_fen("r1b4r/ppp1k2p/n3pq1n/5pp1/8/1PP1K3/P3PPPP/RNQ2BNR w - - 0 11");
+
+    let config = TacticalMctsConfig {
+        max_iterations: 100,
+        time_limit: Duration::from_secs(30),
+        enable_koth: true,
+        ..Default::default()
+    };
+
+    let (_, stats, _) = tactical_mcts_search(board, &move_gen, config);
+
+    // KOTH timing should be populated when KOTH is enabled
+    assert!(
+        stats.koth_timing.count > 0,
+        "KOTH timing should have non-zero count when KOTH enabled, got {}",
+        stats.koth_timing.count
+    );
+}
+
+#[test]
+fn test_timing_accumulator_merge() {
+    use kingfisher::mcts::tactical_mcts::TimingAccumulator;
+
+    let mut acc1 = TimingAccumulator::default();
+    acc1.record(Duration::from_micros(100));
+    acc1.record(Duration::from_micros(200));
+
+    let mut acc2 = TimingAccumulator::default();
+    acc2.record(Duration::from_micros(300));
+
+    acc1.merge(&acc2);
+
+    assert_eq!(acc1.count, 3);
+    // Mean of [100, 200, 300] = 200
+    assert!((acc1.mean_us() - 200.0).abs() < 1.0, "Mean after merge should be ~200, got {}", acc1.mean_us());
+}
+
 // === Edge cases ===
 
 #[test]

@@ -81,6 +81,53 @@ impl Default for TacticalMctsConfig {
     }
 }
 
+/// Welford's online algorithm for streaming mean/variance of call durations.
+#[derive(Debug, Clone, Default)]
+pub struct TimingAccumulator {
+    pub count: u64,
+    pub total: Duration,
+    mean: f64,  // running mean in microseconds
+    m2: f64,    // running sum of squared deviations
+}
+
+impl TimingAccumulator {
+    pub fn record(&mut self, elapsed: Duration) {
+        self.total += elapsed;
+        self.count += 1;
+        let x = elapsed.as_secs_f64() * 1_000_000.0; // microseconds
+        let delta = x - self.mean;
+        self.mean += delta / self.count as f64;
+        let delta2 = x - self.mean;
+        self.m2 += delta * delta2;
+    }
+
+    pub fn mean_us(&self) -> f64 {
+        self.mean
+    }
+
+    pub fn std_us(&self) -> f64 {
+        if self.count < 2 {
+            0.0
+        } else {
+            (self.m2 / (self.count - 1) as f64).sqrt()
+        }
+    }
+
+    pub fn merge(&mut self, other: &TimingAccumulator) {
+        if other.count == 0 {
+            return;
+        }
+        let combined_count = self.count + other.count;
+        let delta = other.mean - self.mean;
+        self.mean = (self.mean * self.count as f64 + other.mean * other.count as f64)
+            / combined_count as f64;
+        self.m2 += other.m2
+            + delta * delta * (self.count as f64 * other.count as f64) / combined_count as f64;
+        self.count = combined_count;
+        self.total += other.total;
+    }
+}
+
 /// Statistics collected during tactical-first MCTS search
 #[derive(Debug, Default)]
 pub struct TacticalMctsStats {
@@ -100,6 +147,12 @@ pub struct TacticalMctsStats {
     pub nn_saved_by_tier1: u32,
     /// Positions where Tier 1 found forced win/loss
     pub tier1_solutions: u32,
+
+    // Per-operation timing
+    pub koth_timing: TimingAccumulator,
+    pub mate_search_timing: TimingAccumulator,
+    pub qsearch_timing: TimingAccumulator,
+    pub nn_timing: TimingAccumulator,
 }
 
 impl TacticalMctsStats {
@@ -434,10 +487,12 @@ fn evaluate_leaf_node(
     }
 
     if config.enable_koth && config.enable_tier1_gate {
+        let koth_start = Instant::now();
         // Opponent already on center = STM loses (KOTH terminal)
         let (w_won, b_won) = board.is_koth_win();
         let opponent_won = (board.w_to_move && b_won) || (!board.w_to_move && w_won);
         if opponent_won {
+            stats.koth_timing.record(koth_start.elapsed());
             node_ref.terminal_or_mate_value = Some(-1.0);
             node_ref.terminal_distance = Some(0);
             node_ref.is_terminal = true;
@@ -446,7 +501,9 @@ fn evaluate_leaf_node(
             return -1.0;
         }
 
-        if let Some(dist) = koth_center_in_3(board, move_gen) {
+        let koth_result = koth_center_in_3(board, move_gen);
+        stats.koth_timing.record(koth_start.elapsed());
+        if let Some(dist) = koth_result {
             if let Some(log) = logger {
                 log.log_koth_check(true, Some(dist as u32));
             }
@@ -488,6 +545,7 @@ fn evaluate_leaf_node(
             }
         } else {
             stats.tt_mate_misses += 1;
+            let mate_start = Instant::now();
             let mut board_stack = BoardStack::with_board(board.clone());
             let mate_result = mate_search(
                 &mut board_stack,
@@ -496,6 +554,7 @@ fn evaluate_leaf_node(
                 false,
                 config.exhaustive_mate_depth,
             );
+            stats.mate_search_timing.record(mate_start.elapsed());
             transposition_table.store_mate_result(
                 board,
                 mate_result.0.abs(),
@@ -523,8 +582,11 @@ fn evaluate_leaf_node(
 
         // 1. Run Q-search FIRST so completion flag is available for NN inference
         let (delta_m, qsearch_completed) = if config.enable_material_value {
+            let qsearch_start = Instant::now();
             let mut board_stack = BoardStack::with_board(node_ref.state.clone());
-            forced_material_balance(&mut board_stack, move_gen)
+            let result = forced_material_balance(&mut board_stack, move_gen);
+            stats.qsearch_timing.record(qsearch_start.elapsed());
+            result
         } else {
             (0, true)
         };
@@ -533,12 +595,14 @@ fn evaluate_leaf_node(
         if config.enable_tier3_neural {
             if let Some(server) = &config.inference_server {
                 if config.use_neural_policy {
+                    let nn_start = Instant::now();
                     let receiver = server.predict_async(node_ref.state.clone(), qsearch_completed);
                     if let Ok(Some((policy, nn_v_logit, k))) = receiver.recv() {
                         v_logit = nn_v_logit as f64;
                         k_val = k;
                         node_ref.raw_nn_policy = Some(policy);
                     }
+                    stats.nn_timing.record(nn_start.elapsed());
                 }
             }
         }
