@@ -63,6 +63,7 @@ impl InferenceServer {
                     let _ = req.response_sender.send(res);
                 }
             }
+            nn.print_inference_timing();
             println!("🛑 Inference Server Worker shutting down.");
         });
 

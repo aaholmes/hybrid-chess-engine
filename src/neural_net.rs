@@ -12,9 +12,11 @@
 #[cfg(feature = "neural")]
 mod real {
     use crate::board::Board;
+    use crate::mcts::tactical_mcts::TimingAccumulator;
     use crate::move_types::Move;
     use crate::tensor::{board_to_planes, move_to_index, policy_to_move_priors};
     use std::path::Path;
+    use std::time::Instant;
     use tch::{CModule, Device, IValue, Kind, Tensor};
 
     /// Describe an IValue type for debugging (without printing full tensor data)
@@ -84,6 +86,9 @@ mod real {
     pub struct NeuralNetPolicy {
         model: Option<CModule>,
         device: Device,
+        pub transfer_to_gpu_timing: TimingAccumulator,
+        pub forward_timing: TimingAccumulator,
+        pub transfer_from_gpu_timing: TimingAccumulator,
     }
 
     impl NeuralNetPolicy {
@@ -96,6 +101,9 @@ mod real {
                 } else {
                     Device::Cpu
                 },
+                transfer_to_gpu_timing: TimingAccumulator::default(),
+                forward_timing: TimingAccumulator::default(),
+                transfer_from_gpu_timing: TimingAccumulator::default(),
             }
         }
 
@@ -206,6 +214,8 @@ mod real {
                 None => return vec![None; boards.len()],
             };
 
+            // Phase 1: Prepare and transfer tensors to GPU
+            let t_transfer_start = Instant::now();
             let mut input_tensors = Vec::with_capacity(boards.len());
 
             for board in boards {
@@ -227,7 +237,11 @@ mod real {
                 .view([b as i64, 2])
                 .to_device(self.device)
                 .to_kind(Kind::Float);
+            self.transfer_to_gpu_timing
+                .record(t_transfer_start.elapsed());
 
+            // Phase 2: GPU forward pass
+            let t_forward_start = Instant::now();
             let ivalue = model.method_is(
                 "forward",
                 &[
@@ -235,6 +249,7 @@ mod real {
                     tch::IValue::Tensor(scalars_batch),
                 ],
             );
+            self.forward_timing.record(t_forward_start.elapsed());
 
             match ivalue {
                 Ok(tch::IValue::Tuple(elements)) if elements.len() == 3 => {
@@ -251,6 +266,8 @@ mod real {
                         _ => return vec![None; boards.len()],
                     };
 
+                    // Phase 3: Transfer results from GPU to CPU
+                    let t_from_gpu_start = Instant::now();
                     let batch_size = boards.len();
                     let mut results = Vec::with_capacity(batch_size);
 
@@ -270,6 +287,8 @@ mod real {
 
                         results.push(Some((policy_probs, value, k_val)));
                     }
+                    self.transfer_from_gpu_timing
+                        .record(t_from_gpu_start.elapsed());
                     results
                 }
                 Ok(ref other) => {
@@ -311,6 +330,37 @@ mod real {
         pub fn cache_stats(&self) -> (usize, usize) {
             (0, 0)
         }
+
+        pub fn print_inference_timing(&self) {
+            println!();
+            println!("=== NN Inference Phase Breakdown ===");
+            println!(
+                "{:<24} {:>10} {:>12} {:>12} {:>12}",
+                "Phase", "Count", "Total(ms)", "Mean(us)", "Std(us)"
+            );
+            println!("{}", "-".repeat(72));
+            Self::print_timing_row("CPU→GPU transfer", &self.transfer_to_gpu_timing);
+            Self::print_timing_row("GPU forward pass", &self.forward_timing);
+            Self::print_timing_row("GPU→CPU transfer", &self.transfer_from_gpu_timing);
+        }
+
+        fn print_timing_row(name: &str, acc: &TimingAccumulator) {
+            if acc.count == 0 {
+                println!(
+                    "{:<24} {:>10} {:>12} {:>12} {:>12}",
+                    name, 0, "-", "-", "-"
+                );
+            } else {
+                println!(
+                    "{:<24} {:>10} {:>12.1} {:>12.1} {:>12.1}",
+                    name,
+                    acc.count,
+                    acc.total.as_secs_f64() * 1000.0,
+                    acc.mean_us(),
+                    acc.std_us()
+                );
+            }
+        }
     }
 }
 
@@ -322,14 +372,24 @@ mod stub {
     use crate::board::Board;
     use crate::move_types::Move;
 
+    use crate::mcts::tactical_mcts::TimingAccumulator;
+
     #[derive(Debug, Clone)]
     pub struct NeuralNetPolicy {
         _dummy: u8,
+        pub transfer_to_gpu_timing: TimingAccumulator,
+        pub forward_timing: TimingAccumulator,
+        pub transfer_from_gpu_timing: TimingAccumulator,
     }
 
     impl NeuralNetPolicy {
         pub fn new() -> Self {
-            NeuralNetPolicy { _dummy: 0 }
+            NeuralNetPolicy {
+                _dummy: 0,
+                transfer_to_gpu_timing: TimingAccumulator::default(),
+                forward_timing: TimingAccumulator::default(),
+                transfer_from_gpu_timing: TimingAccumulator::default(),
+            }
         }
         pub fn load(&mut self, _path: &str) -> Result<(), String> {
             Err("Neural network feature not enabled (compile with --features neural)".to_string())
@@ -371,6 +431,7 @@ mod stub {
         pub fn cache_stats(&self) -> (usize, usize) {
             (0, 0)
         }
+        pub fn print_inference_timing(&self) {}
     }
 }
 

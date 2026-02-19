@@ -15,11 +15,11 @@ The name is a hybrid, like the engine: **Caissa** (the mythical goddess of chess
 
 ## The Approach: Subgame Decomposition for MCTS
 
-| Tier | Mechanism | Property | Cost |
-|------|-----------|----------|------|
-| **Tier 1** | Safety Gates (checks-only mate search, KOTH geometry) | Provably correct, exact values | ~microseconds |
-| **Tier 2** | Quiescence search + MVV-LVA ordering | Classical tree search computes material after forced exchanges | ~microseconds |
-| **Tier 3** | Neural network (OracleNet) | Learned positional evaluation for uncertain positions | ~milliseconds |
+| Tier | Mechanism | Property | Mean cost |
+|------|-----------|----------|-----------|
+| **Tier 1** | Safety Gates (checks-only mate search, KOTH geometry) | Provably correct, exact values | 213 us (KOTH) / 868 us (mate search) |
+| **Tier 2** | Quiescence search + MVV-LVA ordering | Classical tree search computes material after forced exchanges | 7 us |
+| **Tier 3** | Neural network (OracleNet) | Learned positional evaluation for uncertain positions | 1,795 us |
 
 Gate-resolved nodes are **terminal** — identical to checkmate or stalemate — so proven values propagate through the tree without dilution.
 
@@ -44,6 +44,21 @@ OracleNet is a configurable SE-ResNet (default: 6 blocks, 128 channels, ~2M para
 - **Confidence head ($k$):** Handcrafted features + 5x5 king patches
 
 The $k$ head uses domain knowledge rather than learned convolutions: 12 scalar features (pawn counts, piece counts, queen presence, pawn contacts, castling rights, king rank, and bishop square-color presence for detecting opposite-colored bishop endgames and bishop pair advantage), a Q-search completion flag (indicating whether the depth-8 quiescence search resolved naturally or hit its depth limit — letting $k$ discount unreliable material in deeply tactical positions), plus two 5x5 spatial patches centered on each king, combined via small FC layers (~22k parameters). This lets $k$ reason about king safety, material convertibility, Q-search reliability, and piece-specific endgame dynamics without needing to learn these patterns from scratch.
+
+### Search Time Budget
+
+Profiled over 10 self-play games (400 simulations/move, KOTH enabled, gen_18 2M-parameter model on RTX 5060 Ti):
+
+| Operation | Device | Calls | Mean | Std | % of wall time |
+|-----------|--------|------:|-----:|----:|---------------:|
+| NN inference | GPU | 277,410 | 1,795 us | 660 us | 63% |
+| Mate search | CPU | 262,400 | 868 us | 1,828 us | 28% |
+| KOTH-in-3 | CPU | 308,720 | 213 us | 432 us | 8% |
+| Q-search | CPU | 277,410 | 7 us | 12 us | <1% |
+
+NN inference breaks down into three phases: CPU-to-GPU tensor transfer (53 us), GPU forward pass (1,143 us), and GPU-to-CPU result transfer (46 us). The GPU forward pass dominates at 92% of NN time — transfer overhead is negligible. Q-search is effectively free relative to the other operations, running 250x faster than a single NN call while providing the material delta that grounds every leaf evaluation.
+
+The `profile_engine` binary reproduces these measurements: `./target/release/profile_engine --model <path> --games 10 --simulations 400 --koth`.
 
 ## Tournament Results: Caissawary vs Vanilla MCTS
 
@@ -202,6 +217,8 @@ cd python && python -m pytest test_*.py -v        # Python pipeline tests
 | `elo_tournament` | Elo rating estimation (classical engines) |
 | `texel_tune` | Evaluation weight optimization |
 | `generate_training_data` | Standalone training data generation |
+| `play_engine` | Interactive human-vs-engine play |
+| `profile_engine` | Per-operation MCTS timing profiler |
 
 ## Further Reading
 
