@@ -56,19 +56,19 @@ Even after the `gives_check()` optimization, mate search cost 1.7x more per node
 
 The fix: convert mate search from `&mut BoardStack` (stateful make/undo) to `&Board` (stateless `apply_move_to_board`), matching KOTH's approach. Each recursive call creates a new `Board` on the stack — no history tracking, no Zobrist updates, no repetition checks.
 
-Combined with `gives_check()`, this reduced mate search from 1.08 to 0.63 us/node (42% total improvement). Mate search is ~1.9x more expensive per node than KOTH-in-3 (0.33 us/node) — the gap comes from alpha-beta pruning, `gives_check()` filtering, and piece-on-square validation overhead that KOTH's simpler geometric reachability avoids.
+Combined with `gives_check()`, this reduced mate search from 1.08 to 0.64 us/node (41% total improvement). Mate search is ~3.4x more expensive per node than KOTH-in-3 (0.19 us/node) — the gap comes from alpha-beta pruning, `gives_check()` filtering, and piece-on-square validation overhead that KOTH's simpler geometric reachability avoids.
 
 ### KOTH geometric pruning
 
 In King of the Hill, a king that can reach {d4, e4, d5, e5} wins. The gate computes: can the side-to-move's king reach any center square in at most 3 moves, considering blocking pieces and opponent interception? This is pure geometry — no search needed.
 
-### KOTH move pre-filter
+### KOTH direct king-move generation
 
-On root-side turns in `solve_koth`, when the king is not already in the required distance ring for the current ply, ~25-30 of ~35 pseudo-legal moves are non-king moves that cannot advance the king toward center. The naive approach applies `apply_move_to_board` + `is_legal` to all of them, only to prune them in the post-apply ring check.
+On root-side turns in `solve_koth`, when the king is not already in the required distance ring for the current ply, only king moves toward center matter. The original approach generated all ~35 pseudo-legal moves via `gen_pseudo_legal_moves`, then filtered to king moves landing in the target ring — discarding ~30 non-king moves that were generated unnecessarily.
 
-The pre-filter checks two conditions *before* `apply_move_to_board`: (1) is the move from the king square? (2) does the destination fall within the target ring mask? Two bitwise comparisons skip ~80% of moves at near-zero cost. When the king is already in the target ring, non-king moves are valid (king stays put), so the pre-filter is disabled — the existing post-apply ring check handles king moves that might leave the ring.
+The optimization skips full move generation entirely on these turns. Instead, it computes valid king destinations directly via bitboard intersection: `k_move_bitboard[king_sq] & target_mask & !friendly_occ`. This yields exactly the 1-3 valid destination squares, each producing a `Move::new(king_sq, to_sq, None)` that goes straight to `apply_move_to_board` + `is_legal`. No post-apply ring check is needed since `target_mask` already constrains destinations. When the king is already in the target ring, full movegen is used with a post-apply ring check — non-king moves are valid in this case (king stays put) and the king might move out of the ring.
 
-This reduced KOTH per-node cost from 0.52 to 0.33 us/node (37% improvement).
+This reduced KOTH per-node cost from 0.33 to 0.19 us/node (42% improvement, cumulative 63% from the original 0.52 us/node).
 
 ## 3. Tier 2: Quiescence Search and Tactical Ordering
 
