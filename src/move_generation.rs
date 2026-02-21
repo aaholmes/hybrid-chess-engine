@@ -567,7 +567,7 @@ impl MoveGen {
     /// # Returns
     ///
     /// A tuple containing the capture moves and non-capture moves for the knight.
-    fn gen_knight_moves(&self, board: &Board) -> (Vec<Move>, Vec<Move>) {
+    pub(crate) fn gen_knight_moves(&self, board: &Board) -> (Vec<Move>, Vec<Move>) {
         // Generate all possible knight moves for the current position.
         // Returns a vector of captures and a vector of non-captures.
         let mut moves: Vec<Move> = Vec::with_capacity(16);
@@ -711,7 +711,7 @@ impl MoveGen {
     /// # Returns
     ///
     /// A tuple containing the capture moves and non-capture moves for the rook.
-    fn gen_rook_moves(&self, board: &Board) -> (Vec<Move>, Vec<Move>) {
+    pub(crate) fn gen_rook_moves(&self, board: &Board) -> (Vec<Move>, Vec<Move>) {
         // Generate all possible rook moves for the current position.
         // Returns a vector of captures and a vector of non-captures.
         // Uses magic bitboards.
@@ -839,7 +839,7 @@ impl MoveGen {
     /// # Returns
     ///
     /// A tuple containing the capture moves and non-capture moves for the bishop.
-    fn gen_bishop_moves(&self, board: &Board) -> (Vec<Move>, Vec<Move>) {
+    pub(crate) fn gen_bishop_moves(&self, board: &Board) -> (Vec<Move>, Vec<Move>) {
         // Generate all possible bishop moves for the current position.
         // Returns a vector of captures and a vector of non-captures.
         // Uses magic bitboards.
@@ -919,7 +919,7 @@ impl MoveGen {
     /// # Returns
     ///
     /// A tuple containing the capture moves and non-capture moves for the queen.
-    fn gen_queen_moves(&self, board: &Board) -> (Vec<Move>, Vec<Move>) {
+    pub(crate) fn gen_queen_moves(&self, board: &Board) -> (Vec<Move>, Vec<Move>) {
         // Generate all possible queen moves for the current position.
         // Returns a vector of captures and a vector of non-captures.
         // Uses magic bitboards.

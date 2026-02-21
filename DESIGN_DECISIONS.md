@@ -70,7 +70,23 @@ The remaining gap between mate search (0.64 us/node) and KOTH (0.19 us/node) cam
 
 **Redundant `get_piece()` calls removed.** Two call sites checked `board.get_piece(m.from).is_some()` before processing moves from `gen_pseudo_legal_moves` — but pseudo-legal move generation only produces moves from occupied squares, making these 12-bitboard scans per move pure dead code.
 
-These four changes reduced mate search mean time from 608 us to 224 us (2.7x speedup), primarily by reducing mean nodes per call from 954 to 359. The per-node cost is 0.63 us/node — still ~3.3x more than KOTH (0.19 us/node), with the remaining gap from `gives_check()` filtering and the richer move generation needed for mate detection vs. KOTH's simple geometric reachability. Mate search's share of wall time dropped from 22% to 10%.
+These four changes reduced mate search mean time from 608 us to 224 us (2.7x speedup), primarily by reducing mean nodes per call from 954 to 359. The per-node cost dropped to 0.63 us/node.
+
+### Batched per-piece checkmate detection at depth-0 leaves
+
+After the pure minimax rewrite, depth-0 checkmate detection became the dominant cost within mate search. ~95% of nodes in a checks-only search are depth-0 leaves. The original approach called `gen_pseudo_legal_moves` — generating moves for all 6 piece types, allocating ~10 vectors — then iterated until finding one legal move. In the common case (not checkmate), a king move provides the evasion, but the engine still paid for generating knight, bishop, rook, queen, and pawn moves unnecessarily.
+
+The optimization generates moves by piece type in priority order, aborting early when any legal evasion is found:
+
+1. **King moves** (direct bitboard, zero allocation, skip castling since in check): highest evasion probability (~70-80% of cases), cheapest generation. Uses `k_move_bitboard[king_sq] & !friendly_occ` — the same pattern as KOTH direct king-move generation.
+2. **Double check detection** (2 magic lookups + 2 table lookups): if two or more pieces attack the king, only king moves can evade. Since king moves already failed above, it's checkmate — skip all 5 remaining piece-type generations entirely. A slider constraint avoids unnecessary work: double check requires at least one slider, so if no slider attacks the king (0 magic hits), it's a single non-slider check and double-check detection is skipped.
+3. **Knight → Bishop → Rook → Queen → Pawn** in increasing generation cost. Each batch aborts on the first legal move found.
+
+An additional optimization: in checks-only mode, the attacker only plays checking moves, so the defender is always in check at depth 0. The `is_check()` call (which scans all 6 attacker piece types for attacks on the king) is skipped entirely.
+
+This reduced mate search from 224 us to 132 us (41% speedup, 0.63 → 0.37 us/node) without changing the search tree — identical node counts confirm no behavioral change. Mate search's share of wall time dropped from 10% to 6%.
+
+**Cumulative mate search optimization:** 608 us → 132 us (4.6x speedup, 78% reduction). Per-node cost: 1.08 → 0.37 us/node (66% reduction). The remaining 2x gap versus KOTH (0.37 vs 0.19 us/node) comes from `gives_check()` filtering on attacker plies and richer move generation needed for full checkmate detection vs. KOTH's simple geometric reachability.
 
 ### KOTH geometric pruning
 

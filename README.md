@@ -17,9 +17,9 @@ The name is a hybrid, like the engine: **Caissa** (the mythical goddess of chess
 
 | Tier | Mechanism | Property | Mean cost |
 |------|-----------|----------|-----------|
-| **Tier 1** | Safety Gates (checks-only mate search, KOTH geometry) | Provably correct, exact values | 145 us (KOTH) / 224 us (mate search) |
+| **Tier 1** | Safety Gates (checks-only mate search, KOTH geometry) | Provably correct, exact values | 149 us (KOTH) / 132 us (mate search) |
 | **Tier 2** | Quiescence search + MVV-LVA ordering | Classical tree search computes material after forced exchanges | 7 us |
-| **Tier 3** | Neural network (OracleNet) | Learned positional evaluation for uncertain positions | 1,811 us |
+| **Tier 3** | Neural network (OracleNet) | Learned positional evaluation for uncertain positions | 1,765 us |
 
 Gate-resolved nodes are **terminal** — identical to checkmate or stalemate — so proven values propagate through the tree without dilution.
 
@@ -51,12 +51,12 @@ Profiled over 10 self-play games (400 simulations/move, KOTH enabled, gen_18 2M-
 
 | Operation | Device | Calls | Mean | Std | Mean nodes | us/node | % of wall time |
 |-----------|--------|------:|-----:|----:|-----------:|--------:|---------------:|
-| NN inference | GPU | 180,327 | 1,785 us | 821 us | — | — | 81% |
-| Mate search | CPU | 174,495 | 224 us | 951 us | 359 | 0.63 | 10% |
-| KOTH-in-3 | CPU | 206,362 | 145 us | 352 us | 780 | 0.19 | 8% |
-| Q-search | CPU | 180,327 | 8 us | 15 us | 14 | 0.51 | <1% |
+| NN inference | GPU | 180,326 | 1,765 us | 823 us | — | — | 84% |
+| Mate search | CPU | 174,495 | 132 us | 481 us | 359 | 0.37 | 6% |
+| KOTH-in-3 | CPU | 206,362 | 149 us | 361 us | 780 | 0.19 | 8% |
+| Q-search | CPU | 180,326 | 8 us | 15 us | 15 | 0.53 | <1% |
 
-NN inference breaks down into three phases: CPU-to-GPU tensor transfer (49 us), GPU forward pass (1,142 us), and GPU-to-CPU result transfer (42 us). The GPU forward pass dominates at 92% of NN time — transfer overhead is negligible. Mate search uses pure minimax (not alpha-beta) since iterative deepening already finds the shortest mate and within each depth the question is binary: "is there a forced mate?" The solver short-circuits immediately — attacker on first success, defender on first refutation — matching KOTH's `solve_koth` pattern. Three further optimizations reduced cost from 1.08 us/node: (1) a `gives_check()` pre-filter that skips `make_move` entirely for non-checking moves on attacker plies, (2) converting from stateful `BoardStack` to stateless `&Board` with `apply_move_to_board`, (3) `is_legal_after_move()` before `apply_move_to_board` to avoid cloning the board for illegal pseudo-legal moves, and (4) removing atomic node budgets and alpha-beta bookkeeping in favor of a plain counter. KOTH-in-3 at 0.19 us/node benefits from direct king-move generation on root-side advancing turns: `k_move_bitboard[king_sq] & target_mask & !friendly_occ` yields exactly the 1-3 valid king destinations without calling `gen_pseudo_legal_moves` at all, skipping the full movegen that would produce ~35 moves only to discard ~30 non-king moves. When the king is already in the target ring, full movegen is used with a post-apply ring check. Q-search is effectively free relative to the other operations, running 220x faster than a single NN call while providing the material delta that grounds every leaf evaluation. Q-search completes naturally 100% of the time with a mean depth of 3.3 (max 20), confirming the depth limit is sufficient.
+NN inference breaks down into three phases: CPU-to-GPU tensor transfer (49 us), GPU forward pass (1,122 us), and GPU-to-CPU result transfer (41 us). The GPU forward pass dominates at 92% of NN time — transfer overhead is negligible. Mate search uses pure minimax (not alpha-beta) since iterative deepening already finds the shortest mate and within each depth the question is binary: "is there a forced mate?" The solver short-circuits immediately — attacker on first success, defender on first refutation — matching KOTH's `solve_koth` pattern. Five optimizations reduced cost from 1.08 us/node to 0.37 us/node (cumulative 66%): (1) a `gives_check()` pre-filter that skips `make_move` entirely for non-checking moves on attacker plies, (2) converting from stateful `BoardStack` to stateless `&Board` with `apply_move_to_board`, (3) `is_legal_after_move()` before `apply_move_to_board` to avoid cloning the board for illegal pseudo-legal moves, (4) removing atomic node budgets and alpha-beta bookkeeping in favor of a plain counter, and (5) batched per-piece checkmate detection at depth-0 leaves — generating moves by piece type in priority order (king first via direct bitboard, then double-check detection, then knight/bishop/rook/queen/pawn) and aborting as soon as any legal evasion is found, avoiding full movegen in the ~70-80% of leaves where a king move suffices. KOTH-in-3 at 0.19 us/node benefits from direct king-move generation on root-side advancing turns: `k_move_bitboard[king_sq] & target_mask & !friendly_occ` yields exactly the 1-3 valid king destinations without calling `gen_pseudo_legal_moves` at all, skipping the full movegen that would produce ~35 moves only to discard ~30 non-king moves. When the king is already in the target ring, full movegen is used with a post-apply ring check. Q-search is effectively free relative to the other operations, running 220x faster than a single NN call while providing the material delta that grounds every leaf evaluation. Q-search completes naturally 100% of the time with a mean depth of 3.3 (max 20), confirming the depth limit is sufficient.
 
 The `profile_engine` binary reproduces these measurements: `./target/release/profile_engine --model <path> --games 10 --simulations 400 --koth`.
 
