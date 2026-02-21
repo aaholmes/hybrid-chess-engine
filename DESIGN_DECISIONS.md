@@ -100,6 +100,23 @@ The optimization skips full move generation entirely on these turns. Instead, it
 
 This reduced KOTH per-node cost from 0.33 to 0.19 us/node (42% improvement, cumulative 63% from the original 0.52 us/node).
 
+### Depth scaling: why mate-in-5 and KOTH-in-3
+
+Both KOTH and mate search depths are configurable (`koth_depth` and `mate_search_depth` in `TacticalMctsConfig`), but profiling shows the defaults (3 and 5 respectively) sit at a sweet spot. Comparing baseline (KOTH-in-3, mate-in-5) against deeper search (KOTH-in-4, mate-in-6) over 10 self-play games at 400 simulations/move:
+
+| Operation | Mean (us) | Mean nodes | Total (ms) | % wall time |
+|-----------|----------:|----------:|-----------:|------------:|
+| KOTH-in-3 | 149 | 780 | 30,729 | 8% |
+| KOTH-in-4 | 8,250 | 56,643 | 1,713,129 | 83% |
+| Mate-in-5 | 132 | 359 | 22,967 | 6% |
+| Mate-in-6 | 292 | 861 | 50,905 | 12% |
+
+**KOTH-in-4 is catastrophic.** 55x slower per call, 73x more nodes. At depth 4, the root ply's geometric target mask expands to `RING_3` — the entire board border — so the direct king-move pruning that makes KOTH-in-3 fast (intersecting king moves with a small target ring of ~4-12 squares) degenerates to full move generation. KOTH-in-4 alone consumes 5x the NN inference budget, dominating total wall time at 83%. The hit rate for center-in-4 wins that aren't already center-in-3 is low, making the cost unjustifiable.
+
+**Mate-in-6 is cheap but marginal.** Only 2.2x slower (checks-only branching factor ~3-5 keeps each additional depth affordable), moving from 6% to 12% of wall time. However, forced mate-in-6 via pure checks is rare in practice — most deep mates require quiet preparatory moves that checks-only search cannot find. The `exhaustive_mate_depth` parameter (which enables all-legal-moves search at shallow depths) is the better lever for catching quiet mates, rather than extending checks-only depth.
+
+**Current defaults:** KOTH-in-3 and mate-in-5 remain the production configuration. The geometric pruning that makes KOTH efficient has a hard wall at depth 4, while mate search depth 5 captures the common checks-only forced mates without excessive cost.
+
 ## 3. Tier 2: Quiescence Search and Tactical Ordering
 
 Tier 2's core contribution is `forced_material_balance()` — a material-only quiescence search (depth 20) that runs at every MCTS leaf evaluation to compute $\Delta M$, the material balance after all forced captures and promotions resolve. This is a classical alpha-beta tree search whose results no neural network can easily replicate: it explores variable-depth exchange sequences to detect hanging pieces, discovered attacks, and forced promotion lines. $\Delta M$ feeds directly into the value function (see Section 4), providing the foundation that the NN builds on top of.
