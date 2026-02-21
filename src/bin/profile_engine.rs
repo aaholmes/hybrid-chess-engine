@@ -55,6 +55,20 @@ fn main() {
         .and_then(|v| v.parse().ok())
         .unwrap_or(64);
 
+    let koth_depth: u8 = args
+        .iter()
+        .position(|a| a == "--koth-depth")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(3);
+
+    let mate_depth: i32 = args
+        .iter()
+        .position(|a| a == "--mate-depth")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(5);
+
     println!("=== MCTS Operation Profiler ===");
     println!("  Games: {}", num_games);
     println!("  Simulations/move: {}", simulations);
@@ -63,6 +77,8 @@ fn main() {
     println!("  Material: {}", !disable_material);
     println!("  Model: {:?}", model_path);
     println!("  Batch size: {}", batch_size);
+    println!("  KOTH depth: {}", koth_depth);
+    println!("  Mate depth: {}", mate_depth);
     println!();
 
     // Set up inference server if model provided
@@ -107,7 +123,7 @@ fn main() {
         let config = TacticalMctsConfig {
             max_iterations: simulations,
             time_limit: Duration::from_secs(300),
-            mate_search_depth: if disable_tier1 { 0 } else { 5 },
+            mate_search_depth: if disable_tier1 { 0 } else { mate_depth },
             exploration_constant: 1.414,
             use_neural_policy: has_nn,
             #[cfg(feature = "neural")]
@@ -116,6 +132,7 @@ fn main() {
             inference_server: None,
             logger: None,
             enable_koth,
+            koth_depth,
             enable_tier1_gate: !disable_tier1,
             enable_material_value: !disable_material,
             enable_tier3_neural: has_nn,
@@ -225,8 +242,10 @@ fn main() {
     );
     println!("{}", "-".repeat(68));
 
-    print_row("KOTH-in-3", &koth_acc);
-    print_row("Mate search", &mate_acc);
+    let koth_label = format!("KOTH-in-{}", koth_depth);
+    let mate_label = format!("Mate-in-{}", mate_depth);
+    print_row(&koth_label, &koth_acc);
+    print_row(&mate_label, &mate_acc);
     print_row("Q-search", &qsearch_acc);
     print_row("NN inference", &nn_acc);
 
@@ -237,8 +256,8 @@ fn main() {
         "Operation", "Count", "Mean nodes", "Std nodes"
     );
     println!("{}", "-".repeat(56));
-    print_stats_row("KOTH-in-3", &koth_nodes_acc);
-    print_stats_row("Mate search", &mate_nodes_acc);
+    print_stats_row(&koth_label, &koth_nodes_acc);
+    print_stats_row(&mate_label, &mate_nodes_acc);
     print_stats_row("Q-search", &qsearch_nodes_acc);
 
     println!();

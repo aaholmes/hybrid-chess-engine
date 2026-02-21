@@ -16,9 +16,9 @@ use crate::move_generation::MoveGen;
 use crate::move_types::Move;
 use crate::search::forced_material_balance;
 use crate::search::forced_material_balance_counted;
-use crate::search::koth_center_in_3_counted;
+use crate::search::koth_center_in_n_counted;
 use crate::search::mate_search;
-use crate::search::{koth_best_move, koth_center_in_3};
+use crate::search::{koth_best_move, koth_center_in_n};
 use crate::transposition::TranspositionTable;
 use rand_distr::{Distribution, Gamma};
 use std::cell::RefCell;
@@ -48,6 +48,8 @@ pub struct TacticalMctsConfig {
     pub enable_tier3_neural: bool,
     /// Enable KOTH (King of the Hill) win detection — off for standard chess
     pub enable_koth: bool,
+    /// Maximum depth for KOTH center-in-N search (default 3)
+    pub koth_depth: u8,
     /// Enable material integration in value: V = tanh(V_logit + k·ΔM)
     /// When false (pure AlphaZero): V = tanh(V_logit), no Q-search material
     pub enable_material_value: bool,
@@ -75,6 +77,7 @@ impl Default for TacticalMctsConfig {
             enable_tier1_gate: true,
             enable_tier3_neural: true,
             enable_koth: false,
+            koth_depth: 3,
             enable_material_value: true,
             dirichlet_alpha: 0.0,
             dirichlet_epsilon: 0.0,
@@ -293,7 +296,7 @@ pub fn tactical_mcts_search_with_tt(
             return (None, stats, root_node);
         }
 
-        if let Some(dist) = koth_center_in_3(&board, move_gen) {
+        if let Some(dist) = koth_center_in_n(&board, move_gen, config.koth_depth) {
             if let Some(best) = koth_best_move(&board, move_gen) {
                 if let Some(log) = logger {
                     log.log_tier1_gate(&GateReason::KothWin { distance: dist }, Some(best));
@@ -558,7 +561,8 @@ fn evaluate_leaf_node(
             return -1.0;
         }
 
-        let (koth_result, koth_nodes) = koth_center_in_3_counted(board, move_gen);
+        let (koth_result, koth_nodes) =
+            koth_center_in_n_counted(board, move_gen, config.koth_depth);
         stats.koth_timing.record(koth_start.elapsed());
         stats.koth_nodes.record(koth_nodes as f64);
         if let Some(dist) = koth_result {

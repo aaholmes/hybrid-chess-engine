@@ -19,16 +19,28 @@ use crate::move_generation::MoveGen;
 use crate::move_types::Move;
 use crate::piece_types::{BLACK, KING, WHITE};
 
-/// Distance rings for KOTH-in-3 geometric pruning
+/// Distance rings for KOTH geometric pruning (Chebyshev distance from center set)
 const RING_1: u64 = 0x00003C24243C0000 & !KOTH_CENTER; // Squares 1 distance from center
 const RING_2: u64 = 0x007E424242427E00 & !(RING_1 | KOTH_CENTER); // Squares 2 distance from center
+const RING_3: u64 = 0xFF818181818181FF; // Squares 3 distance from center (board border)
 
-/// Checks if the side to move can reach the KOTH center within 3 of their own moves,
+/// Returns the cumulative ring mask for a given number of remaining root moves.
+/// The king must be within this mask to have any chance of reaching center.
+fn cumulative_ring_mask(remaining_moves: u8) -> u64 {
+    match remaining_moves {
+        0 => KOTH_CENTER,
+        1 => KOTH_CENTER | RING_1,
+        2 => KOTH_CENTER | RING_1 | RING_2,
+        _ => KOTH_CENTER | RING_1 | RING_2 | RING_3, // whole board for ≥3
+    }
+}
+
+/// Checks if the side to move can reach the KOTH center within `max_n` of their own moves,
 /// assuming the opponent cannot block them or reach the center themselves first.
-/// Returns `Some(n)` where n is the minimum number of side-to-move moves needed (0–3),
-/// or `None` if unreachable within 3 moves.
+/// Returns `Some(n)` where n is the minimum number of side-to-move moves needed (0–max_n),
+/// or `None` if unreachable within max_n moves.
 /// This is a "safety gate" to detect rapid KOTH wins.
-pub fn koth_center_in_3(board: &Board, move_gen: &MoveGen) -> Option<u8> {
+pub fn koth_center_in_n(board: &Board, move_gen: &MoveGen, max_n: u8) -> Option<u8> {
     let side_to_move = if board.w_to_move { WHITE } else { BLACK };
     let king_bit = board.get_piece_bitboard(side_to_move, KING);
 
@@ -42,14 +54,19 @@ pub fn koth_center_in_3(board: &Board, move_gen: &MoveGen) -> Option<u8> {
         return Some(0);
     }
 
-    // Try 1, 2, 3 root-side moves (max_ply = 1, 3, 5)
-    for n in 1..=3u8 {
+    // Try 1..=max_n root-side moves (max_ply = 1, 3, 5, ...)
+    for n in 1..=max_n {
         let max_ply = (n as i32) * 2 - 1;
-        if solve_koth(board, move_gen, 0, max_ply) {
+        if solve_koth(board, move_gen, 0, max_ply, max_n) {
             return Some(n);
         }
     }
     None
+}
+
+/// Wrapper for backward compatibility: checks KOTH center within 3 moves.
+pub fn koth_center_in_3(board: &Board, move_gen: &MoveGen) -> Option<u8> {
+    koth_center_in_n(board, move_gen, 3)
 }
 
 /// Returns the best move for the side to move to force a KOTH win,
@@ -65,19 +82,15 @@ pub fn koth_best_move(board: &Board, move_gen: &MoveGen) -> Option<Move> {
     }
 
     // Try n=1, 2, 3 — return the first winning move at minimum n
+    let max_n = 3u8;
     let side_to_move = if board.w_to_move { WHITE } else { BLACK };
     let king_bit = board.get_piece_bitboard(side_to_move, KING);
     let king_sq = king_bit.trailing_zeros() as usize;
 
-    for n in 1..=3u8 {
+    for n in 1..=max_n {
         let max_ply = (n as i32) * 2 - 1;
 
-        let target_mask = match n {
-            1 => KOTH_CENTER,
-            2 => KOTH_CENTER | RING_1,
-            3 => KOTH_CENTER | RING_1 | RING_2,
-            _ => unreachable!(),
-        };
+        let target_mask = cumulative_ring_mask(n.saturating_sub(1));
         let king_must_advance = (king_bit & target_mask) == 0;
 
         if king_must_advance {
@@ -101,7 +114,7 @@ pub fn koth_best_move(board: &Board, move_gen: &MoveGen) -> Option<Move> {
                 }
 
                 // For n >= 2, check if the opponent can't prevent the win
-                if n >= 2 && solve_koth(&next_board, move_gen, 1, max_ply) {
+                if n >= 2 && solve_koth(&next_board, move_gen, 1, max_ply, max_n) {
                     return Some(m);
                 }
             }
@@ -121,7 +134,7 @@ pub fn koth_best_move(board: &Board, move_gen: &MoveGen) -> Option<Move> {
                 }
 
                 // For n >= 2, check if the opponent can't prevent the win
-                if n >= 2 && solve_koth(&next_board, move_gen, 1, max_ply) {
+                if n >= 2 && solve_koth(&next_board, move_gen, 1, max_ply, max_n) {
                     return Some(*m);
                 }
             }
@@ -130,8 +143,12 @@ pub fn koth_best_move(board: &Board, move_gen: &MoveGen) -> Option<Move> {
     None
 }
 
-/// Like `koth_center_in_3` but also returns the number of nodes visited.
-pub fn koth_center_in_3_counted(board: &Board, move_gen: &MoveGen) -> (Option<u8>, u32) {
+/// Like `koth_center_in_n` but also returns the number of nodes visited.
+pub fn koth_center_in_n_counted(
+    board: &Board,
+    move_gen: &MoveGen,
+    max_n: u8,
+) -> (Option<u8>, u32) {
     let side_to_move = if board.w_to_move { WHITE } else { BLACK };
     let king_bit = board.get_piece_bitboard(side_to_move, KING);
 
@@ -145,9 +162,9 @@ pub fn koth_center_in_3_counted(board: &Board, move_gen: &MoveGen) -> (Option<u8
     }
 
     let mut total_nodes: u32 = 1;
-    for n in 1..=3u8 {
+    for n in 1..=max_n {
         let max_ply = (n as i32) * 2 - 1;
-        let (result, nodes) = solve_koth_counted(board, move_gen, 0, max_ply);
+        let (result, nodes) = solve_koth_counted(board, move_gen, 0, max_ply, max_n);
         total_nodes += nodes;
         if result {
             return (Some(n), total_nodes);
@@ -156,7 +173,18 @@ pub fn koth_center_in_3_counted(board: &Board, move_gen: &MoveGen) -> (Option<u8
     (None, total_nodes)
 }
 
-fn solve_koth_counted(board: &Board, move_gen: &MoveGen, ply: i32, max_ply: i32) -> (bool, u32) {
+/// Wrapper for backward compatibility: counted version with max_n=3.
+pub fn koth_center_in_3_counted(board: &Board, move_gen: &MoveGen) -> (Option<u8>, u32) {
+    koth_center_in_n_counted(board, move_gen, 3)
+}
+
+fn solve_koth_counted(
+    board: &Board,
+    move_gen: &MoveGen,
+    ply: i32,
+    max_ply: i32,
+    max_n: u8,
+) -> (bool, u32) {
     let mut nodes: u32 = 1;
     let (white_won, black_won) = board.is_koth_win();
 
@@ -194,16 +222,12 @@ fn solve_koth_counted(board: &Board, move_gen: &MoveGen, ply: i32, max_ply: i32)
         let root_side = if root_side_is_white { WHITE } else { BLACK };
         let king_bit = board.get_piece_bitboard(root_side, KING);
         let king_sq = king_bit.trailing_zeros() as usize;
-        let target_mask = match ply {
-            0 => KOTH_CENTER | RING_1 | RING_2,
-            2 => KOTH_CENTER | RING_1,
-            4 => KOTH_CENTER,
-            _ => unreachable!(),
-        };
+        // remaining root moves after this one = max_n - ply/2 - 1
+        let remaining_after = max_n as i32 - ply / 2 - 1;
+        let target_mask = cumulative_ring_mask(remaining_after.max(0) as u8);
         let king_must_advance = (king_bit & target_mask) == 0;
 
         if king_must_advance {
-            // Direct king-move generation: skip full movegen
             let friendly_occ = board.get_color_occupancy(root_side);
             let candidates = move_gen.k_move_bitboard[king_sq] & target_mask & !friendly_occ;
             let mut bits = candidates;
@@ -215,7 +239,8 @@ fn solve_koth_counted(board: &Board, move_gen: &MoveGen, ply: i32, max_ply: i32)
                 if !next_board.is_legal(move_gen) {
                     continue;
                 }
-                let (result, child_nodes) = solve_koth_counted(&next_board, move_gen, ply + 1, max_ply);
+                let (result, child_nodes) =
+                    solve_koth_counted(&next_board, move_gen, ply + 1, max_ply, max_n);
                 nodes += child_nodes;
                 if result {
                     return (true, nodes);
@@ -223,7 +248,6 @@ fn solve_koth_counted(board: &Board, move_gen: &MoveGen, ply: i32, max_ply: i32)
             }
             return (false, nodes);
         } else {
-            // King already in ring — full movegen with post-apply ring check
             let (captures, moves) = move_gen.gen_pseudo_legal_moves(board);
             for m in captures.iter().chain(moves.iter()) {
                 let next_board = board.apply_move_to_board(*m);
@@ -232,17 +256,12 @@ fn solve_koth_counted(board: &Board, move_gen: &MoveGen, ply: i32, max_ply: i32)
                 }
 
                 let king_bit = next_board.get_piece_bitboard(root_side, KING);
-                let allowed = match ply {
-                    0 => (king_bit & (KOTH_CENTER | RING_1 | RING_2)) != 0,
-                    2 => (king_bit & (KOTH_CENTER | RING_1)) != 0,
-                    4 => (king_bit & KOTH_CENTER) != 0,
-                    _ => unreachable!(),
-                };
-                if !allowed {
+                if (king_bit & target_mask) == 0 {
                     continue;
                 }
 
-                let (result, child_nodes) = solve_koth_counted(&next_board, move_gen, ply + 1, max_ply);
+                let (result, child_nodes) =
+                    solve_koth_counted(&next_board, move_gen, ply + 1, max_ply, max_n);
                 nodes += child_nodes;
                 if result {
                     return (true, nodes);
@@ -260,7 +279,8 @@ fn solve_koth_counted(board: &Board, move_gen: &MoveGen, ply: i32, max_ply: i32)
                 continue;
             }
             legal_move_found = true;
-            let (result, child_nodes) = solve_koth_counted(&next_board, move_gen, ply + 1, max_ply);
+            let (result, child_nodes) =
+                solve_koth_counted(&next_board, move_gen, ply + 1, max_ply, max_n);
             nodes += child_nodes;
             if !result {
                 return (false, nodes);
@@ -273,7 +293,7 @@ fn solve_koth_counted(board: &Board, move_gen: &MoveGen, ply: i32, max_ply: i32)
     }
 }
 
-fn solve_koth(board: &Board, move_gen: &MoveGen, ply: i32, max_ply: i32) -> bool {
+fn solve_koth(board: &Board, move_gen: &MoveGen, ply: i32, max_ply: i32, max_n: u8) -> bool {
     let (white_won, black_won) = board.is_koth_win();
 
     // Determine who is the Root Side (the side that moved at ply 0)
@@ -312,12 +332,9 @@ fn solve_koth(board: &Board, move_gen: &MoveGen, ply: i32, max_ply: i32) -> bool
         let root_side = if root_side_is_white { WHITE } else { BLACK };
         let king_bit = board.get_piece_bitboard(root_side, KING);
         let king_sq = king_bit.trailing_zeros() as usize;
-        let target_mask = match ply {
-            0 => KOTH_CENTER | RING_1 | RING_2,
-            2 => KOTH_CENTER | RING_1,
-            4 => KOTH_CENTER,
-            _ => unreachable!(),
-        };
+        // remaining root moves after this one = max_n - ply/2 - 1
+        let remaining_after = max_n as i32 - ply / 2 - 1;
+        let target_mask = cumulative_ring_mask(remaining_after.max(0) as u8);
         let king_must_advance = (king_bit & target_mask) == 0;
 
         if king_must_advance {
@@ -334,15 +351,13 @@ fn solve_koth(board: &Board, move_gen: &MoveGen, ply: i32, max_ply: i32) -> bool
                 if !next_board.is_legal(move_gen) {
                     continue;
                 }
-                // No post-apply ring check needed: target_mask already constrains destinations
-                if solve_koth(&next_board, move_gen, ply + 1, max_ply) {
+                if solve_koth(&next_board, move_gen, ply + 1, max_ply, max_n) {
                     return true;
                 }
             }
             return false;
         } else {
-            // King already in ring — need full movegen (king might move out of ring,
-            // or non-king moves might be relevant for the position)
+            // King already in ring — need full movegen
             let (captures, moves) = move_gen.gen_pseudo_legal_moves(board);
             for m in captures.iter().chain(moves.iter()) {
                 let next_board = board.apply_move_to_board(*m);
@@ -352,17 +367,11 @@ fn solve_koth(board: &Board, move_gen: &MoveGen, ply: i32, max_ply: i32) -> bool
 
                 // Post-apply ring check: king must still be close enough
                 let king_bit = next_board.get_piece_bitboard(root_side, KING);
-                let allowed = match ply {
-                    0 => (king_bit & (KOTH_CENTER | RING_1 | RING_2)) != 0,
-                    2 => (king_bit & (KOTH_CENTER | RING_1)) != 0,
-                    4 => (king_bit & KOTH_CENTER) != 0,
-                    _ => unreachable!(),
-                };
-                if !allowed {
+                if (king_bit & target_mask) == 0 {
                     continue;
                 }
 
-                if solve_koth(&next_board, move_gen, ply + 1, max_ply) {
+                if solve_koth(&next_board, move_gen, ply + 1, max_ply, max_n) {
                     return true;
                 }
             }
@@ -378,7 +387,7 @@ fn solve_koth(board: &Board, move_gen: &MoveGen, ply: i32, max_ply: i32) -> bool
                 continue;
             }
             legal_move_found = true;
-            if !solve_koth(&next_board, move_gen, ply + 1, max_ply) {
+            if !solve_koth(&next_board, move_gen, ply + 1, max_ply, max_n) {
                 return false;
             }
         }
