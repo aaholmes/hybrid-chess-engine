@@ -38,7 +38,7 @@ Full-width mate search at all depths is too expensive to run at every MCTS expan
 - **Mate-in-2 (depth 3):** exhaustive — catches quiet-first forced mates like 1.Kg6! Ra8# where the first move doesn't give check
 - **Mate-in-3 (depth 5):** checks-only — keeps branching manageable at deeper levels
 
-The exhaustive mate-in-2 adds ~43K nodes to the search budget (total ~76K, within the 100K node limit). This closes the gap between the KOTH-in-3 gate (which is already exhaustive, considering all opponent defenses) and the mate search (which previously missed quiet-first forced mates). The cost is modest because mate-in-2 has limited branching: the attacker's ~30 legal moves each lead to positions where the defender must have *all* replies lead to mate-in-1 — a condition that prunes aggressively.
+The exhaustive mate-in-2 is modest because mate-in-2 has limited branching: the attacker's ~30 legal moves each lead to positions where the defender must have *all* replies lead to mate-in-1 — a condition that prunes aggressively. No artificial node budget is needed — depth limiting and checks-only filtering keep the search naturally bounded.
 
 ### Fast check detection with gives\_check() pre-filter
 
@@ -56,7 +56,21 @@ Even after the `gives_check()` optimization, mate search cost 1.7x more per node
 
 The fix: convert mate search from `&mut BoardStack` (stateful make/undo) to `&Board` (stateless `apply_move_to_board`), matching KOTH's approach. Each recursive call creates a new `Board` on the stack — no history tracking, no Zobrist updates, no repetition checks.
 
-Combined with `gives_check()`, this reduced mate search from 1.08 to 0.64 us/node (41% total improvement). Mate search is ~3.4x more expensive per node than KOTH-in-3 (0.19 us/node) — the gap comes from alpha-beta pruning, `gives_check()` filtering, and piece-on-square validation overhead that KOTH's simpler geometric reachability avoids.
+Combined with `gives_check()`, this reduced mate search from 1.08 to 0.64 us/node (41% total improvement).
+
+### Pure minimax with legality-first filtering
+
+The remaining gap between mate search (0.64 us/node) and KOTH (0.19 us/node) came from three sources: alpha-beta bookkeeping (score tracking, alpha/beta updates per move), atomic node budgets (`SearchContext` with `AtomicUsize`, `AtomicBool`, `Mutex`), and board clones wasted on illegal pseudo-legal moves.
+
+**Alpha-beta → pure minimax.** Within a single depth of iterative deepening, the mate question is binary: "does a forced mate exist at this depth?" Alpha-beta's score range tracking is unnecessary — the solver only needs short-circuit semantics: attacker returns true on first child success, defender returns false on first child refutation. This matches KOTH's `solve_koth` pattern exactly. Iterative deepening still finds the shortest mate (depth 1 before 3 before 5).
+
+**Atomic node budget removed.** The 100K node budget used `AtomicUsize::fetch_sub` + two `AtomicBool` loads per node (~15-20ns overhead). This was unnecessary — mate search is depth-limited (max depth 5) and heavily pruned by checks-only filtering + geometric pruning. The budget never triggered in practice. Replaced with a plain `&mut i32` counter.
+
+**`is_legal_after_move()` before `apply_move_to_board()`.** Previously: `apply_move_to_board(m)` (clones entire Board, ~400 bytes) → `is_legal(move_gen)` → discard if illegal. Now: `is_legal_after_move(m, move_gen)` (no clone, ~200 cycles) → only `apply_move_to_board` if legal. This saves a full board clone for every illegal pseudo-legal move — ~5 per defender ply.
+
+**Redundant `get_piece()` calls removed.** Two call sites checked `board.get_piece(m.from).is_some()` before processing moves from `gen_pseudo_legal_moves` — but pseudo-legal move generation only produces moves from occupied squares, making these 12-bitboard scans per move pure dead code.
+
+These four changes reduced mate search mean time from 608 us to 224 us (2.7x speedup), primarily by reducing mean nodes per call from 954 to 359. The per-node cost is 0.63 us/node — still ~3.3x more than KOTH (0.19 us/node), with the remaining gap from `gives_check()` filtering and the richer move generation needed for mate detection vs. KOTH's simple geometric reachability. Mate search's share of wall time dropped from 22% to 10%.
 
 ### KOTH geometric pruning
 

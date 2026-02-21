@@ -1,6 +1,6 @@
 //! Mate search algorithm with configurable exhaustive depth.
 //!
-//! Searches for forced mates using iterative deepening with alpha-beta pruning.
+//! Searches for forced mates using iterative deepening with pure minimax.
 //! The `exhaustive_depth` parameter controls which depths use exhaustive search
 //! (all legal moves) vs checks-only search (only checking moves):
 //!
@@ -26,7 +26,6 @@
 //! # Score Convention
 //!
 //! - `1_000_000 + depth`: Forced mate in `depth` plies (winning)
-//! - `-1_000_000 - depth`: Being mated in `depth` plies (losing)
 //! - `0`: No forced mate found, or draw
 //!
 //! # Example
@@ -50,66 +49,6 @@
 use crate::board::Board;
 use crate::move_generation::MoveGen;
 use crate::move_types::Move;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::Mutex;
-
-/// Result of a mate search
-#[derive(Clone, Debug)]
-struct MateResult {
-    score: i32, // 1000000 for mate, -1000000 for mated
-    best_move: Move,
-    depth: i32, // Ply depth where mate was found
-}
-
-/// Shared context for all parallel searches
-struct SearchContext {
-    nodes_remaining: AtomicUsize,
-    stop_signal: AtomicBool,
-    best_result: Mutex<Option<MateResult>>,
-}
-
-impl SearchContext {
-    fn new(node_budget: usize) -> Self {
-        Self {
-            nodes_remaining: AtomicUsize::new(node_budget),
-            stop_signal: AtomicBool::new(false),
-            best_result: Mutex::new(None),
-        }
-    }
-
-    fn should_stop(&self) -> bool {
-        self.stop_signal.load(Ordering::Relaxed)
-            || self.nodes_remaining.load(Ordering::Relaxed) == 0
-    }
-
-    fn decrement_nodes(&self) {
-        if self.nodes_remaining.load(Ordering::Relaxed) > 0 {
-            self.nodes_remaining.fetch_sub(1, Ordering::Relaxed);
-        }
-    }
-
-    fn report_mate(&self, result: MateResult) {
-        let mut best = self.best_result.lock().unwrap();
-
-        let is_improvement = match &*best {
-            None => true,
-            Some(old) => {
-                if result.score >= 1_000_000 && old.score >= 1_000_000 {
-                    result.depth < old.depth
-                } else {
-                    result.score > old.score
-                }
-            }
-        };
-
-        if is_improvement {
-            *best = Some(result);
-            if best.as_ref().unwrap().score >= 1_000_000 {
-                self.stop_signal.store(true, Ordering::Relaxed);
-            }
-        }
-    }
-}
 
 /// Public API: Mate search with configurable exhaustive depth.
 ///
@@ -128,181 +67,112 @@ pub fn mate_search(
     _verbose: bool,
     exhaustive_depth: i32,
 ) -> (i32, Move, i32) {
-    let total_budget = 100_000;
-    let context = SearchContext::new(total_budget);
+    let mut nodes: i32 = 0;
 
-    iterative_deepening_wrapper(&context, board, move_gen, max_depth, exhaustive_depth);
-
-    let final_res = context.best_result.lock().unwrap().clone();
-    let nodes_searched = total_budget - context.nodes_remaining.load(Ordering::Relaxed);
-
-    if let Some(res) = final_res {
-        // Double check legality in the ACTUAL root position
-        if board.is_pseudo_legal(res.best_move, move_gen)
-            && board.is_legal_after_move(res.best_move, move_gen)
-        {
-            return (res.score, res.best_move, nodes_searched as i32);
-        }
-    }
-
-    (0, Move::null(), nodes_searched as i32)
-}
-
-fn iterative_deepening_wrapper(
-    ctx: &SearchContext,
-    board: &Board,
-    move_gen: &MoveGen,
-    max_depth: i32,
-    exhaustive_depth: i32,
-) {
     for d in 1..=max_depth {
-        if ctx.should_stop() {
-            break;
-        }
-
         let depth = 2 * d - 1; // Only check odd depths (mate for us)
         let checks_only = depth > exhaustive_depth;
 
-        let (score, best_move) = mate_search_recursive(
-            ctx,
-            board,
-            move_gen,
-            depth,
-            -1_000_001,
-            1_000_001,
-            true,
-            checks_only,
-        );
+        let (captures, moves) = move_gen.gen_pseudo_legal_moves(board);
 
-        // If we found a forced mate at the root, report it
-        if score >= 1_000_000 && best_move != Move::null() {
-            if board.is_legal_after_move(best_move, move_gen) {
-                ctx.report_mate(MateResult {
-                    score,
-                    best_move,
-                    depth: d * 2 - 1,
-                });
-                break;
+        for m in captures.iter().chain(moves.iter()) {
+            // On attacker turn with checks_only: filter before legality/clone
+            if checks_only && !board.gives_check(*m, move_gen) {
+                continue;
+            }
+
+            if !board.is_legal_after_move(*m, move_gen) {
+                continue;
+            }
+
+            let next_board = board.apply_move_to_board(*m);
+
+            if solve_mate(&next_board, move_gen, depth - 1, false, checks_only, &mut nodes) {
+                return (1_000_000 + depth, *m, nodes);
             }
         }
     }
+
+    (0, Move::null(), nodes)
 }
 
-/// Recursive mate search with alpha-beta pruning.
+/// Recursive pure minimax mate solver.
 ///
-/// When `checks_only` is true, only checking moves are considered on the
-/// attacker's plies. When false, all legal moves are tried (exhaustive).
-/// On the defender's plies, all legal moves are always searched.
-///
-/// Stateless design: uses immutable `&Board` and `apply_move_to_board` (like
-/// KOTH search), avoiding BoardStack make/undo overhead and repetition checks.
-fn mate_search_recursive(
-    ctx: &SearchContext,
+/// Returns true if the position is a forced mate for the attacker.
+/// - Attacker: returns true if ANY child leads to mate (short-circuits on first success)
+/// - Defender: returns true only if ALL children lead to mate (short-circuits on first refutation)
+fn solve_mate(
     board: &Board,
     move_gen: &MoveGen,
     depth: i32,
-    mut alpha: i32,
-    beta: i32,
     is_attackers_turn: bool,
     checks_only: bool,
-) -> (i32, Move) {
-    ctx.decrement_nodes();
-    if ctx.should_stop() {
-        return (0, Move::null());
-    }
+    nodes: &mut i32,
+) -> bool {
+    *nodes += 1;
 
-    // Depth 0: no mate found on this path, but still detect terminal positions.
-    // Only checkmate matters here (stalemate = 0, same as default return).
+    // Depth 0: check for checkmate
     if depth <= 0 {
-        if board.is_check(move_gen) {
-            // Might be checkmate — verify no legal escape exists
-            let (captures, moves) = move_gen.gen_pseudo_legal_moves(board);
-            let has_legal = captures.iter().chain(moves.iter()).any(|m| {
-                board.get_piece(m.from).is_some() && board.is_legal_after_move(*m, move_gen)
-            });
-            if !has_legal {
-                return (-1_000_000 - depth, Move::null()); // Checkmate
-            }
+        if !board.is_check(move_gen) {
+            return false; // Not in check = not checkmate
         }
-        return (0, Move::null());
+        // In check — verify no legal escape exists
+        let (captures, moves) = move_gen.gen_pseudo_legal_moves(board);
+        let has_legal = captures
+            .iter()
+            .chain(moves.iter())
+            .any(|m| board.is_legal_after_move(*m, move_gen));
+        return !has_legal; // Checkmate if no legal moves
     }
 
     let (captures, moves) = move_gen.gen_pseudo_legal_moves(board);
-    let mut best_move = Move::null();
-    let mut best_score = -1_000_001;
     let mut has_legal_move = false;
 
     for m in captures.iter().chain(moves.iter()) {
-        if board.get_piece(m.from).is_none() {
+        // On attacker turns with checks_only: filter before legality/clone
+        if is_attackers_turn && checks_only && !board.gives_check(*m, move_gen) {
             continue;
         }
 
-        // On attacker turns with checks_only: filter BEFORE apply_move_to_board
-        // gives_check() uses magic lookups on the pre-move board — much cheaper
-        // than apply + is_check for the ~30 non-checking moves
-        if is_attackers_turn && checks_only {
-            if !board.gives_check(*m, move_gen) {
-                continue;
-            }
-        }
-
-        let next_board = board.apply_move_to_board(*m);
-
-        if !next_board.is_legal(move_gen) {
+        if !board.is_legal_after_move(*m, move_gen) {
             continue;
         }
 
         has_legal_move = true;
+        let next_board = board.apply_move_to_board(*m);
 
-        // Recurse
-        let (mut score, _) = mate_search_recursive(
-            ctx,
+        let child_result = solve_mate(
             &next_board,
             move_gen,
             depth - 1,
-            -beta,
-            -alpha,
             !is_attackers_turn,
             checks_only,
+            nodes,
         );
-        score = -score;
 
-        if ctx.should_stop() {
-            return (0, Move::null());
-        }
-
-        if score > best_score {
-            best_score = score;
-            best_move = *m;
-        }
-        if score > alpha {
-            alpha = score;
-        }
-        if alpha >= beta {
-            break;
+        if is_attackers_turn {
+            if child_result {
+                return true; // Found a mating line
+            }
+        } else {
+            // Defender
+            if !child_result {
+                return false; // Found a refutation
+            }
         }
     }
 
-    // No legal moves found in this loop
+    // No legal moves found
     if !has_legal_move {
         if is_attackers_turn && checks_only {
-            // No checking moves available — not necessarily terminal.
-            // Non-checking legal moves may exist but were skipped by the filter.
-            return (0, Move::null());
+            // No checking moves available — non-checking moves may exist
+            return false;
         }
-        // Defender turn or exhaustive: truly no legal moves
-        let in_check = board.is_check(move_gen);
-        if in_check {
-            return (-1_000_000 - depth, Move::null()); // Checkmate
-        } else {
-            return (0, Move::null()); // Stalemate
-        }
+        // Truly no legal moves: checkmate or stalemate
+        return board.is_check(move_gen); // true = checkmate, false = stalemate
     }
 
-    // Legal moves exist but none improved alpha (or no improvement found)
-    if best_score == -1_000_001 {
-        return (0, Move::null());
-    }
-
-    (best_score, best_move)
+    // Attacker: no child succeeded → no mate
+    // Defender: all children led to mate → mate is forced
+    !is_attackers_turn
 }

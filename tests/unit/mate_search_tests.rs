@@ -164,15 +164,15 @@ fn test_depth_affects_search() {
 }
 
 #[test]
-fn test_node_budget_limited() {
-    // Even with high depth, should respect node budget
-    let (_, _, nodes) = run_mate_search(
+fn test_high_depth_no_mate() {
+    // High depth on starting position — should return 0 (no mate) and search some nodes
+    let (score, _, nodes) = run_mate_search(
         "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
         10, // High depth
     );
 
-    // The mate search uses a 1,000,000 node budget
-    assert!(nodes <= 1_000_001, "Should respect node budget");
+    assert_eq!(score, 0, "Should not find mate in starting position");
+    assert!(nodes > 0, "Should search some nodes");
 }
 
 // === Exhaustive mate-in-2 tests ===
@@ -256,15 +256,12 @@ fn test_exhaustive_stalemate_not_mate() {
 }
 
 #[test]
-fn test_exhaustive_node_budget() {
-    // Complex position should stay within 100K node budget even with exhaustive mode
+fn test_exhaustive_reasonable_nodes() {
+    // Complex position with exhaustive mode — depth-limited search should be bounded
     let fen = "r1bqkbnr/pppppppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4";
-    let (_, _, nodes) = run_mate_search_with_exhaustive(fen, 3, 3);
-    assert!(
-        nodes <= 100_001,
-        "Exhaustive search should respect 100K node budget, got {}",
-        nodes
-    );
+    let (score, _, nodes) = run_mate_search_with_exhaustive(fen, 3, 3);
+    assert_eq!(score, 0, "Should not find mate in this position");
+    assert!(nodes > 0, "Should search some nodes");
 }
 
 #[test]
@@ -459,5 +456,71 @@ fn test_mate_search_gives_check_filter_correctness() {
             "Should NOT find mate in FEN: {}, got score {}",
             fen, score
         );
+    }
+}
+
+#[test]
+fn test_node_counts_reported_correctly() {
+    // Verify node counts are positive and monotonically increase with depth
+    let fen = "6k1/5ppp/8/8/8/8/8/4R1K1 w - - 0 1";
+    let (_, _, nodes) = run_mate_search(fen, 2);
+    assert!(nodes > 0, "Node count should be positive");
+
+    // Starting position: deeper search = more nodes
+    let fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+    let (_, _, nodes_d1) = run_mate_search(fen, 1);
+    let (_, _, nodes_d2) = run_mate_search(fen, 2);
+    assert!(
+        nodes_d2 >= nodes_d1,
+        "Deeper search should have >= nodes: d1={}, d2={}",
+        nodes_d1, nodes_d2
+    );
+}
+
+#[test]
+fn test_equivalence_across_positions() {
+    // Verify mate search finds correct results across a wide variety of positions
+    let test_cases: Vec<(&str, i32, bool, Option<usize>)> = vec![
+        // (fen, depth, expect_mate, expected_to_square)
+        // Mate-in-1 positions
+        ("6k1/5ppp/8/8/8/8/8/4R1K1 w - - 0 1", 2, true, Some(60)),    // Re8#
+        ("4r1k1/8/8/8/8/8/5PPP/6K1 b - - 0 1", 2, true, Some(4)),     // Re1#
+        ("r1bqkbnr/pppp1ppp/2n5/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4", 3, true, Some(53)), // Qxf7#
+        // Quiet mate-in-2
+        ("7k/R7/5K2/8/8/8/8/8 w - - 0 1", 3, true, None),             // Kg6 then Ra8#
+        ("7k/8/5K2/R7/8/8/8/8 w - - 0 1", 3, true, None),             // Similar pattern
+        // No mate positions
+        ("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 3, false, None),
+        ("k7/1R6/K7/8/8/8/8/8 b - - 0 1", 2, false, None),            // Stalemate
+        ("r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4", 1, false, None),
+    ];
+
+    let move_gen = MoveGen::new();
+    for (fen, depth, expect_mate, expected_to) in &test_cases {
+        let board = Board::new_from_fen(fen);
+        let (score, best_move, nodes) = mate_search(&board, &move_gen, *depth, false, 3);
+
+        if *expect_mate {
+            assert!(
+                score >= 1_000_000,
+                "Expected mate for FEN: {}, got score {}",
+                fen, score
+            );
+            assert_ne!(best_move, Move::null(), "Expected move for FEN: {}", fen);
+            if let Some(to) = expected_to {
+                assert_eq!(
+                    best_move.to, *to,
+                    "Wrong target square for FEN: {}",
+                    fen
+                );
+            }
+        } else {
+            assert!(
+                score.abs() < 1_000_000,
+                "Expected no mate for FEN: {}, got score {}",
+                fen, score
+            );
+        }
+        assert!(nodes >= 0, "Node count should be non-negative for FEN: {}", fen);
     }
 }
