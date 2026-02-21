@@ -59,7 +59,7 @@ fn run_mate_test_case(
     let board = Board::new_from_fen(fen);
 
     let start = Instant::now();
-    let (score, best_move, _nodes) = mate_search(&board, move_gen, 5, false, 3);
+    let (score, best_move, _nodes) = mate_search(&board, move_gen, 5, false, 2);
     let duration = start.elapsed();
 
     println!(

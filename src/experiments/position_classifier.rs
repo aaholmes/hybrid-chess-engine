@@ -66,7 +66,7 @@ impl<'a> PositionClassifier<'a> {
     pub fn has_likely_forced_mate(&self, board: &Board, depth: i32) -> bool {
         use crate::search::mate_search;
 
-        let (score, _, _) = mate_search(board, self.move_gen, depth, false, 3);
+        let (score, _, _) = mate_search(board, self.move_gen, depth, false, 2);
 
         score.abs() >= 1_000_000
     }

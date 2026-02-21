@@ -32,8 +32,8 @@ pub struct TacticalMctsConfig {
     pub max_iterations: u32,
     pub time_limit: Duration,
     pub mate_search_depth: i32,
-    /// Max ply depth for exhaustive (all-moves) mate search. Depths above this use checks-only.
-    /// Default 3 = exhaustive mate-in-1 and mate-in-2, checks-only mate-in-3.
+    /// Max mate-in-N for exhaustive (all-moves) mate search. Depths above this use checks-only.
+    /// Default 0 = all checks-only. Set to 2 for exhaustive mate-in-1/2, checks-only mate-in-3+.
     pub exhaustive_mate_depth: i32,
     pub exploration_constant: f64,
     pub use_neural_policy: bool,

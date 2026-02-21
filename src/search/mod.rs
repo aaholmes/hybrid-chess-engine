@@ -29,7 +29,7 @@
 //! let move_gen = MoveGen::new();
 //!
 //! // Check for forced mate up to depth 4
-//! let (score, best_move, nodes) = mate_search(&board, &move_gen, 4, false, 3);
+//! let (score, best_move, nodes) = mate_search(&board, &move_gen, 4, false, 2);
 //! if score >= 1_000_000 {
 //!     println!("Mate found: {:?}", best_move);
 //! }

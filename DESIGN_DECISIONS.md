@@ -113,9 +113,18 @@ Both KOTH and mate search depths are configurable (`koth_depth` and `mate_search
 
 **KOTH-in-4 is catastrophic.** 55x slower per call, 73x more nodes. At depth 4, the root ply's geometric target mask expands to `RING_3` — the entire board border — so the direct king-move pruning that makes KOTH-in-3 fast (intersecting king moves with a small target ring of ~4-12 squares) degenerates to full move generation. KOTH-in-4 alone consumes 5x the NN inference budget, dominating total wall time at 83%. The hit rate for center-in-4 wins that aren't already center-in-3 is low, making the cost unjustifiable.
 
-**Mate-in-6 is cheap but marginal.** Only 2.2x slower (checks-only branching factor ~3-5 keeps each additional depth affordable), moving from 6% to 12% of wall time. However, forced mate-in-6 via pure checks is rare in practice — most deep mates require quiet preparatory moves that checks-only search cannot find. The `exhaustive_mate_depth` parameter (which enables all-legal-moves search at shallow depths) is the better lever for catching quiet mates, rather than extending checks-only depth.
+**Mate-in-6 is cheap but marginal.** Only 2.2x slower (checks-only branching factor ~3-5 keeps each additional depth affordable), moving from 6% to 12% of wall time. However, forced mate-in-6 via pure checks is rare in practice — most deep mates require quiet preparatory moves that checks-only search cannot find.
 
-**Current defaults:** KOTH-in-3 and mate-in-5 remain the production configuration. The geometric pruning that makes KOTH efficient has a hard wall at depth 4, while mate search depth 5 captures the common checks-only forced mates without excessive cost.
+**Exhaustive mate-in-2: not worth it.** The `exhaustive_mate_depth` parameter enables all-legal-moves search at shallow depths, catching quiet mates (rook lifts, king approaches, clearance moves) that checks-only misses. Profiling exhaustive mate-in-2 (all legal moves for mate-in-1/2, checks-only for mate-in-3+):
+
+| Mate search mode | Mean (us) | Mean nodes | Total (ms) | % wall time |
+|------------------|----------:|----------:|-----------:|------------:|
+| Checks-only (depth 5) | 133 | 359 | 23,169 | 6% |
+| Exhaustive mate-in-2 (depth 5) | 193 | 1,342 | 33,650 | 9% |
+
+Nodes jump 3.7x (from ~3-5 checks to ~35 legal moves at shallow plies), but time only increases 1.46x because the extra nodes are cheap shallow ones. However, the cost is not justified: a quiet mate-in-2 will be found by MCTS within a few simulations anyway — the engine only needs ~2-3 visits to discover the winning line through normal expansion. The safety gate's value comes from catching forced wins that MCTS would take many simulations to prove (deep checks-only mates), not short mates that MCTS handles naturally.
+
+**Current defaults:** Checks-only mate-in-5 and KOTH-in-3, with no exhaustive mate search (`exhaustive_mate_depth: 0`). The geometric pruning that makes KOTH efficient has a hard wall at depth 4, while mate search depth 5 captures the common checks-only forced mates without excessive cost. Exhaustive mate search is available via `--exhaustive-mate-depth` for profiling but disabled in production.
 
 ## 3. Tier 2: Quiescence Search and Tactical Ordering
 

@@ -4,13 +4,13 @@
 //! The `exhaustive_depth` parameter controls which depths use exhaustive search
 //! (all legal moves) vs checks-only search (only checking moves):
 //!
-//! - depth ≤ exhaustive_depth: **exhaustive** — all legal attacker moves tried
-//! - depth > exhaustive_depth: **checks-only** — only checking moves on attacker plies
+//! - mate-in-N where N ≤ exhaustive_depth: **exhaustive** — all legal attacker moves tried
+//! - mate-in-N where N > exhaustive_depth: **checks-only** — only checking moves on attacker plies
 //!
-//! With the default exhaustive_depth=3, this gives:
-//! - Mate-in-1 (depth 1): exhaustive
-//! - Mate-in-2 (depth 3): exhaustive — catches quiet-first mates like 1.Qg7! Kh8 2.Qh7#
-//! - Mate-in-3 (depth 5): checks-only — keeps branching manageable
+//! With the default exhaustive_depth=2, this gives:
+//! - Mate-in-1: exhaustive
+//! - Mate-in-2: exhaustive — catches quiet-first mates like 1.Qg7! Kh8 2.Qh7#
+//! - Mate-in-3+: checks-only — keeps branching manageable
 //!
 //! On the defender's plies all legal moves are always tried.
 //!
@@ -39,7 +39,7 @@
 //! let move_gen = MoveGen::new();
 //!
 //! // Search for mate up to depth 6 (3 moves each side)
-//! let (score, best_move, nodes) = mate_search(&board, &move_gen, 6, false, 3);
+//! let (score, best_move, nodes) = mate_search(&board, &move_gen, 6, false, 2);
 //!
 //! if score >= 1_000_000 {
 //!     println!("Forced mate found! Play: {:?}", best_move);
@@ -53,10 +53,10 @@ use crate::piece_types::{BISHOP, KING, KNIGHT, PAWN, QUEEN, ROOK, WHITE};
 
 /// Public API: Mate search with configurable exhaustive depth.
 ///
-/// Searches for forced mates using iterative deepening. Depths ≤ `exhaustive_depth`
-/// use exhaustive search (all legal attacker moves), while deeper levels use
-/// checks-only search. Default exhaustive_depth=3 makes mate-in-1 and mate-in-2
-/// exhaustive, and mate-in-3 checks-only.
+/// Searches for forced mates using iterative deepening. Mate-in-N where
+/// N ≤ `exhaustive_depth` uses exhaustive search (all legal attacker moves),
+/// while deeper levels use checks-only search. Default exhaustive_depth=2
+/// makes mate-in-1 and mate-in-2 exhaustive, and mate-in-3+ checks-only.
 ///
 /// Stateless: operates on immutable `&Board` references (like KOTH search),
 /// avoiding BoardStack overhead. Repetition detection is unnecessary — forced
@@ -70,9 +70,12 @@ pub fn mate_search(
 ) -> (i32, Move, i32) {
     let mut nodes: i32 = 0;
 
+    // Convert exhaustive_depth from mate-in-N to plies for internal comparison
+    let exhaustive_plies = exhaustive_depth * 2 - 1;
+
     for d in 1..=max_depth {
         let depth = 2 * d - 1; // Only check odd depths (mate for us)
-        let checks_only = depth > exhaustive_depth;
+        let checks_only = depth > exhaustive_plies;
 
         let (captures, moves) = move_gen.gen_pseudo_legal_moves(board);
 

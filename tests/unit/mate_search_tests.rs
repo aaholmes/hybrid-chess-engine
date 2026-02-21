@@ -7,9 +7,9 @@ use kingfisher::search::mate_search;
 
 use crate::common::positions;
 
-/// Helper to run mate search with default exhaustive_depth=3
+/// Helper to run mate search with default exhaustive_depth=2 (exhaustive mate-in-1/2)
 fn run_mate_search(fen: &str, depth: i32) -> (i32, Move, i32) {
-    run_mate_search_with_exhaustive(fen, depth, 3)
+    run_mate_search_with_exhaustive(fen, depth, 2)
 }
 
 /// Helper to run mate search with explicit exhaustive_depth
@@ -119,7 +119,7 @@ fn test_mate_search_returns_legal_move() {
     for fen in &positions {
         let board = Board::new_from_fen(fen);
 
-        let (_, best_move, _) = mate_search(&board, &move_gen, 3, false, 3);
+        let (_, best_move, _) = mate_search(&board, &move_gen, 3, false, 2);
 
         if best_move != Move::null() {
             // Verify the returned move is legal
@@ -197,10 +197,10 @@ fn test_quiet_king_move_mate_in_2() {
 
 #[test]
 fn test_exhaustive_finds_quiet_mate_checks_only_misses() {
-    // Same position: exhaustive_depth=3 finds it, exhaustive_depth=0 (checks-only) misses it
+    // Same position: exhaustive_depth=2 finds it, exhaustive_depth=0 (checks-only) misses it
     let fen = "7k/R7/5K2/8/8/8/8/8 w - - 0 1";
 
-    let (score_exh, _, _) = run_mate_search_with_exhaustive(fen, 3, 3);
+    let (score_exh, _, _) = run_mate_search_with_exhaustive(fen, 3, 2);
     assert!(score_exh >= 1_000_000, "Exhaustive should find mate");
 
     let (score_co, _, _) = run_mate_search_with_exhaustive(fen, 3, 0);
@@ -215,7 +215,7 @@ fn test_exhaustive_no_regression_back_rank() {
     // Re8# is a checking mate-in-1, found by both modes
     let fen = "6k1/5ppp/8/8/8/8/8/4R1K1 w - - 0 1";
 
-    let (score_exh, mv_exh, _) = run_mate_search_with_exhaustive(fen, 2, 3);
+    let (score_exh, mv_exh, _) = run_mate_search_with_exhaustive(fen, 2, 2);
     let (score_co, mv_co, _) = run_mate_search_with_exhaustive(fen, 2, 0);
 
     assert!(
@@ -235,7 +235,7 @@ fn test_exhaustive_no_regression_scholars_mate() {
     // Qxf7# is check, found by both modes
     let fen = "r1bqkbnr/pppp1ppp/2n5/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4";
 
-    let (score_exh, mv_exh, _) = run_mate_search_with_exhaustive(fen, 3, 3);
+    let (score_exh, mv_exh, _) = run_mate_search_with_exhaustive(fen, 3, 2);
     let (score_co, mv_co, _) = run_mate_search_with_exhaustive(fen, 3, 0);
 
     assert!(score_exh >= 1_000_000, "Exhaustive should find Qxf7#");
@@ -248,7 +248,7 @@ fn test_exhaustive_no_regression_scholars_mate() {
 fn test_exhaustive_stalemate_not_mate() {
     // Stalemate should still return 0 with exhaustive mode
     let fen = "k7/1R6/K7/8/8/8/8/8 b - - 0 1";
-    let (score, _, _) = run_mate_search_with_exhaustive(fen, 3, 3);
+    let (score, _, _) = run_mate_search_with_exhaustive(fen, 3, 2);
     assert!(
         score.abs() < 1_000_000,
         "Stalemate should not be reported as mate with exhaustive mode"
@@ -259,22 +259,22 @@ fn test_exhaustive_stalemate_not_mate() {
 fn test_exhaustive_reasonable_nodes() {
     // Complex position with exhaustive mode — depth-limited search should be bounded
     let fen = "r1bqkbnr/pppppppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4";
-    let (score, _, nodes) = run_mate_search_with_exhaustive(fen, 3, 3);
+    let (score, _, nodes) = run_mate_search_with_exhaustive(fen, 3, 2);
     assert_eq!(score, 0, "Should not find mate in this position");
     assert!(nodes > 0, "Should search some nodes");
 }
 
 #[test]
 fn test_checks_only_mate_in_3_still_works() {
-    // A checks-only mate-in-3 should still be found at depth 5 with exhaustive_depth=3
+    // A checks-only mate-in-3 should still be found at depth 5 with exhaustive_depth=2
     // Scholar's mate is mate-in-1 (checking), let's use a checks-only mate-in-2:
     // Re1 back rank: "4r1k1/8/8/8/8/8/5PPP/6K1 b - - 0 1" (mate in 1 with check)
     // This verifies checks-only mode at depth 5 still works.
     let fen = "4r1k1/8/8/8/8/8/5PPP/6K1 b - - 0 1";
-    let (score, best_move, _) = run_mate_search_with_exhaustive(fen, 3, 3);
+    let (score, best_move, _) = run_mate_search_with_exhaustive(fen, 3, 2);
     assert!(
         score >= 1_000_000,
-        "Should find Re1# even with exhaustive_depth=3"
+        "Should find Re1# even with exhaustive_depth=2"
     );
     assert_eq!(best_move.to, 4, "Should find Re1#");
 }
@@ -327,7 +327,7 @@ fn test_quiet_rook_lift_mate_in_2() {
     // "7k/8/5K2/R7/8/8/8/8 w - - 0 1" — Ra5, Kf6 vs Kh8. 1.Kg6 (quiet) Ra8#.
     // Actually this is the same pattern. Let's just verify it works too.
     let fen = "7k/8/5K2/R7/8/8/8/8 w - - 0 1";
-    let (score_exh, best_move, _) = run_mate_search_with_exhaustive(fen, 3, 3);
+    let (score_exh, best_move, _) = run_mate_search_with_exhaustive(fen, 3, 2);
     let (score_co, _, _) = run_mate_search_with_exhaustive(fen, 3, 0);
 
     assert!(
@@ -357,7 +357,7 @@ fn test_mate_in_3_checks_only() {
     // Actually use a known checks-only mate-in-3 pattern
     // Anastasia's mate pattern: Qh7+ Kf8 Qh8+ Ng8 Qxg8#
     // Simpler: ladder mate with rook + queen
-    // Let's just verify depth=3 with exhaustive_depth=3 finds mate
+    // Let's just verify depth=3 with exhaustive_depth=2 finds mate
     // where the mate requires 3 moves
     let fen = "7k/R7/5K2/8/8/8/8/8 w - - 0 1";
     // This is mate-in-2 (quiet Kg6, then Ra8#), already tested
@@ -498,7 +498,7 @@ fn test_equivalence_across_positions() {
     let move_gen = MoveGen::new();
     for (fen, depth, expect_mate, expected_to) in &test_cases {
         let board = Board::new_from_fen(fen);
-        let (score, best_move, nodes) = mate_search(&board, &move_gen, *depth, false, 3);
+        let (score, best_move, nodes) = mate_search(&board, &move_gen, *depth, false, 2);
 
         if *expect_mate {
             assert!(

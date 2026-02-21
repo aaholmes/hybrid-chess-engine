@@ -39,7 +39,7 @@ fn main() {
         let board = Board::new_from_fen(fen);
 
         let start = Instant::now();
-        let (score, mv, nodes) = mate_search(&board, &move_gen, 3, false, 3);
+        let (score, mv, nodes) = mate_search(&board, &move_gen, 3, false, 2);
         let duration = start.elapsed();
 
         println!(

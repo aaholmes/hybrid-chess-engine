@@ -69,6 +69,13 @@ fn main() {
         .and_then(|v| v.parse().ok())
         .unwrap_or(5);
 
+    let exhaustive_mate_depth: i32 = args
+        .iter()
+        .position(|a| a == "--exhaustive-mate-depth")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+
     println!("=== MCTS Operation Profiler ===");
     println!("  Games: {}", num_games);
     println!("  Simulations/move: {}", simulations);
@@ -79,6 +86,7 @@ fn main() {
     println!("  Batch size: {}", batch_size);
     println!("  KOTH depth: {}", koth_depth);
     println!("  Mate depth: {}", mate_depth);
+    println!("  Exhaustive mate depth: {}", exhaustive_mate_depth);
     println!();
 
     // Set up inference server if model provided
@@ -124,6 +132,7 @@ fn main() {
             max_iterations: simulations,
             time_limit: Duration::from_secs(300),
             mate_search_depth: if disable_tier1 { 0 } else { mate_depth },
+            exhaustive_mate_depth,
             exploration_constant: 1.414,
             use_neural_policy: has_nn,
             #[cfg(feature = "neural")]
